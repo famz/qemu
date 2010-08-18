@@ -60,9 +60,10 @@ void blkqueue_destroy(BlockQueue *bq)
 int blkqueue_pwrite(BlockQueue *bq, uint64_t offset, void *buf, uint64_t size)
 {
     BlockQueueRequest *req = qemu_malloc(sizeof(*req));
-    req->offset = 0;
-    req->size = 512;
-    req->buf = buf;
+    req->offset = offset;
+    req->size = size;
+    req->buf = qemu_malloc(size);
+    memcpy(req->buf, buf, size);
 
     QSIMPLEQ_INSERT_TAIL(&bq->queue, req, link);
 
@@ -79,6 +80,12 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
     return req;
 }
 
+static void blkqueue_free_request(BlockQueueRequest *req)
+{
+    qemu_free(req->buf);
+    qemu_free(req);
+}
+
 #ifdef RUN_TESTS
 #include <assert.h>
 
@@ -93,12 +100,26 @@ int main(void)
     ret = blkqueue_pwrite(bq, 0, buf, 512);
     assert(ret == 0);
 
+    memset(buf, 0x34, 512);
+    ret = blkqueue_pwrite(bq, 512, buf, 42);
+    assert(ret == 0);
+
+    memset(buf, 0, 512);
     memset(buf2, 0x12, 512);
     req = blkqueue_pop(bq);
     assert(req != NULL);
     assert(req->offset == 0);
     assert(req->size == 512);
     assert(!memcmp(req->buf, buf2, 512));
+    blkqueue_free_request(req);
+
+    memset(buf2, 0x34, 512);
+    req = blkqueue_pop(bq);
+    assert(req != NULL);
+    assert(req->offset == 512);
+    assert(req->size == 42);
+    assert(!memcmp(req->buf, buf2, 42));
+    blkqueue_free_request(req);
 
     blkqueue_destroy(bq);
 
