@@ -37,11 +37,20 @@ void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq);
 void blkqueue_destroy(BlockQueue *bq);
 int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     uint64_t size);
+int blkqueue_barrier(BlockQueueContext *context);
+
+enum blkqueue_req_type {
+    REQ_TYPE_WRITE,
+    REQ_TYPE_BARRIER,
+};
 
 typedef struct BlockQueueRequest {
+    enum blkqueue_req_type type;
+
     uint64_t    offset;
     void*       buf;
     uint64_t    size;
+    unsigned    section;
 
     QSIMPLEQ_ENTRY(BlockQueueRequest) link;
 } BlockQueueRequest;
@@ -75,12 +84,27 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
 {
     BlockQueue *bq = context->bq;
     BlockQueueRequest *req = qemu_malloc(sizeof(*req));
-    req->offset = offset;
-    req->size = size;
-    req->buf = qemu_malloc(size);
+    req->type       = REQ_TYPE_WRITE;
+    req->offset     = offset;
+    req->size       = size;
+    req->buf        = qemu_malloc(size);
+    req->section    = context->section;
     memcpy(req->buf, buf, size);
 
     QSIMPLEQ_INSERT_TAIL(&bq->queue, req, link);
+
+    return 0;
+}
+
+int blkqueue_barrier(BlockQueueContext *context)
+{
+    BlockQueue *bq = context->bq;
+    BlockQueueRequest *req = qemu_malloc(sizeof(*req));
+    req->type       = REQ_TYPE_BARRIER;
+    req->section    = context->section;
+    QSIMPLEQ_INSERT_TAIL(&bq->queue, req, link);
+
+    context->section++;
 
     return 0;
 }
@@ -123,20 +147,47 @@ static void test_basic(void)
     ret = blkqueue_pwrite(&context, 512, buf, 42);
     assert(ret == 0);
 
+    ret = blkqueue_barrier(&context);
+    assert(ret == 0);
+
+    memset(buf, 0x56, 512);
+    ret = blkqueue_pwrite(&context, 678, buf, 42);
+    assert(ret == 0);
+
     memset(buf, 0, 512);
     memset(buf2, 0x12, 512);
     req = blkqueue_pop(bq);
     assert(req != NULL);
+    assert(req->type == REQ_TYPE_WRITE);
     assert(req->offset == 0);
     assert(req->size == 512);
+    assert(req->section == 0);
     assert(!memcmp(req->buf, buf2, 512));
     blkqueue_free_request(req);
 
     memset(buf2, 0x34, 512);
     req = blkqueue_pop(bq);
     assert(req != NULL);
+    assert(req->type == REQ_TYPE_WRITE);
     assert(req->offset == 512);
     assert(req->size == 42);
+    assert(req->section == 0);
+    assert(!memcmp(req->buf, buf2, 42));
+    blkqueue_free_request(req);
+
+    req = blkqueue_pop(bq);
+    assert(req != NULL);
+    assert(req->type == REQ_TYPE_BARRIER);
+    assert(req->section == 0);
+    blkqueue_free_request(req);
+
+    memset(buf2, 0x56, 512);
+    req = blkqueue_pop(bq);
+    assert(req != NULL);
+    assert(req->type == REQ_TYPE_WRITE);
+    assert(req->offset == 678);
+    assert(req->size == 42);
+    assert(req->section == 1);
     assert(!memcmp(req->buf, buf2, 42));
     blkqueue_free_request(req);
 
