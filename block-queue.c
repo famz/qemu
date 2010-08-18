@@ -53,10 +53,12 @@ typedef struct BlockQueueRequest {
     unsigned    section;
 
     QSIMPLEQ_ENTRY(BlockQueueRequest) link;
+    QSIMPLEQ_ENTRY(BlockQueueRequest) link_section;
 } BlockQueueRequest;
 
 struct BlockQueue {
     QSIMPLEQ_HEAD(, BlockQueueRequest) queue;
+    QSIMPLEQ_HEAD(, BlockQueueRequest) sections;
 };
 
 
@@ -64,6 +66,7 @@ BlockQueue *blkqueue_create(void)
 {
     BlockQueue *bq = qemu_mallocz(sizeof(BlockQueue));
     QSIMPLEQ_INIT(&bq->queue);
+    QSIMPLEQ_INIT(&bq->sections);
 
     return bq;
 }
@@ -76,6 +79,8 @@ void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq)
 
 void blkqueue_destroy(BlockQueue *bq)
 {
+    assert(QSIMPLEQ_FIRST(&bq->queue) == NULL);
+    assert(QSIMPLEQ_FIRST(&bq->sections) == NULL);
     qemu_free(bq);
 }
 
@@ -103,7 +108,9 @@ int blkqueue_barrier(BlockQueueContext *context)
     req->type       = REQ_TYPE_BARRIER;
     req->section    = context->section;
     req->buf        = NULL;
+
     QSIMPLEQ_INSERT_TAIL(&bq->queue, req, link);
+    QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
 
     context->section++;
 
@@ -115,7 +122,12 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
     BlockQueueRequest *req;
 
     req = QSIMPLEQ_FIRST(&bq->queue);
+
     QSIMPLEQ_REMOVE_HEAD(&bq->queue, link);
+    if (req->type == REQ_TYPE_BARRIER) {
+        assert(QSIMPLEQ_FIRST(&bq->sections) == req);
+        QSIMPLEQ_REMOVE_HEAD(&bq->sections, link_section);
+    }
 
     return req;
 }
@@ -220,7 +232,7 @@ static void test_merge(void)
     QUEUE_WRITE(&ctx2, 1512, buf,  42, 0x34);
 
     /* Verify queue contents */
-#if 0
+#if 1
     POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 0);
     POP_CHECK_WRITE(bq,   512, buf,  42, 0x34, 0);
     POP_CHECK_BARRIER(bq, 0);
