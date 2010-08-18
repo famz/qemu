@@ -52,12 +52,12 @@ typedef struct BlockQueueRequest {
     uint64_t    size;
     unsigned    section;
 
-    QSIMPLEQ_ENTRY(BlockQueueRequest) link;
+    QTAILQ_ENTRY(BlockQueueRequest) link;
     QSIMPLEQ_ENTRY(BlockQueueRequest) link_section;
 } BlockQueueRequest;
 
 struct BlockQueue {
-    QSIMPLEQ_HEAD(, BlockQueueRequest) queue;
+    QTAILQ_HEAD(, BlockQueueRequest) queue;
     QSIMPLEQ_HEAD(, BlockQueueRequest) sections;
 };
 
@@ -65,7 +65,7 @@ struct BlockQueue {
 BlockQueue *blkqueue_create(void)
 {
     BlockQueue *bq = qemu_mallocz(sizeof(BlockQueue));
-    QSIMPLEQ_INIT(&bq->queue);
+    QTAILQ_INIT(&bq->queue);
     QSIMPLEQ_INIT(&bq->sections);
 
     return bq;
@@ -79,7 +79,7 @@ void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq)
 
 void blkqueue_destroy(BlockQueue *bq)
 {
-    assert(QSIMPLEQ_FIRST(&bq->queue) == NULL);
+    assert(QTAILQ_FIRST(&bq->queue) == NULL);
     assert(QSIMPLEQ_FIRST(&bq->sections) == NULL);
     qemu_free(bq);
 }
@@ -88,6 +88,9 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     uint64_t size)
 {
     BlockQueue *bq = context->bq;
+    BlockQueueRequest *section_req;
+
+    /* Create request structure */
     BlockQueueRequest *req = qemu_malloc(sizeof(*req));
     req->type       = REQ_TYPE_WRITE;
     req->offset     = offset;
@@ -96,7 +99,21 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     req->section    = context->section;
     memcpy(req->buf, buf, size);
 
-    QSIMPLEQ_INSERT_TAIL(&bq->queue, req, link);
+    /*
+     * Find the right place to insert it into the queue:
+     * Right before the barrier that closes the current section.
+     */
+    QSIMPLEQ_FOREACH(section_req, &bq->sections, link_section) {
+        if (section_req->section >= req->section) {
+            req->section = section_req->section;
+            context->section = section_req->section;
+            QTAILQ_INSERT_BEFORE(section_req, req, link);
+            return 0;
+        }
+    }
+
+    /* If there was no barrier, just put it at the end. */
+    QTAILQ_INSERT_TAIL(&bq->queue, req, link);
 
     return 0;
 }
@@ -104,12 +121,26 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
 int blkqueue_barrier(BlockQueueContext *context)
 {
     BlockQueue *bq = context->bq;
+    BlockQueueRequest *section_req;
+
+    /* Create request structure */
     BlockQueueRequest *req = qemu_malloc(sizeof(*req));
     req->type       = REQ_TYPE_BARRIER;
     req->section    = context->section;
     req->buf        = NULL;
 
-    QSIMPLEQ_INSERT_TAIL(&bq->queue, req, link);
+    /* Find another barrier to merge with. */
+    QSIMPLEQ_FOREACH(section_req, &bq->sections, link_section) {
+        if (section_req->section >= req->section) {
+            req->section = section_req->section;
+            context->section = section_req->section + 1;
+            qemu_free(req);
+            return 0;
+        }
+    }
+
+    /* If there was none, insert a new one at the end */
+    QTAILQ_INSERT_TAIL(&bq->queue, req, link);
     QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
 
     context->section++;
@@ -121,9 +152,9 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
 {
     BlockQueueRequest *req;
 
-    req = QSIMPLEQ_FIRST(&bq->queue);
+    req = QTAILQ_FIRST(&bq->queue);
 
-    QSIMPLEQ_REMOVE_HEAD(&bq->queue, link);
+    QTAILQ_REMOVE(&bq->queue, req, link);
     if (req->type == REQ_TYPE_BARRIER) {
         assert(QSIMPLEQ_FIRST(&bq->sections) == req);
         QSIMPLEQ_REMOVE_HEAD(&bq->sections, link_section);
@@ -232,20 +263,11 @@ static void test_merge(void)
     QUEUE_WRITE(&ctx2, 1512, buf,  42, 0x34);
 
     /* Verify queue contents */
-#if 1
     POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 0);
     POP_CHECK_WRITE(bq,   512, buf,  42, 0x34, 0);
     POP_CHECK_BARRIER(bq, 0);
     POP_CHECK_WRITE(bq,  1024, buf, 512, 0x12, 1);
     POP_CHECK_WRITE(bq,  1512, buf,  42, 0x34, 1);
-#else
-    POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 0);
-    POP_CHECK_BARRIER(bq, 0);
-    POP_CHECK_WRITE(bq,   512, buf,  42, 0x34, 0);
-    POP_CHECK_WRITE(bq,  1024, buf, 512, 0x12, 1);
-    POP_CHECK_BARRIER(bq, 0);
-    POP_CHECK_WRITE(bq,  1512, buf,  42, 0x34, 1);
-#endif
 
     blkqueue_destroy(bq);
 }
@@ -254,6 +276,11 @@ int main(void)
 {
     test_basic();
     test_merge();
+
+    /* TODO
+     * ctx1:  20 20 | 21 21 21 | 22
+     * ctx2:   1  | 21 21 |  22 22 22
+     */
 
     return 0;
 }
