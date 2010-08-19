@@ -24,6 +24,7 @@
 
 #include "qemu-common.h"
 #include "qemu-queue.h"
+#include "block.h"
 
 typedef struct BlockQueue BlockQueue;
 
@@ -32,7 +33,7 @@ typedef struct BlockQueueContext {
     unsigned    section;
 } BlockQueueContext;
 
-BlockQueue *blkqueue_create(void);
+BlockQueue *blkqueue_create(BlockDriverState *bs);
 void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq);
 void blkqueue_destroy(BlockQueue *bq);
 int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
@@ -57,14 +58,17 @@ typedef struct BlockQueueRequest {
 } BlockQueueRequest;
 
 struct BlockQueue {
+    BlockDriverState*   bs;
     QTAILQ_HEAD(, BlockQueueRequest) queue;
     QSIMPLEQ_HEAD(, BlockQueueRequest) sections;
 };
 
 
-BlockQueue *blkqueue_create(void)
+BlockQueue *blkqueue_create(BlockDriverState *bs)
 {
     BlockQueue *bq = qemu_mallocz(sizeof(BlockQueue));
+    bq->bs = bs;
+
     QTAILQ_INIT(&bq->queue);
     QSIMPLEQ_INIT(&bq->sections);
 
@@ -240,13 +244,13 @@ static void  __attribute__((used)) dump_queue(BlockQueue *bq)
     }
 }
 
-static void test_basic(void)
+static void test_basic(BlockDriverState *bs)
 {
     uint8_t buf[512];
     BlockQueue *bq;
     BlockQueueContext context;
 
-    bq = blkqueue_create();
+    bq = blkqueue_create(bs);
     blkqueue_init_context(&context, bq);
 
     /* Queue requests */
@@ -264,13 +268,13 @@ static void test_basic(void)
     blkqueue_destroy(bq);
 }
 
-static void test_merge(void)
+static void test_merge(BlockDriverState *bs)
 {
     uint8_t buf[512];
     BlockQueue *bq;
     BlockQueueContext ctx1, ctx2;
 
-    bq = blkqueue_create();
+    bq = blkqueue_create(bs);
     blkqueue_init_context(&ctx1, bq);
     blkqueue_init_context(&ctx2, bq);
 
@@ -323,13 +327,31 @@ static void test_merge(void)
 
 int main(void)
 {
-    test_basic();
-    test_merge();
+    BlockDriverState *bs;
+    int ret;
+    void* buf;
 
-    /* TODO
-     * ctx1:  20 20 | 21 21 21 | 22
-     * ctx2:   1  | 21 21 |  22 22 22
-     */
+    bdrv_init();
+    bs = bdrv_new("");
+    ret = bdrv_open(bs, "block-queue.img", 0, NULL);
+    if (ret < 0) {
+        fprintf(stderr, "Couldn't open block-queue.img: %s\n",
+            strerror(-ret));
+        exit(1);
+    }
+
+    buf = qemu_malloc(1024 * 1024);
+
+    memset(buf, 0xa5, 1024 * 1024);
+    bdrv_write(bs, 0, buf, 2048);
+    test_basic(bs);
+
+    memset(buf, 0xa5, 1024 * 1024);
+    bdrv_write(bs, 0, buf, 2048);
+    test_merge(bs);
+
+    qemu_free(buf);
+    bdrv_delete(bs);
 
     return 0;
 }
