@@ -140,17 +140,12 @@ int blkqueue_barrier(BlockQueueContext *context)
     }
 
     /*
-     * If there was no barrier for the same section, check if the last request
-     * in the queue is a barrier. If not, insert a new one at the end.
+     * If there wasn't a barrier for the same section yet, insert a new one at
+     * the end.
      */
-    section_req = QSIMPLEQ_LAST(&bq->sections, BlockQueueRequest, link_section);
-    if (!section_req || section_req->type != REQ_TYPE_BARRIER) {
-        QTAILQ_INSERT_TAIL(&bq->queue, req, link);
-        QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
-        context->section++;
-    } else {
-        qemu_free(req);
-    }
+    QTAILQ_INSERT_TAIL(&bq->queue, req, link);
+    QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
+    context->section++;
 
     return 0;
 }
@@ -227,6 +222,24 @@ static void blkqueue_free_request(BlockQueueRequest *req)
         blkqueue_free_request(req); \
     } while(0)
 
+static void  __attribute__((used)) dump_queue(BlockQueue *bq)
+{
+    BlockQueueRequest *req;
+
+    fprintf(stderr, "--- Queue dump ---\n");
+    QTAILQ_FOREACH(req, &bq->queue, link) {
+        fprintf(stderr, "[%d] ", req->section);
+        if (req->type == REQ_TYPE_WRITE) {
+            fprintf(stderr, "Write off=%5"PRId64", len=%5"PRId64", buf=%p\n",
+                req->offset, req->size, req->buf);
+        } else if (req->type == REQ_TYPE_BARRIER) {
+            fprintf(stderr, "Barrier\n");
+        } else {
+            fprintf(stderr, "Unknown type %d\n", req->type);
+        }
+    }
+}
+
 static void test_basic(void)
 {
     uint8_t buf[512];
@@ -267,7 +280,6 @@ static void test_merge(void)
     QUEUE_WRITE(&ctx2,  512, buf,  42, 0x34);
     QUEUE_WRITE(&ctx1, 1024, buf, 512, 0x12);
     QUEUE_BARRIER(&ctx2);
-    QUEUE_BARRIER(&ctx2);
     QUEUE_WRITE(&ctx2, 1512, buf,  42, 0x34);
 
     /* Verify queue contents */
@@ -276,6 +288,35 @@ static void test_merge(void)
     POP_CHECK_BARRIER(bq, 0);
     POP_CHECK_WRITE(bq,  1024, buf, 512, 0x12, 1);
     POP_CHECK_WRITE(bq,  1512, buf,  42, 0x34, 1);
+
+    /* Same queue, new contexts */
+    blkqueue_init_context(&ctx1, bq);
+    blkqueue_init_context(&ctx2, bq);
+
+    /* Queue requests */
+    QUEUE_BARRIER(&ctx2);
+    QUEUE_WRITE(&ctx2,  512, buf,  42, 0x34);
+    QUEUE_WRITE(&ctx2,   12, buf,  20, 0x45);
+    QUEUE_BARRIER(&ctx2);
+    QUEUE_WRITE(&ctx2,  892, buf, 142, 0x56);
+
+    QUEUE_WRITE(&ctx1,    0, buf,   8, 0x12);
+    QUEUE_BARRIER(&ctx1);
+    QUEUE_WRITE(&ctx1, 1024, buf, 512, 0x12);
+    QUEUE_BARRIER(&ctx1);
+    QUEUE_WRITE(&ctx1, 1512, buf,  42, 0x34);
+    QUEUE_BARRIER(&ctx1);
+
+    /* Verify queue contents */
+    POP_CHECK_WRITE(bq,     0, buf,   8, 0x12, 0);
+    POP_CHECK_BARRIER(bq, 0);
+    POP_CHECK_WRITE(bq,   512, buf,  42, 0x34, 1);
+    POP_CHECK_WRITE(bq,    12, buf,  20, 0x45, 1);
+    POP_CHECK_WRITE(bq,  1024, buf, 512, 0x12, 1);
+    POP_CHECK_BARRIER(bq, 1);
+    POP_CHECK_WRITE(bq,   892, buf, 142, 0x56, 2);
+    POP_CHECK_WRITE(bq,  1512, buf,  42, 0x34, 2);
+    POP_CHECK_BARRIER(bq, 2);
 
     blkqueue_destroy(bq);
 }
