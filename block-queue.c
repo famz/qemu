@@ -139,11 +139,18 @@ int blkqueue_barrier(BlockQueueContext *context)
         }
     }
 
-    /* If there was none, insert a new one at the end */
-    QTAILQ_INSERT_TAIL(&bq->queue, req, link);
-    QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
-
-    context->section++;
+    /*
+     * If there was no barrier for the same section, check if the last request
+     * in the queue is a barrier. If not, insert a new one at the end.
+     */
+    section_req = QSIMPLEQ_LAST(&bq->sections, BlockQueueRequest, link_section);
+    if (!section_req || section_req->type != REQ_TYPE_BARRIER) {
+        QTAILQ_INSERT_TAIL(&bq->queue, req, link);
+        QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
+        context->section++;
+    } else {
+        qemu_free(req);
+    }
 
     return 0;
 }
@@ -259,6 +266,7 @@ static void test_merge(void)
     QUEUE_BARRIER(&ctx1);
     QUEUE_WRITE(&ctx2,  512, buf,  42, 0x34);
     QUEUE_WRITE(&ctx1, 1024, buf, 512, 0x12);
+    QUEUE_BARRIER(&ctx2);
     QUEUE_BARRIER(&ctx2);
     QUEUE_WRITE(&ctx2, 1512, buf,  42, 0x34);
 
