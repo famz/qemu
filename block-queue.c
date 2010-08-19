@@ -36,6 +36,8 @@ typedef struct BlockQueueContext {
 BlockQueue *blkqueue_create(BlockDriverState *bs);
 void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq);
 void blkqueue_destroy(BlockQueue *bq);
+int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
+    uint64_t size);
 int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     uint64_t size);
 int blkqueue_barrier(BlockQueueContext *context);
@@ -86,6 +88,12 @@ void blkqueue_destroy(BlockQueue *bq)
     assert(QTAILQ_FIRST(&bq->queue) == NULL);
     assert(QSIMPLEQ_FIRST(&bq->sections) == NULL);
     qemu_free(bq);
+}
+
+int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
+    uint64_t size)
+{
+    return 0;
 }
 
 int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
@@ -195,6 +203,12 @@ static void blkqueue_free_request(BlockQueueRequest *req)
         assert(req->section == _section); \
     } while(0)
 
+#define CHECK_READ(_context, _offset, _buf, _size, _cmpbuf) \
+    do { \
+        int ret = blkqueue_pread(_context, _offset, _buf, _size); \
+        assert(ret == 0); \
+        assert(!memcmp(_cmpbuf, _buf, _size)); \
+    } while(0)
 
 #define QUEUE_WRITE(_context, _offset, _buf, _size, _pattern) \
     do { \
@@ -325,6 +339,37 @@ static void test_merge(BlockDriverState *bs)
     blkqueue_destroy(bq);
 }
 
+static void test_read(BlockDriverState *bs)
+{
+    uint8_t buf[512], buf2[512];
+    BlockQueue *bq;
+    BlockQueueContext ctx1;
+
+    bq = blkqueue_create(bs);
+    blkqueue_init_context(&ctx1, bq);
+
+    /* Queue requests and do some test reads */
+    memset(buf, 0, 512);
+    memset(buf2, 0xa5, 512);
+    CHECK_READ(&ctx1, 0, buf, 32, buf2);
+
+    memset(buf, 0, 512);
+    memset(buf2 + 5, 0x12, 5);
+    QUEUE_WRITE(&ctx1, 5, buf, 5, 0x12);
+    CHECK_READ(&ctx1,  0, buf, 32, buf2);
+
+    memset(buf, 0, 512);
+    memset(buf2, 0x12, 2);
+    QUEUE_WRITE(&ctx1, 0, buf, 2, 0x12);
+    CHECK_READ(&ctx1,  0, buf, 32, buf2);
+
+    /* Verify queue contents */
+    POP_CHECK_WRITE(bq,     5, buf,   5, 0x12, 0);
+    POP_CHECK_WRITE(bq,     0, buf,   2, 0x12, 0);
+
+    blkqueue_destroy(bq);
+}
+
 int main(void)
 {
     BlockDriverState *bs;
@@ -349,6 +394,10 @@ int main(void)
     memset(buf, 0xa5, 1024 * 1024);
     bdrv_write(bs, 0, buf, 2048);
     test_merge(bs);
+
+    memset(buf, 0xa5, 1024 * 1024);
+    bdrv_write(bs, 0, buf, 2048);
+    test_read(bs);
 
     qemu_free(buf);
     bdrv_delete(bs);
