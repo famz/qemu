@@ -231,6 +231,9 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
     BlockQueueRequest *req;
 
     req = QTAILQ_FIRST(&bq->queue);
+    if (req == NULL) {
+        return NULL;
+    }
 
     QTAILQ_REMOVE(&bq->queue, req, link);
     if (req->type == REQ_TYPE_BARRIER) {
@@ -245,6 +248,39 @@ static void blkqueue_free_request(BlockQueueRequest *req)
 {
     qemu_free(req->buf);
     qemu_free(req);
+}
+
+static void blkqueue_process_request(BlockQueue *bq)
+{
+    BlockQueueRequest *req;
+    BlockQueueRequest *req2;
+    int ret;
+
+    req = QTAILQ_FIRST(&bq->queue);
+    if (req == NULL) {
+        return;
+    }
+
+    switch (req->type) {
+        case REQ_TYPE_WRITE:
+            ret = bdrv_pwrite(bq->bs, req->offset, req->buf, req->size);
+            if (ret < 0) {
+                /* TODO Error reporting! */
+                return;
+            }
+            break;
+        case REQ_TYPE_BARRIER:
+            bdrv_flush(bq->bs);
+            break;
+    }
+
+    /*
+     * Only remove the request from the queue when it's written, so that reads
+     * always access the right data.
+     */
+    req2 = blkqueue_pop(bq);
+    assert(req == req2);
+    blkqueue_free_request(req);
 }
 
 #ifdef RUN_TESTS
@@ -482,6 +518,37 @@ static void test_read_order(BlockDriverState *bs)
     blkqueue_destroy(bq);
 }
 
+static void test_process_request(BlockDriverState *bs)
+{
+    uint8_t buf[512], buf2[512];
+    BlockQueue *bq;
+    BlockQueueContext ctx1;
+
+    bq = blkqueue_create(bs);
+    blkqueue_init_context(&ctx1, bq);
+
+    /* Queue requests and do a test read */
+    QUEUE_WRITE(&ctx1, 25, buf, 5, 0x44);
+    QUEUE_BARRIER(&ctx1);
+
+    memset(buf2, 0xa5, 512);
+    memset(buf2 + 25, 0x44, 5);
+    CHECK_READ(&ctx1, 0, buf, 64, buf2);
+
+    /* Process the queue (plus one call to test a NULL condition) */
+    blkqueue_process_request(bq);
+    blkqueue_process_request(bq);
+    blkqueue_process_request(bq);
+
+    /* Verify the queue is empty */
+    assert(blkqueue_pop(bq) == NULL);
+
+    /* Check if we still read the same */
+    CHECK_READ(&ctx1, 0, buf, 64, buf2);
+
+    blkqueue_destroy(bq);
+}
+
 int main(void)
 {
     BlockDriverState *bs;
@@ -518,6 +585,11 @@ int main(void)
     ret = bdrv_write(bs, 0, buf, 2048);
     assert(ret >= 0);
     test_read_order(bs);
+
+    memset(buf, 0xa5, 1024 * 1024);
+    ret = bdrv_write(bs, 0, buf, 2048);
+    assert(ret >= 0);
+    test_process_request(bs);
 
     qemu_free(buf);
     bdrv_delete(bs);
