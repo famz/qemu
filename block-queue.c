@@ -454,7 +454,6 @@ static void test_read(BlockDriverState *bs)
     CHECK_READ(&ctx1, 0, buf, 32, buf2);
 
     QUEUE_WRITE(&ctx1, 5, buf, 5, 0x12);
-    memset(buf, 0, 512);
     memset(buf2, 0x12, 5);
     CHECK_READ(&ctx1,  5, buf, 5, buf2);
     CHECK_READ(&ctx1,  7, buf, 2, buf2);
@@ -471,7 +470,6 @@ static void test_read(BlockDriverState *bs)
     CHECK_READ(&ctx1, 10, buf, 16, buf2);
 
     QUEUE_WRITE(&ctx1, 0, buf, 2, 0x12);
-    memset(buf, 0, 512);
     memset(&buf2[5], 0x12, 5);
     memset(buf2, 0x12, 2);
     CHECK_READ(&ctx1,  0, buf, 32, buf2);
@@ -549,11 +547,24 @@ static void test_process_request(BlockDriverState *bs)
     blkqueue_destroy(bq);
 }
 
+static void run_test(void (*testfn)(BlockDriverState*), BlockDriverState *bs)
+{
+    void* buf;
+    int ret;
+
+    buf = qemu_malloc(1024 * 1024);
+    memset(buf, 0xa5, 1024 * 1024);
+    ret = bdrv_write(bs, 0, buf, 2048);
+    assert(ret >= 0);
+    qemu_free(buf);
+
+    testfn(bs);
+}
+
 int main(void)
 {
     BlockDriverState *bs;
     int ret;
-    void* buf;
 
     bdrv_init();
     bs = bdrv_new("");
@@ -564,34 +575,12 @@ int main(void)
         exit(1);
     }
 
-    buf = qemu_malloc(1024 * 1024);
+    run_test(&test_basic, bs);
+    run_test(&test_merge, bs);
+    run_test(&test_read, bs);
+    run_test(&test_read_order, bs);
+    run_test(&test_process_request, bs);
 
-    memset(buf, 0xa5, 1024 * 1024);
-    ret = bdrv_write(bs, 0, buf, 2048);
-    assert(ret >= 0);
-    test_basic(bs);
-
-    memset(buf, 0xa5, 1024 * 1024);
-    ret = bdrv_write(bs, 0, buf, 2048);
-    assert(ret >= 0);
-    test_merge(bs);
-
-    memset(buf, 0xa5, 1024 * 1024);
-    ret = bdrv_write(bs, 0, buf, 2048);
-    assert(ret >= 0);
-    test_read(bs);
-
-    memset(buf, 0xa5, 1024 * 1024);
-    ret = bdrv_write(bs, 0, buf, 2048);
-    assert(ret >= 0);
-    test_read_order(bs);
-
-    memset(buf, 0xa5, 1024 * 1024);
-    ret = bdrv_write(bs, 0, buf, 2048);
-    assert(ret >= 0);
-    test_process_request(bs);
-
-    qemu_free(buf);
     bdrv_delete(bs);
 
     return 0;
