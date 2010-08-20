@@ -61,7 +61,7 @@ typedef struct BlockQueueRequest {
 
 struct BlockQueue {
     BlockDriverState*   bs;
-    QTAILQ_HEAD(, BlockQueueRequest) queue;
+    QTAILQ_HEAD(bq_queue_head, BlockQueueRequest) queue;
     QSIMPLEQ_HEAD(, BlockQueueRequest) sections;
 };
 
@@ -93,6 +93,57 @@ void blkqueue_destroy(BlockQueue *bq)
 int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
     uint64_t size)
 {
+    BlockQueue *bq = context->bq;
+    BlockQueueRequest *req;
+    int ret;
+
+    /*
+     * First check if there are any pending writes for the same data. Reverse
+     * order to return data written by the latest write.
+     */
+    QTAILQ_FOREACH_REVERSE(req, &bq->queue, bq_queue_head, link) {
+        uint64_t end = offset + size;
+        uint64_t req_end = req->offset + req->size;
+        uint8_t *read_buf = buf;
+        uint8_t *req_buf = req->buf;
+
+        /* FIXME continue on != WRITE */
+
+        if ((offset >= req->offset) && (end <= req_end)) {
+            /* Completely contained in the write request */
+            memcpy(buf, &req_buf[offset - req->offset], size);
+            return 0;
+        } else if ((end >= req->offset) && (end <= req_end)) {
+            /* Overlap in the end of the read request */
+            assert(offset < req->offset);
+            memcpy(&read_buf[req->offset - offset], req_buf, end - req->offset);
+            size = req->offset - offset;
+        } else if ((offset >= req->offset) && (offset < req_end)) {
+            /* Overlap in the start of the read request */
+            assert(end > req_end);
+            memcpy(read_buf, &req_buf[offset - req->offset], req_end - offset);
+            buf = read_buf = &read_buf[req_end - offset];
+            offset = req_end;
+            size = end - req_end;
+        } else if ((req->offset >= offset) && (req_end <= end)) {
+            /*
+             * The write request is completely contained in the read request.
+             * memcpy the data from the write request here, continue with the
+             * data before the write request and handle the data after the
+             * write request with a recursive call.
+             */
+            memcpy(&read_buf[req->offset - offset], req_buf, req_end - req->offset);
+            size = req->offset - offset;
+            blkqueue_pread(context, req_end, &read_buf[req_end - offset], end - req_end);
+        }
+    }
+
+    /* The requested is not written in the queue, read it from disk */
+    ret = bdrv_pread(bq->bs, offset, buf, size);
+    if (ret < 0) {
+        return ret;
+    }
+
     return 0;
 }
 
@@ -184,7 +235,6 @@ static void blkqueue_free_request(BlockQueueRequest *req)
 }
 
 #ifdef RUN_TESTS
-#include <assert.h>
 
 #define CHECK_WRITE(req, _offset, _size, _buf, _section) \
     do { \
@@ -205,7 +255,9 @@ static void blkqueue_free_request(BlockQueueRequest *req)
 
 #define CHECK_READ(_context, _offset, _buf, _size, _cmpbuf) \
     do { \
-        int ret = blkqueue_pread(_context, _offset, _buf, _size); \
+        int ret; \
+        memset(buf, 0, 512); \
+        ret = blkqueue_pread(_context, _offset, _buf, _size); \
         assert(ret == 0); \
         assert(!memcmp(_cmpbuf, _buf, _size)); \
     } while(0)
@@ -349,18 +401,30 @@ static void test_read(BlockDriverState *bs)
     blkqueue_init_context(&ctx1, bq);
 
     /* Queue requests and do some test reads */
-    memset(buf, 0, 512);
     memset(buf2, 0xa5, 512);
     CHECK_READ(&ctx1, 0, buf, 32, buf2);
 
-    memset(buf, 0, 512);
-    memset(buf2 + 5, 0x12, 5);
     QUEUE_WRITE(&ctx1, 5, buf, 5, 0x12);
-    CHECK_READ(&ctx1,  0, buf, 32, buf2);
-
     memset(buf, 0, 512);
-    memset(buf2, 0x12, 2);
+    memset(buf2, 0x12, 5);
+    CHECK_READ(&ctx1,  5, buf, 5, buf2);
+    CHECK_READ(&ctx1,  7, buf, 2, buf2);
+    memset(buf2, 0xa5, 512);
+    memset(buf2 + 5, 0x12, 5);
+    CHECK_READ(&ctx1,  0, buf, 8, buf2);
+    CHECK_READ(&ctx1,  0, buf, 10, buf2);
+    CHECK_READ(&ctx1,  0, buf, 32, buf2);
+    memset(buf2, 0xa5, 512);
+    memset(buf2, 0x12, 5);
+    CHECK_READ(&ctx1,  5, buf, 16, buf2);
+    memset(buf2, 0xa5, 512);
+    CHECK_READ(&ctx1,  0, buf,  2, buf2);
+    CHECK_READ(&ctx1, 10, buf, 16, buf2);
+
     QUEUE_WRITE(&ctx1, 0, buf, 2, 0x12);
+    memset(buf, 0, 512);
+    memset(&buf2[5], 0x12, 5);
+    memset(buf2, 0x12, 2);
     CHECK_READ(&ctx1,  0, buf, 32, buf2);
 
     /* Verify queue contents */
@@ -378,7 +442,7 @@ int main(void)
 
     bdrv_init();
     bs = bdrv_new("");
-    ret = bdrv_open(bs, "block-queue.img", 0, NULL);
+    ret = bdrv_open(bs, "block-queue.img", BDRV_O_RDWR, NULL);
     if (ret < 0) {
         fprintf(stderr, "Couldn't open block-queue.img: %s\n",
             strerror(-ret));
@@ -388,15 +452,18 @@ int main(void)
     buf = qemu_malloc(1024 * 1024);
 
     memset(buf, 0xa5, 1024 * 1024);
-    bdrv_write(bs, 0, buf, 2048);
+    ret = bdrv_write(bs, 0, buf, 2048);
+    assert(ret >= 0);
     test_basic(bs);
 
     memset(buf, 0xa5, 1024 * 1024);
-    bdrv_write(bs, 0, buf, 2048);
+    ret = bdrv_write(bs, 0, buf, 2048);
+    assert(ret >= 0);
     test_merge(bs);
 
     memset(buf, 0xa5, 1024 * 1024);
-    bdrv_write(bs, 0, buf, 2048);
+    ret = bdrv_write(bs, 0, buf, 2048);
+    assert(ret >= 0);
     test_read(bs);
 
     qemu_free(buf);
