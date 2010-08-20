@@ -107,8 +107,21 @@ int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
         uint8_t *read_buf = buf;
         uint8_t *req_buf = req->buf;
 
-        /* FIXME continue on != WRITE */
+        /* We're only interested in queued writes */
+        if (req->type != REQ_TYPE_WRITE) {
+            continue;
+        }
 
+        /*
+         * If we read from a write in the queue (i.e. our read overlaps the
+         * write request), our next write probably depends on this write, so
+         * let's move forward to its section.
+         */
+        if (end > req->offset && offset < req_end) {
+            context->section = MAX(context->section, req->section);
+        }
+
+        /* How we continue, depends on the kind of overlap we have */
         if ((offset >= req->offset) && (end <= req_end)) {
             /* Completely contained in the write request */
             memcpy(buf, &req_buf[offset - req->offset], size);
@@ -434,6 +447,41 @@ static void test_read(BlockDriverState *bs)
     blkqueue_destroy(bq);
 }
 
+static void test_read_order(BlockDriverState *bs)
+{
+    uint8_t buf[512], buf2[512];
+    BlockQueue *bq;
+    BlockQueueContext ctx1, ctx2;
+
+    bq = blkqueue_create(bs);
+    blkqueue_init_context(&ctx1, bq);
+    blkqueue_init_context(&ctx2, bq);
+
+    /* Queue requests and do some test reads */
+    QUEUE_WRITE(&ctx1, 25, buf, 5, 0x44);
+    QUEUE_BARRIER(&ctx1);
+    QUEUE_WRITE(&ctx1, 5, buf, 5, 0x12);
+    QUEUE_BARRIER(&ctx1);
+    QUEUE_WRITE(&ctx2, 10, buf, 5, 0x34);
+
+    memset(buf2, 0xa5, 512);
+    memset(buf2 + 5, 0x12, 5);
+    memset(buf2 + 10, 0x34, 5);
+    CHECK_READ(&ctx2, 0, buf, 20, buf2);
+    QUEUE_WRITE(&ctx2,  0, buf, 10, 0x34);
+    QUEUE_BARRIER(&ctx2);
+
+    /* Verify queue contents */
+    POP_CHECK_WRITE(bq,    25, buf,   5, 0x44, 0);
+    POP_CHECK_WRITE(bq,    10, buf,   5, 0x34, 0);
+    POP_CHECK_BARRIER(bq, 0);
+    POP_CHECK_WRITE(bq,     5, buf,   5, 0x12, 1);
+    POP_CHECK_WRITE(bq,     0, buf,  10, 0x34, 1);
+    POP_CHECK_BARRIER(bq, 1);
+
+    blkqueue_destroy(bq);
+}
+
 int main(void)
 {
     BlockDriverState *bs;
@@ -465,6 +513,11 @@ int main(void)
     ret = bdrv_write(bs, 0, buf, 2048);
     assert(ret >= 0);
     test_read(bs);
+
+    memset(buf, 0xa5, 1024 * 1024);
+    ret = bdrv_write(bs, 0, buf, 2048);
+    assert(ret >= 0);
+    test_read_order(bs);
 
     qemu_free(buf);
     bdrv_delete(bs);
