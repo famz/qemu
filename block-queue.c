@@ -29,23 +29,7 @@
 #include "qemu-thread.h"
 #include "qemu-barrier.h"
 #include "block.h"
-
-typedef struct BlockQueue BlockQueue;
-
-typedef struct BlockQueueContext {
-    BlockQueue* bq;
-    unsigned    section;
-} BlockQueueContext;
-
-BlockQueue *blkqueue_create(BlockDriverState *bs);
-void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq);
-void blkqueue_destroy(BlockQueue *bq);
-int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
-    uint64_t size);
-int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
-    uint64_t size);
-int blkqueue_barrier(BlockQueueContext *context);
-void blkqueue_flush(BlockQueue *bq);
+#include "block-queue.h"
 
 enum blkqueue_req_type {
     REQ_TYPE_WRITE,
