@@ -167,6 +167,19 @@ void qemu_thread_create(QemuThread *thread,
     pthread_sigmask(SIG_SETMASK, &oldset, NULL);
 }
 
+void *qemu_thread_join(QemuThread *thread)
+{
+    int err;
+    void *ret;
+
+    err = pthread_join(thread->thread, &ret);
+    if (err) {
+        error_exit(err, __func__);
+    }
+
+    return ret;
+}
+
 void qemu_thread_signal(QemuThread *thread, int sig)
 {
     int err;

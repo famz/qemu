@@ -22,8 +22,12 @@
  * THE SOFTWARE.
  */
 
+#include <signal.h>
+
 #include "qemu-common.h"
 #include "qemu-queue.h"
+#include "qemu-thread.h"
+#include "qemu-barrier.h"
 #include "block.h"
 
 typedef struct BlockQueue BlockQueue;
@@ -41,6 +45,7 @@ int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
 int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     uint64_t size);
 int blkqueue_barrier(BlockQueueContext *context);
+void blkqueue_flush(BlockQueue *bq);
 
 enum blkqueue_req_type {
     REQ_TYPE_WRITE,
@@ -61,10 +66,18 @@ typedef struct BlockQueueRequest {
 
 struct BlockQueue {
     BlockDriverState*   bs;
+
+    QemuThread          thread;
+    bool                thread_done;
+    QemuMutex           lock;
+    QemuMutex           flush_lock;
+    QemuCond            cond;
+
     QTAILQ_HEAD(bq_queue_head, BlockQueueRequest) queue;
     QSIMPLEQ_HEAD(, BlockQueueRequest) sections;
 };
 
+static void *blkqueue_thread(void *bq);
 
 BlockQueue *blkqueue_create(BlockDriverState *bs)
 {
@@ -73,6 +86,13 @@ BlockQueue *blkqueue_create(BlockDriverState *bs)
 
     QTAILQ_INIT(&bq->queue);
     QSIMPLEQ_INIT(&bq->sections);
+
+    qemu_mutex_init(&bq->lock);
+    qemu_mutex_init(&bq->flush_lock);
+    qemu_cond_init(&bq->cond);
+
+    bq->thread_done = false;
+    qemu_thread_create(&bq->thread, blkqueue_thread, bq);
 
     return bq;
 }
@@ -85,6 +105,16 @@ void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq)
 
 void blkqueue_destroy(BlockQueue *bq)
 {
+    bq->thread_done = true;
+    qemu_cond_signal(&bq->cond);
+    qemu_thread_join(&bq->thread);
+
+    blkqueue_flush(bq);
+
+    qemu_mutex_destroy(&bq->lock);
+    qemu_mutex_destroy(&bq->flush_lock);
+    qemu_cond_destroy(&bq->cond);
+
     assert(QTAILQ_FIRST(&bq->queue) == NULL);
     assert(QSIMPLEQ_FIRST(&bq->sections) == NULL);
     qemu_free(bq);
@@ -179,18 +209,22 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
      * Find the right place to insert it into the queue:
      * Right before the barrier that closes the current section.
      */
+    qemu_mutex_lock(&bq->lock);
     QSIMPLEQ_FOREACH(section_req, &bq->sections, link_section) {
         if (section_req->section >= req->section) {
             req->section = section_req->section;
             context->section = section_req->section;
             QTAILQ_INSERT_BEFORE(section_req, req, link);
-            return 0;
+            goto out;
         }
     }
 
     /* If there was no barrier, just put it at the end. */
     QTAILQ_INSERT_TAIL(&bq->queue, req, link);
+    qemu_cond_signal(&bq->cond);
 
+out:
+    qemu_mutex_unlock(&bq->lock);
     return 0;
 }
 
@@ -206,12 +240,13 @@ int blkqueue_barrier(BlockQueueContext *context)
     req->buf        = NULL;
 
     /* Find another barrier to merge with. */
+    qemu_mutex_lock(&bq->lock);
     QSIMPLEQ_FOREACH(section_req, &bq->sections, link_section) {
         if (section_req->section >= req->section) {
             req->section = section_req->section;
             context->section = section_req->section + 1;
             qemu_free(req);
-            return 0;
+            goto out;
         }
     }
 
@@ -222,7 +257,10 @@ int blkqueue_barrier(BlockQueueContext *context)
     QTAILQ_INSERT_TAIL(&bq->queue, req, link);
     QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
     context->section++;
+    qemu_cond_signal(&bq->cond);
 
+out:
+    qemu_mutex_unlock(&bq->lock);
     return 0;
 }
 
@@ -230,9 +268,10 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
 {
     BlockQueueRequest *req;
 
+    qemu_mutex_lock(&bq->lock);
     req = QTAILQ_FIRST(&bq->queue);
     if (req == NULL) {
-        return NULL;
+        goto out;
     }
 
     QTAILQ_REMOVE(&bq->queue, req, link);
@@ -241,6 +280,8 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
         QSIMPLEQ_REMOVE_HEAD(&bq->sections, link_section);
     }
 
+out:
+    qemu_mutex_unlock(&bq->lock);
     return req;
 }
 
@@ -256,6 +297,12 @@ static void blkqueue_process_request(BlockQueue *bq)
     BlockQueueRequest *req2;
     int ret;
 
+    /*
+     * Note that we leave the request in the queue while we process it. No
+     * other request will be queued before this one and we have only one thread
+     * that processes the queue, so afterwards it will still be the first
+     * request. (XXX Not true for barriers in the first position)
+     */
     req = QTAILQ_FIRST(&bq->queue);
     if (req == NULL) {
         return;
@@ -281,6 +328,37 @@ static void blkqueue_process_request(BlockQueue *bq)
     req2 = blkqueue_pop(bq);
     assert(req == req2);
     blkqueue_free_request(req);
+}
+
+void blkqueue_flush(BlockQueue *bq)
+{
+    qemu_mutex_lock(&bq->flush_lock);
+
+    /* The thread only gives up the lock when the queue is empty */
+    assert(QTAILQ_FIRST(&bq->queue) == NULL);
+
+    qemu_mutex_unlock(&bq->flush_lock);
+}
+
+static void *blkqueue_thread(void *_bq)
+{
+    BlockQueue *bq = _bq;
+
+    qemu_mutex_lock(&bq->flush_lock);
+    while (!bq->thread_done) {
+        barrier();
+#ifndef RUN_TESTS
+        blkqueue_process_request(bq);
+        if (QTAILQ_FIRST(&bq->queue) == NULL) {
+            qemu_cond_wait(&bq->cond, &bq->flush_lock);
+        }
+#else
+        qemu_cond_wait(&bq->cond, &bq->flush_lock);
+#endif
+    }
+    qemu_mutex_unlock(&bq->flush_lock);
+
+    return NULL;
 }
 
 #ifdef RUN_TESTS
