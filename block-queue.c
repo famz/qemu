@@ -57,6 +57,9 @@ struct BlockQueue {
     QemuMutex           flush_lock;
     QemuCond            cond;
 
+    int                 barriers_requested;
+    int                 barriers_submitted;
+
     QTAILQ_HEAD(bq_queue_head, BlockQueueRequest) queue;
     QSIMPLEQ_HEAD(, BlockQueueRequest) sections;
 };
@@ -94,6 +97,9 @@ void blkqueue_destroy(BlockQueue *bq)
     qemu_thread_join(&bq->thread);
 
     blkqueue_flush(bq);
+
+    fprintf(stderr, "blkqueue_destroy: %d/%d barriers left\n",
+        bq->barriers_submitted, bq->barriers_requested);
 
     qemu_mutex_destroy(&bq->lock);
     qemu_mutex_destroy(&bq->flush_lock);
@@ -217,6 +223,8 @@ int blkqueue_barrier(BlockQueueContext *context)
     BlockQueue *bq = context->bq;
     BlockQueueRequest *section_req;
 
+    bq->barriers_requested++;
+
     /* Create request structure */
     BlockQueueRequest *req = qemu_malloc(sizeof(*req));
     req->type       = REQ_TYPE_BARRIER;
@@ -242,6 +250,8 @@ int blkqueue_barrier(BlockQueueContext *context)
     QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
     context->section++;
     qemu_cond_signal(&bq->cond);
+
+    bq->barriers_submitted++;
 
 out:
     qemu_mutex_unlock(&bq->lock);
@@ -318,8 +328,10 @@ void blkqueue_flush(BlockQueue *bq)
 {
     qemu_mutex_lock(&bq->flush_lock);
 
-    /* The thread only gives up the lock when the queue is empty */
-    assert(QTAILQ_FIRST(&bq->queue) == NULL);
+    /* Process any left over requests */
+    while (QTAILQ_FIRST(&bq->queue)) {
+        blkqueue_process_request(bq);
+    }
 
     qemu_mutex_unlock(&bq->flush_lock);
 }
