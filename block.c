@@ -1455,7 +1455,6 @@ const char *bdrv_get_device_name(BlockDriverState *bs)
 
 int bdrv_flush(BlockDriverState *bs)
 {
-    fprintf(stderr, "bdrv_flush\n");
     if (bs->open_flags & BDRV_O_NO_FLUSH) {
         return 0;
     }

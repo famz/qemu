@@ -44,7 +44,7 @@ static int write_refcount_block(BlockDriverState *bs)
     }
 
     BLKDBG_EVENT(bs->file, BLKDBG_REFBLOCK_UPDATE);
-    if (bdrv_pwrite_sync(bs->file, s->refcount_block_cache_offset,
+    if (blkqueue_pwrite(&s->bq_context, s->refcount_block_cache_offset,
             s->refcount_block_cache, size) < 0)
     {
         return -EIO;

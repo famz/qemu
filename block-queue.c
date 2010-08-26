@@ -258,11 +258,13 @@ out:
     return 0;
 }
 
+/*
+ * Caller needs to hold the bq->lock mutex
+ */
 static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
 {
     BlockQueueRequest *req;
 
-    qemu_mutex_lock(&bq->lock);
     req = QTAILQ_FIRST(&bq->queue);
     if (req == NULL) {
         goto out;
@@ -275,7 +277,6 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
     }
 
 out:
-    qemu_mutex_unlock(&bq->lock);
     return req;
 }
 
@@ -295,7 +296,8 @@ static void blkqueue_process_request(BlockQueue *bq)
      * Note that we leave the request in the queue while we process it. No
      * other request will be queued before this one and we have only one thread
      * that processes the queue, so afterwards it will still be the first
-     * request. (XXX Not true for barriers in the first position)
+     * request. (Not true for barriers in the first position, but we can handle
+     * that)
      */
     req = QTAILQ_FIRST(&bq->queue);
     if (req == NULL) {
@@ -319,9 +321,20 @@ static void blkqueue_process_request(BlockQueue *bq)
      * Only remove the request from the queue when it's written, so that reads
      * always access the right data.
      */
-    req2 = blkqueue_pop(bq);
-    assert(req == req2);
-    blkqueue_free_request(req);
+    qemu_mutex_lock(&bq->lock);
+    req2 = QTAILQ_FIRST(&bq->queue);
+    if (req == req2) {
+        blkqueue_pop(bq);
+        blkqueue_free_request(req);
+    } else {
+        /*
+         * If it's a barrier and something has been queued before it, just
+         * leave it in the queue and flush once again later.
+         */
+        assert(req->type == REQ_TYPE_BARRIER);
+        bq->barriers_submitted++;
+    }
+    qemu_mutex_unlock(&bq->lock);
 }
 
 void blkqueue_flush(BlockQueue *bq)
