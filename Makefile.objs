@@ -15,6 +15,7 @@ oslib-obj-$(CONFIG_POSIX) += oslib-posix.o
 
 block-obj-y = cutils.o cache-utils.o qemu-malloc.o qemu-option.o module.o
 block-obj-y += nbd.o block.o aio.o aes.o qemu-config.o
+block-obj-y += qemu-thread.o block-queue.o
 block-obj-$(CONFIG_POSIX) += posix-aio-compat.o
 block-obj-$(CONFIG_LINUX_AIO) += linux-aio.o
 

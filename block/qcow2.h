@@ -26,6 +26,7 @@
 #define BLOCK_QCOW2_H
 
 #include "aes.h"
+#include "block-queue.h"
 
 //#define DEBUG_ALLOC
 //#define DEBUG_ALLOC2
@@ -106,6 +107,9 @@ typedef struct BDRVQcowState {
     uint16_t *refcount_block_cache;
     int64_t free_cluster_index;
     int64_t free_byte_offset;
+
+    BlockQueue *bq;
+    BlockQueueContext bq_context;
 
     uint32_t crypt_method; /* current crypt method, 0 if no key yet */
     uint32_t crypt_method_header;

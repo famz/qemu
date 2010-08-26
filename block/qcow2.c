@@ -237,6 +237,10 @@ static int qcow_open(BlockDriverState *bs, int flags)
     if (qcow2_read_snapshots(bs) < 0)
         goto fail;
 
+    /* Block queue */
+    s->bq = blkqueue_create(bs->file);
+    blkqueue_init_context(&s->bq_context, s->bq);
+
 #ifdef DEBUG_ALLOC
     qcow2_check_refcounts(bs);
 #endif
@@ -519,6 +523,7 @@ static QCowAIOCB *qcow_aio_setup(BlockDriverState *bs,
         int64_t sector_num, QEMUIOVector *qiov, int nb_sectors,
         BlockDriverCompletionFunc *cb, void *opaque, int is_write)
 {
+    BDRVQcowState *s = bs->opaque;
     QCowAIOCB *acb;
 
     acb = qemu_aio_get(&qcow_aio_pool, bs, cb, opaque);
@@ -536,6 +541,10 @@ static QCowAIOCB *qcow_aio_setup(BlockDriverState *bs,
     acb->cluster_offset = 0;
     acb->l2meta.nb_clusters = 0;
     QLIST_INIT(&acb->l2meta.dependent_requests);
+
+    /* TODO Push the context into l2meta */
+    blkqueue_init_context(&s->bq_context, s->bq);
+
     return acb;
 }
 
@@ -694,6 +703,7 @@ static void qcow_close(BlockDriverState *bs)
     qemu_free(s->cluster_cache);
     qemu_free(s->cluster_data);
     qcow2_refcount_close(bs);
+    blkqueue_destroy(s->bq);
 }
 
 /*
