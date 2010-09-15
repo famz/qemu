@@ -1160,12 +1160,22 @@ static int qcow_write_compressed(BlockDriverState *bs, int64_t sector_num,
 
 static int qcow_flush(BlockDriverState *bs)
 {
+    BDRVQcowState *s = bs->opaque;
+
+    /* FIXME Error handling */
+    blkqueue_flush(s->bq);
+
     return bdrv_flush(bs->file);
 }
 
 static BlockDriverAIOCB *qcow_aio_flush(BlockDriverState *bs,
          BlockDriverCompletionFunc *cb, void *opaque)
 {
+    BDRVQcowState *s = bs->opaque;
+
+    /* FIXME Error handling */
+    blkqueue_flush(s->bq);
+
     return bdrv_aio_flush(bs->file, cb, opaque);
 }
 

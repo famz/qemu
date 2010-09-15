@@ -206,6 +206,7 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
             req->section = section_req->section;
             context->section = section_req->section;
             QTAILQ_INSERT_BEFORE(section_req, req, link);
+            bq->queue_size++;
             goto out;
         }
     }
@@ -368,9 +369,7 @@ static void *blkqueue_thread(void *_bq)
         /* Don't process barriers, we only do that on flushes */
         if (req && (req->type != REQ_TYPE_BARRIER || bq->queue_size > 42)) {
             blkqueue_process_request(bq);
-        }
-
-        if (QTAILQ_FIRST(&bq->queue) == NULL) {
+        } else {
             qemu_cond_wait(&bq->cond, &bq->flush_lock);
         }
 #else
