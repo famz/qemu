@@ -59,6 +59,7 @@ struct BlockQueue {
 
     int                 barriers_requested;
     int                 barriers_submitted;
+    int                 queue_size;
 
     QTAILQ_HEAD(bq_queue_head, BlockQueueRequest) queue;
     QSIMPLEQ_HEAD(, BlockQueueRequest) sections;
@@ -211,6 +212,7 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
 
     /* If there was no barrier, just put it at the end. */
     QTAILQ_INSERT_TAIL(&bq->queue, req, link);
+    bq->queue_size++;
     qemu_cond_signal(&bq->cond);
 
 out:
@@ -248,6 +250,7 @@ int blkqueue_barrier(BlockQueueContext *context)
      */
     QTAILQ_INSERT_TAIL(&bq->queue, req, link);
     QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
+    bq->queue_size++;
     context->section++;
     qemu_cond_signal(&bq->cond);
 
@@ -271,6 +274,8 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
     }
 
     QTAILQ_REMOVE(&bq->queue, req, link);
+    bq->queue_size--;
+
     if (req->type == REQ_TYPE_BARRIER) {
         assert(QSIMPLEQ_FIRST(&bq->sections) == req);
         QSIMPLEQ_REMOVE_HEAD(&bq->sections, link_section);
@@ -352,12 +357,19 @@ void blkqueue_flush(BlockQueue *bq)
 static void *blkqueue_thread(void *_bq)
 {
     BlockQueue *bq = _bq;
+    BlockQueueRequest *req;
 
     qemu_mutex_lock(&bq->flush_lock);
     while (!bq->thread_done) {
         barrier();
 #ifndef RUN_TESTS
-        blkqueue_process_request(bq);
+        req = QTAILQ_FIRST(&bq->queue);
+
+        /* Don't process barriers, we only do that on flushes */
+        if (req && (req->type != REQ_TYPE_BARRIER || bq->queue_size > 42)) {
+            blkqueue_process_request(bq);
+        }
+
         if (QTAILQ_FIRST(&bq->queue) == NULL) {
             qemu_cond_wait(&bq->cond, &bq->flush_lock);
         }
