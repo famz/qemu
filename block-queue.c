@@ -358,7 +358,9 @@ void blkqueue_flush(BlockQueue *bq)
 static void *blkqueue_thread(void *_bq)
 {
     BlockQueue *bq = _bq;
+#ifndef RUN_TESTS
     BlockQueueRequest *req;
+#endif
 
     qemu_mutex_lock(&bq->flush_lock);
     while (!bq->thread_done) {
