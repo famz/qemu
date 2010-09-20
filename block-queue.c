@@ -343,6 +343,38 @@ static void blkqueue_process_request(BlockQueue *bq)
     qemu_mutex_unlock(&bq->lock);
 }
 
+struct blkqueue_flush_aiocb {
+    BlockQueue *bq;
+    BlockDriverCompletionFunc *cb;
+    void *opaque;
+};
+
+static void *blkqueue_aio_flush_thread(void *opaque)
+{
+    struct blkqueue_flush_aiocb *acb = opaque;
+
+    /* Process any left over requests */
+    blkqueue_flush(acb->bq);
+
+    acb->cb(acb->opaque, 0);
+    qemu_free(acb);
+
+    return NULL;
+}
+
+void blkqueue_aio_flush(BlockQueue *bq, BlockDriverCompletionFunc *cb,
+    void *opaque)
+{
+    struct blkqueue_flush_aiocb *acb;
+
+    acb = qemu_malloc(sizeof(*acb));
+    acb->bq = bq;
+    acb->cb = cb;
+    acb->opaque = opaque;
+
+    qemu_thread_create(NULL, blkqueue_aio_flush_thread, acb);
+}
+
 void blkqueue_flush(BlockQueue *bq)
 {
     qemu_mutex_lock(&bq->flush_lock);

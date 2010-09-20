@@ -43,5 +43,7 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     uint64_t size);
 int blkqueue_barrier(BlockQueueContext *context);
 void blkqueue_flush(BlockQueue *bq);
+void blkqueue_aio_flush(BlockQueue *bq, BlockDriverCompletionFunc *cb,
+    void *opaque);
 
 #endif
