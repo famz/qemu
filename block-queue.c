@@ -31,6 +31,30 @@
 #include "block.h"
 #include "block-queue.h"
 
+/* TODO items for blkqueue
+ *
+ * - There's no locking between the worker thread and other functions accessing
+ *   the same backend driver. Should be fine for file, but probably not for other
+ *   backends.
+ *
+ * - Error handling doesn't really exist. If something goes wrong with writing
+ *   metadata we can't fail the guest request any more because it's long
+ *   completed. Losing this data is actually okay, the guest hasn't flushed yet.
+ *
+ *   However, we need to be able to fail a flush, and we also need some way to
+ *   handle errors transparently. This probably means that we have to stop the VM
+ *   and let the user fix things so that we can retry. The only other way would be
+ *   to shut down the VM and end up in the same situation as with a host crash.
+ *
+ *   Or maybe it would even be enough to start failing all new requests.
+ *
+ * - The Makefile integration is obviously very wrong, too. It worked for me good
+ *   enough, but you need to be aware when block-queue.o is compiled with
+ *   RUN_TESTS and when it isn't. The tests need to be split out properly.
+ *
+ * - Disable queue for cache=writethrough
+ */
+
 enum blkqueue_req_type {
     REQ_TYPE_WRITE,
     REQ_TYPE_BARRIER,
