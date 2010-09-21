@@ -420,16 +420,18 @@ static void *blkqueue_thread(void *_bq)
 
     qemu_mutex_lock(&bq->flush_lock);
     while (!bq->thread_done) {
-        barrier();
 #ifndef RUN_TESTS
+        /*
+         * Don't process barriers, we only do that on flushes or when the queue
+         * has become long enough.
+         */
         req = QTAILQ_FIRST(&bq->queue);
-
-        /* Don't process barriers, we only do that on flushes */
-        if (req && (req->type != REQ_TYPE_BARRIER || bq->queue_size > 42)) {
-            blkqueue_process_request(bq);
-        } else {
+        while (!req || (req->type == REQ_TYPE_BARRIER && bq->queue_size < 42)) {
             qemu_cond_wait(&bq->cond, &bq->flush_lock);
+            req = QTAILQ_FIRST(&bq->queue);
         }
+
+        blkqueue_process_request(bq);
 #else
         qemu_cond_wait(&bq->cond, &bq->flush_lock);
 #endif
