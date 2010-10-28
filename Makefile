@@ -160,7 +160,7 @@ qemu-nbd$(EXESUF): qemu-nbd.o qemu-tool.o qemu-error.o $(oslib-obj-y) $(trace-ob
 qemu-io$(EXESUF): qemu-io.o cmd.o qemu-tool.o qemu-error.o $(oslib-obj-y) $(trace-obj-y) $(block-obj-y) $(qobject-obj-y) $(version-obj-y) qemu-timer-common.o
 
 block-queue$(EXESUF): QEMU_CFLAGS += -DRUN_TESTS
-block-queue$(EXESUF): qemu-tool.o qemu-error.o qemu-thread.o $(block-obj-y) $(qobject-obj-y)
+block-queue$(EXESUF): qemu-tool.o qemu-error.o qemu-thread.o $(block-obj-y) $(qobject-obj-y) qemu-timer-common.o
 
 qemu-img-cmds.h: $(SRC_PATH)/qemu-img-cmds.hx
 	$(call quiet-command,sh $(SRC_PATH)/hxtool -h < $< > $@,"  GEN   $@")
