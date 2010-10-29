@@ -2106,6 +2106,36 @@ BlockDriverAIOCB *bdrv_aio_writev(BlockDriverState *bs, int64_t sector_num,
     return ret;
 }
 
+struct pread_acb {
+    QEMUBH *bh;
+    BlockDriverCompletionFunc *cb;
+    void *opaque;
+    int ret;
+};
+
+static void bdrv_aio_pwrite_cb(void *opaque)
+{
+    struct pread_acb *x = opaque;
+
+    x->cb(x->opaque, x->ret);
+    qemu_bh_delete(x->bh);
+    free(x);
+}
+
+/* TODO Yes, this is a really bad fake implementation */
+BlockDriverAIOCB *bdrv_aio_pwrite(BlockDriverState *bs, int64_t offset, void* buf,
+    size_t bytes, BlockDriverCompletionFunc *cb, void *opaque)
+{
+    struct pread_acb *x = qemu_malloc(sizeof(*x));
+    x->bh = qemu_bh_new(bdrv_aio_pwrite_cb, x);
+    x->cb = cb;
+    x->opaque = opaque;
+    x->ret = bdrv_pwrite(bs, offset, buf, bytes);
+    qemu_bh_schedule(x->bh);
+
+    return (BlockDriverAIOCB*) 42;
+}
+
 
 typedef struct MultiwriteCB {
     int error;

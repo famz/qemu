@@ -62,6 +62,7 @@ enum blkqueue_req_type {
 
 typedef struct BlockQueueRequest {
     enum blkqueue_req_type type;
+    BlockQueue* bq;
 
     uint64_t    offset;
     void*       buf;
@@ -72,24 +73,25 @@ typedef struct BlockQueueRequest {
     QSIMPLEQ_ENTRY(BlockQueueRequest) link_section;
 } BlockQueueRequest;
 
+QTAILQ_HEAD(bq_queue_head, BlockQueueRequest);
+
 struct BlockQueue {
     BlockDriverState*   bs;
-
-    QemuThread          thread;
-    bool                thread_done;
-    QemuMutex           lock;
-    QemuMutex           flush_lock;
-    QemuCond            cond;
 
     int                 barriers_requested;
     int                 barriers_submitted;
     int                 queue_size;
 
-    QTAILQ_HEAD(bq_queue_head, BlockQueueRequest) queue;
+    unsigned int            in_flight_num;
+    enum blkqueue_req_type  in_flight_type;
+
+    struct bq_queue_head    queue;
+    struct bq_queue_head    in_flight;
+
     QSIMPLEQ_HEAD(, BlockQueueRequest) sections;
 };
 
-static void *blkqueue_thread(void *bq);
+static void blkqueue_process_request(BlockQueue *bq);
 
 BlockQueue *blkqueue_create(BlockDriverState *bs)
 {
@@ -97,14 +99,8 @@ BlockQueue *blkqueue_create(BlockDriverState *bs)
     bq->bs = bs;
 
     QTAILQ_INIT(&bq->queue);
+    QTAILQ_INIT(&bq->in_flight);
     QSIMPLEQ_INIT(&bq->sections);
-
-    qemu_mutex_init(&bq->lock);
-    qemu_mutex_init(&bq->flush_lock);
-    qemu_cond_init(&bq->cond);
-
-    bq->thread_done = false;
-    qemu_thread_create(&bq->thread, blkqueue_thread, bq);
 
     return bq;
 }
@@ -117,36 +113,36 @@ void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq)
 
 void blkqueue_destroy(BlockQueue *bq)
 {
-    bq->thread_done = true;
-    qemu_cond_signal(&bq->cond);
-    qemu_thread_join(&bq->thread);
-
     blkqueue_flush(bq);
 
     fprintf(stderr, "blkqueue_destroy: %d/%d barriers left\n",
         bq->barriers_submitted, bq->barriers_requested);
 
-    qemu_mutex_destroy(&bq->lock);
-    qemu_mutex_destroy(&bq->flush_lock);
-    qemu_cond_destroy(&bq->cond);
-
+    assert(QTAILQ_FIRST(&bq->in_flight) == NULL);
     assert(QTAILQ_FIRST(&bq->queue) == NULL);
     assert(QSIMPLEQ_FIRST(&bq->sections) == NULL);
     qemu_free(bq);
 }
 
-int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
-    uint64_t size)
+/*
+ * Checks if a read request accesses a region that is written by a write
+ * request in the queue. If so, memcpy the data from the write request.
+ *
+ * Returns true if the read request is handled completely, false if the caller
+ * needs to continue reading from other queues or from the disk.
+ */
+static bool blkqueue_pread_check_queues(BlockQueueContext *context,
+    struct bq_queue_head *queue, uint64_t *_offset, void **_buf,
+    uint64_t *_size)
 {
-    BlockQueue *bq = context->bq;
     BlockQueueRequest *req;
-    int ret;
 
-    /*
-     * First check if there are any pending writes for the same data. Reverse
-     * order to return data written by the latest write.
-     */
-    QTAILQ_FOREACH_REVERSE(req, &bq->queue, bq_queue_head, link) {
+    uint64_t offset = *_offset;
+    void *buf       = *_buf;
+    uint64_t size   = *_size;
+
+    /* Reverse order to return data written by the latest write. */
+    QTAILQ_FOREACH_REVERSE(req, queue, bq_queue_head, link) {
         uint64_t end = offset + size;
         uint64_t req_end = req->offset + req->size;
         uint8_t *read_buf = buf;
@@ -170,7 +166,7 @@ int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
         if ((offset >= req->offset) && (end <= req_end)) {
             /* Completely contained in the write request */
             memcpy(buf, &req_buf[offset - req->offset], size);
-            return 0;
+            return true;
         } else if ((end >= req->offset) && (end <= req_end)) {
             /* Overlap in the end of the read request */
             assert(offset < req->offset);
@@ -196,6 +192,40 @@ int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
         }
     }
 
+    /* The caller must continue with the request */
+    *_offset    = offset;
+    *_buf       = buf;
+    *_size      = size;
+
+    return false;
+}
+
+int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
+    uint64_t size)
+{
+    BlockQueue *bq = context->bq;
+    int ret;
+    bool completed;
+
+    /*
+     * First check if there are any pending writes for the same data.
+     *
+     * The latest writes are in bq->queue, and if checking those isn't enough,
+     * we have a second queue of requests that are already submitted, but
+     * haven't completed yet.
+     */
+    completed = blkqueue_pread_check_queues(context, &bq->queue, &offset,
+        &buf, &size);
+
+    if (!completed) {
+        completed = blkqueue_pread_check_queues(context, &bq->in_flight,
+            &offset, &buf, &size);
+    }
+
+    if (completed) {
+        return 0;
+    }
+
     /* The requested is not written in the queue, read it from disk */
     ret = bdrv_pread(bq->bs, offset, buf, size);
     if (ret < 0) {
@@ -214,6 +244,7 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     /* Create request structure */
     BlockQueueRequest *req = qemu_malloc(sizeof(*req));
     req->type       = REQ_TYPE_WRITE;
+    req->bq         = bq;
     req->offset     = offset;
     req->size       = size;
     req->buf        = qemu_malloc(size);
@@ -224,7 +255,6 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
      * Find the right place to insert it into the queue:
      * Right before the barrier that closes the current section.
      */
-    qemu_mutex_lock(&bq->lock);
     QSIMPLEQ_FOREACH(section_req, &bq->sections, link_section) {
         if (section_req->section >= req->section) {
             req->section = section_req->section;
@@ -238,10 +268,12 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     /* If there was no barrier, just put it at the end. */
     QTAILQ_INSERT_TAIL(&bq->queue, req, link);
     bq->queue_size++;
-    qemu_cond_signal(&bq->cond);
+
+#ifndef RUN_TESTS
+    blkqueue_process_request(bq);
+#endif
 
 out:
-    qemu_mutex_unlock(&bq->lock);
     return 0;
 }
 
@@ -255,11 +287,11 @@ int blkqueue_barrier(BlockQueueContext *context)
     /* Create request structure */
     BlockQueueRequest *req = qemu_malloc(sizeof(*req));
     req->type       = REQ_TYPE_BARRIER;
+    req->bq         = bq;
     req->section    = context->section;
     req->buf        = NULL;
 
     /* Find another barrier to merge with. */
-    qemu_mutex_lock(&bq->lock);
     QSIMPLEQ_FOREACH(section_req, &bq->sections, link_section) {
         if (section_req->section >= req->section) {
             req->section = section_req->section;
@@ -277,12 +309,14 @@ int blkqueue_barrier(BlockQueueContext *context)
     QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
     bq->queue_size++;
     context->section++;
-    qemu_cond_signal(&bq->cond);
 
     bq->barriers_submitted++;
 
+#ifndef RUN_TESTS
+    blkqueue_process_request(bq);
+#endif
+
 out:
-    qemu_mutex_unlock(&bq->lock);
     return 0;
 }
 
@@ -316,55 +350,82 @@ static void blkqueue_free_request(BlockQueueRequest *req)
     qemu_free(req);
 }
 
-static void blkqueue_process_request(BlockQueue *bq)
+static void blkqueue_process_request_cb(void *opaque, int ret)
 {
-    BlockQueueRequest *req;
-    BlockQueueRequest *req2;
-    int ret;
+    BlockQueueRequest *req = opaque;
+    BlockQueue *bq = req->bq;
 
-    /*
-     * Note that we leave the request in the queue while we process it. No
-     * other request will be queued before this one and we have only one thread
-     * that processes the queue, so afterwards it will still be the first
-     * request. (Not true for barriers in the first position, but we can handle
-     * that)
-     */
+    /* TODO Error reporting! */
+    QTAILQ_REMOVE(&bq->in_flight, req, link);
+fprintf(stderr, "Removing from in_flight: %p (ret = %d)\n", req, ret);
+    blkqueue_free_request(req);
+
+    bq->in_flight_num--;
+
+    blkqueue_process_request(bq);
+}
+
+static int blkqueue_submit_request(BlockQueue *bq)
+{
+    BlockDriverAIOCB *acb;
+    BlockQueueRequest *req;
+
+    /* Fetch a request */
     req = QTAILQ_FIRST(&bq->queue);
     if (req == NULL) {
-        return;
-    }
-
-    switch (req->type) {
-        case REQ_TYPE_WRITE:
-            ret = bdrv_pwrite(bq->bs, req->offset, req->buf, req->size);
-            if (ret < 0) {
-                /* TODO Error reporting! */
-                return;
-            }
-            break;
-        case REQ_TYPE_BARRIER:
-            bdrv_flush(bq->bs);
-            break;
+        return -1;
     }
 
     /*
-     * Only remove the request from the queue when it's written, so that reads
-     * always access the right data.
+     * If we're currently processing a barrier, or the new request is a
+     * barrier, we need to guarantee this barrier semantics, i.e. we need to
+     * wait for completion before we can submit new requests.
      */
-    qemu_mutex_lock(&bq->lock);
-    req2 = QTAILQ_FIRST(&bq->queue);
-    if (req == req2) {
-        blkqueue_pop(bq);
-        blkqueue_free_request(req);
-    } else {
-        /*
-         * If it's a barrier and something has been queued before it, just
-         * leave it in the queue and flush once again later.
-         */
-        assert(req->type == REQ_TYPE_BARRIER);
-        bq->barriers_submitted++;
+    if (bq->in_flight_num > 0 && bq->in_flight_type != req->type) {
+        return -1;
     }
-    qemu_mutex_unlock(&bq->lock);
+
+    /*
+     * Copy the request in the queue of currently processed requests so that
+     * blkqueue_pread continues to read from the queue before the request has
+     * completed.
+     */
+    blkqueue_pop(bq);
+    QTAILQ_INSERT_TAIL(&bq->in_flight, req, link);
+fprintf(stderr, "Inserting to in_flight: %p\n", req);
+
+    bq->in_flight_num++;
+    bq->in_flight_type = req->type;
+
+    /* Submit the request */
+    switch (req->type) {
+        case REQ_TYPE_WRITE:
+            acb = bdrv_aio_pwrite(bq->bs, req->offset, req->buf, req->size,
+                blkqueue_process_request_cb, req);
+            break;
+        case REQ_TYPE_BARRIER:
+            acb = bdrv_aio_flush(bq->bs, blkqueue_process_request_cb, req);
+            break;
+        default:
+            /* Make gcc happy (acb would be uninitialized) */
+            return -1;
+    }
+
+    if (!acb) {
+        blkqueue_process_request_cb(req, -EIO);
+        return -1;
+    }
+
+    return 0;
+}
+
+static void blkqueue_process_request(BlockQueue *bq)
+{
+    int ret = 0;
+
+    while (ret >= 0) {
+        ret = blkqueue_submit_request(bq);
+    }
 }
 
 struct blkqueue_flush_aiocb {
@@ -396,67 +457,37 @@ void blkqueue_aio_flush(BlockQueue *bq, BlockDriverCompletionFunc *cb,
     acb->cb = cb;
     acb->opaque = opaque;
 
+    /* FIXME This is very broken */
     qemu_thread_create(NULL, blkqueue_aio_flush_thread, acb);
 }
 
 void blkqueue_flush(BlockQueue *bq)
 {
-    qemu_mutex_lock(&bq->flush_lock);
-
     /* Process any left over requests */
-    while (QTAILQ_FIRST(&bq->queue)) {
+    while (bq->in_flight_num || QTAILQ_FIRST(&bq->queue)) {
         blkqueue_process_request(bq);
+        qemu_aio_wait();
     }
-
-    qemu_mutex_unlock(&bq->flush_lock);
-}
-
-static void *blkqueue_thread(void *_bq)
-{
-    BlockQueue *bq = _bq;
-#ifndef RUN_TESTS
-    BlockQueueRequest *req;
-#endif
-
-    qemu_mutex_lock(&bq->flush_lock);
-    while (!bq->thread_done) {
-#ifndef RUN_TESTS
-        /*
-         * Don't process barriers, we only do that on flushes or when the queue
-         * has become long enough.
-         */
-        req = QTAILQ_FIRST(&bq->queue);
-        while (!req || (req->type == REQ_TYPE_BARRIER && bq->queue_size < 42)) {
-            qemu_cond_wait(&bq->cond, &bq->flush_lock);
-            req = QTAILQ_FIRST(&bq->queue);
-        }
-
-        blkqueue_process_request(bq);
-#else
-        qemu_cond_wait(&bq->cond, &bq->flush_lock);
-#endif
-    }
-    qemu_mutex_unlock(&bq->flush_lock);
-
-    return NULL;
 }
 
 #ifdef RUN_TESTS
 
-#define CHECK_WRITE(req, _offset, _size, _buf, _section) \
+#define CHECK_WRITE(req, _bq, _offset, _size, _buf, _section) \
     do { \
         assert(req != NULL); \
         assert(req->type == REQ_TYPE_WRITE); \
+        assert(req->bq == _bq); \
         assert(req->offset == _offset); \
         assert(req->size == _size); \
         assert(req->section == _section); \
         assert(!memcmp(req->buf, _buf, _size)); \
     } while(0)
 
-#define CHECK_BARRIER(req, _section) \
+#define CHECK_BARRIER(req, _bq, _section) \
     do { \
         assert(req != NULL); \
         assert(req->type == REQ_TYPE_BARRIER); \
+        assert(req->bq == _bq); \
         assert(req->section == _section); \
     } while(0)
 
@@ -488,14 +519,14 @@ static void *blkqueue_thread(void *_bq)
         BlockQueueRequest *req; \
         memset(_buf, _pattern, _size); \
         req = blkqueue_pop(_bq); \
-        CHECK_WRITE(req, _offset, _size, _buf, _section); \
+        CHECK_WRITE(req, _bq, _offset, _size, _buf, _section); \
         blkqueue_free_request(req); \
     } while(0)
 #define POP_CHECK_BARRIER(_bq, _section) \
     do { \
         BlockQueueRequest *req; \
         req = blkqueue_pop(_bq); \
-        CHECK_BARRIER(req, _section); \
+        CHECK_BARRIER(req, _bq, _section); \
         blkqueue_free_request(req); \
     } while(0)
 
@@ -691,16 +722,25 @@ static void test_process_request(BlockDriverState *bs)
     memset(buf2 + 25, 0x44, 5);
     CHECK_READ(&ctx1, 0, buf, 64, buf2);
 
-    /* Process the queue (plus one call to test a NULL condition) */
+    /* Process the requests */
     blkqueue_process_request(bq);
-    blkqueue_process_request(bq);
-    blkqueue_process_request(bq);
+    assert(bq->in_flight_num == 1);
+    assert(bq->in_flight_type == REQ_TYPE_WRITE);
+
+    /* Check if we still read the same */
+    CHECK_READ(&ctx1, 0, buf, 64, buf2);
+
+    /* Process the AIO requests and check again */
+    qemu_aio_flush();
+    assert(bq->barriers_submitted == 1);
+    assert(bq->in_flight_num == 0);
+    CHECK_READ(&ctx1, 0, buf, 64, buf2);
 
     /* Verify the queue is empty */
     assert(blkqueue_pop(bq) == NULL);
 
-    /* Check if we still read the same */
-    CHECK_READ(&ctx1, 0, buf, 64, buf2);
+    /* Check that processing an empty queue works */
+    blkqueue_process_request(bq);
 
     blkqueue_destroy(bq);
 }
