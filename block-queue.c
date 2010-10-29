@@ -81,6 +81,7 @@ struct BlockQueue {
     int                 barriers_requested;
     int                 barriers_submitted;
     int                 queue_size;
+    int                 flushing;
 
     unsigned int            in_flight_num;
     enum blkqueue_req_type  in_flight_type;
@@ -357,7 +358,7 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
 
     /* TODO Error reporting! */
     QTAILQ_REMOVE(&bq->in_flight, req, link);
-fprintf(stderr, "Removing from in_flight: %p (ret = %d)\n", req, ret);
+//fprintf(stderr, "Removing from in_flight: %p (ret = %d)\n", req, ret);
     blkqueue_free_request(req);
 
     bq->in_flight_num--;
@@ -385,6 +386,13 @@ static int blkqueue_submit_request(BlockQueue *bq)
         return -1;
     }
 
+    /* Process barriers only if the queue is long enough */
+    if (!bq->flushing) {
+        if (req->type == REQ_TYPE_BARRIER && bq->queue_size < 50) {
+            return -1;
+        }
+    }
+
     /*
      * Copy the request in the queue of currently processed requests so that
      * blkqueue_pread continues to read from the queue before the request has
@@ -392,7 +400,7 @@ static int blkqueue_submit_request(BlockQueue *bq)
      */
     blkqueue_pop(bq);
     QTAILQ_INSERT_TAIL(&bq->in_flight, req, link);
-fprintf(stderr, "Inserting to in_flight: %p\n", req);
+//fprintf(stderr, "Inserting to in_flight: %p\n", req);
 
     bq->in_flight_num++;
     bq->in_flight_type = req->type;
@@ -463,11 +471,15 @@ void blkqueue_aio_flush(BlockQueue *bq, BlockDriverCompletionFunc *cb,
 
 void blkqueue_flush(BlockQueue *bq)
 {
+    bq->flushing = 1;
+
     /* Process any left over requests */
     while (bq->in_flight_num || QTAILQ_FIRST(&bq->queue)) {
         blkqueue_process_request(bq);
         qemu_aio_wait();
     }
+
+    bq->flushing = 0;
 }
 
 #ifdef RUN_TESTS
