@@ -67,7 +67,7 @@ int qcow2_grow_l1_table(BlockDriverState *bs, int min_size, bool exact_size)
         qemu_free(new_l1_table);
         return new_l1_table_offset;
     }
-    bdrv_flush(bs->file);
+    blkqueue_barrier(&s->bq_context);
 
     BLKDBG_EVENT(bs->file, BLKDBG_L1_GROW_WRITE_TABLE);
     for(i = 0; i < s->l1_size; i++)
@@ -253,7 +253,7 @@ static int l2_allocate(BlockDriverState *bs, int l1_index, uint64_t **table)
     if (l2_offset < 0) {
         return l2_offset;
     }
-    bdrv_flush(bs->file);
+    blkqueue_barrier(&s->bq_context);
 
     /* allocate a new entry in the l2 cache */
 
@@ -733,7 +733,7 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
      * need to be sure that the refcounts have been increased and COW was
      * handled.
      */
-    bdrv_flush(bs->file);
+    blkqueue_barrier(&s->bq_context);
 
     ret = write_l2_entries(bs, l2_table, l2_offset, l2_index, m->nb_clusters);
     if (ret < 0) {

@@ -260,7 +260,7 @@ static int64_t alloc_refcount_block(BlockDriverState *bs, int64_t cluster_index)
             goto fail_block;
         }
 
-        bdrv_flush(bs->file);
+        blkqueue_barrier(&s->bq_context);
 
         /* Initialize the new refcount block only after updating its refcount,
          * update_refcount uses the refcount cache itself */
@@ -572,7 +572,7 @@ static int update_cluster_refcount(BlockDriverState *bs,
         return ret;
     }
 
-    bdrv_flush(bs->file);
+    blkqueue_barrier(&s->bq_context);
 
     return get_refcount(bs, cluster_index);
 }
@@ -674,7 +674,7 @@ int64_t qcow2_alloc_bytes(BlockDriverState *bs, int size)
         }
     }
 
-    bdrv_flush(bs->file);
+    blkqueue_barrier(&s->bq_context);
     return offset;
 }
 
@@ -807,7 +807,7 @@ int qcow2_update_snapshot_refcount(BlockDriverState *bs,
 
                             /* TODO Flushing once for the whole function should
                              * be enough */
-                            bdrv_flush(bs->file);
+                            blkqueue_barrier(&s->bq_context);
                         }
                         /* compressed clusters are never modified */
                         refcount = 2;
