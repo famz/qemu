@@ -1172,11 +1172,10 @@ static BlockDriverAIOCB *qcow_aio_flush(BlockDriverState *bs,
          BlockDriverCompletionFunc *cb, void *opaque)
 {
     BDRVQcowState *s = bs->opaque;
+    BlockQueueContext context;
 
-    /* FIXME Error handling */
-    blkqueue_flush(s->bq);
-
-    return bdrv_aio_flush(bs->file, cb, opaque);
+    blkqueue_init_context(&context, s->bq);
+    return blkqueue_aio_flush(&context, cb, opaque);
 }
 
 static int64_t qcow_vm_state_offset(BDRVQcowState *s)
