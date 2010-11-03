@@ -767,7 +767,7 @@ int qcow2_update_snapshot_refcount(BlockDriverState *bs,
             l1_table = NULL;
         }
         l1_allocated = 1;
-        if (blkqueue_pread(&s->bq_context, l1_table_offset, l1_table, l1_size2) != l1_size2)
+        if (blkqueue_pread(&s->bq_context, l1_table_offset, l1_table, l1_size2) < 0)
             goto fail;
         for(i = 0;i < l1_size; i++)
             be64_to_cpus(&l1_table[i]);
@@ -786,7 +786,7 @@ int qcow2_update_snapshot_refcount(BlockDriverState *bs,
             old_l2_offset = l2_offset;
             l2_offset &= ~QCOW_OFLAG_COPIED;
             l2_modified = 0;
-            if (blkqueue_pread(&s->bq_context, l2_offset, l2_table, l2_size) != l2_size)
+            if (blkqueue_pread(&s->bq_context, l2_offset, l2_table, l2_size) < 0)
                 goto fail;
             for(j = 0; j < s->l2_size; j++) {
                 offset = be64_to_cpu(l2_table[j]);
@@ -950,8 +950,9 @@ static int check_refcounts_l2(BlockDriverState *bs, BdrvCheckResult *res,
     l2_size = s->l2_size * sizeof(uint64_t);
     l2_table = qemu_malloc(l2_size);
 
-    if (blkqueue_pread(&s->bq_context, l2_offset, l2_table, l2_size) != l2_size)
+    if (blkqueue_pread(&s->bq_context, l2_offset, l2_table, l2_size) < 0) {
         goto fail;
+    }
 
     /* Do the actual checks */
     for(i = 0; i < s->l2_size; i++) {
@@ -1045,8 +1046,10 @@ static int check_refcounts_l1(BlockDriverState *bs,
         l1_table = NULL;
     } else {
         l1_table = qemu_malloc(l1_size2);
-        if (blkqueue_pread(&s->bq_context, l1_table_offset, l1_table, l1_size2) != l1_size2)
+        if (blkqueue_pread(&s->bq_context, l1_table_offset, l1_table, l1_size2) < 0) {
             goto fail;
+        }
+
         for(i = 0;i < l1_size; i++)
             be64_to_cpus(&l1_table[i]);
     }
@@ -1119,6 +1122,8 @@ int qcow2_check_refcounts(BlockDriverState *bs, BdrvCheckResult *res)
     size = bdrv_getlength(bs->file);
     nb_clusters = size_to_clusters(s, size);
     refcount_table = qemu_mallocz(nb_clusters * sizeof(uint16_t));
+
+    blkqueue_init_context(&s->bq_context, s->bq);
 
     /* header */
     inc_refcounts(bs, res, refcount_table, nb_clusters,
