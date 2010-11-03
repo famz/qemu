@@ -26,16 +26,10 @@
 
 #include "qemu-common.h"
 #include "qemu-queue.h"
-#include "qemu-thread.h"
-#include "qemu-barrier.h"
 #include "block.h"
 #include "block-queue.h"
 
 /* TODO items for blkqueue
- *
- * - There's no locking between the worker thread and other functions accessing
- *   the same backend driver. Should be fine for file, but probably not for other
- *   backends.
  *
  * - Error handling doesn't really exist. If something goes wrong with writing
  *   metadata we can't fail the guest request any more because it's long
@@ -60,6 +54,13 @@ enum blkqueue_req_type {
     REQ_TYPE_BARRIER,
 };
 
+typedef struct BlockQueueAIOCB {
+    BlockDriverCompletionFunc *cb;
+    void *opaque;
+    QLIST_ENTRY(BlockQueueAIOCB) link;
+} BlockQueueAIOCB;
+
+
 typedef struct BlockQueueRequest {
     enum blkqueue_req_type type;
     BlockQueue* bq;
@@ -68,6 +69,8 @@ typedef struct BlockQueueRequest {
     void*       buf;
     uint64_t    size;
     unsigned    section;
+
+    QLIST_HEAD(, BlockQueueAIOCB) acbs;
 
     QTAILQ_ENTRY(BlockQueueRequest) link;
     QSIMPLEQ_ENTRY(BlockQueueRequest) link_section;
@@ -91,6 +94,7 @@ struct BlockQueue {
 
     QSIMPLEQ_HEAD(, BlockQueueRequest) sections;
 };
+
 
 static void blkqueue_process_request(BlockQueue *bq);
 
@@ -244,6 +248,7 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
 
     /* Create request structure */
     BlockQueueRequest *req = qemu_malloc(sizeof(*req));
+    QLIST_INIT(&req->acbs);
     req->type       = REQ_TYPE_WRITE;
     req->bq         = bq;
     req->offset     = offset;
@@ -278,7 +283,7 @@ out:
     return 0;
 }
 
-int blkqueue_barrier(BlockQueueContext *context)
+static int insert_barrier(BlockQueueContext *context, BlockQueueAIOCB *acb)
 {
     BlockQueue *bq = context->bq;
     BlockQueueRequest *section_req;
@@ -287,6 +292,7 @@ int blkqueue_barrier(BlockQueueContext *context)
 
     /* Create request structure */
     BlockQueueRequest *req = qemu_malloc(sizeof(*req));
+    QLIST_INIT(&req->acbs);
     req->type       = REQ_TYPE_BARRIER;
     req->bq         = bq;
     req->section    = context->section;
@@ -298,6 +304,7 @@ int blkqueue_barrier(BlockQueueContext *context)
             req->section = section_req->section;
             context->section = section_req->section + 1;
             qemu_free(req);
+            req = section_req;
             goto out;
         }
     }
@@ -313,12 +320,28 @@ int blkqueue_barrier(BlockQueueContext *context)
 
     bq->barriers_submitted++;
 
+    /*
+     * At this point, req is either the newly inserted request, or a previously
+     * existing barrier with which the current request has been merged.
+     *
+     * Insert the ACB in the list of that request so that the callback is
+     * called when the request has completed.
+     */
+out:
+    if (acb) {
+        QLIST_INSERT_HEAD(&req->acbs, acb, link);
+    }
+
 #ifndef RUN_TESTS
     blkqueue_process_request(bq);
 #endif
 
-out:
     return 0;
+}
+
+int blkqueue_barrier(BlockQueueContext *context)
+{
+    return insert_barrier(context, NULL);
 }
 
 /*
@@ -355,10 +378,16 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
 {
     BlockQueueRequest *req = opaque;
     BlockQueue *bq = req->bq;
+    BlockQueueAIOCB *acb, *next;
 
     /* TODO Error reporting! */
     QTAILQ_REMOVE(&bq->in_flight, req, link);
 //fprintf(stderr, "Removing from in_flight: %p (ret = %d)\n", req, ret);
+    QLIST_FOREACH_SAFE(acb, &req->acbs, link, next) {
+        acb->cb(acb->opaque, 0); /* TODO ret */
+        qemu_free(acb);
+    }
+
     blkqueue_free_request(req);
 
     bq->in_flight_num--;
@@ -400,7 +429,6 @@ static int blkqueue_submit_request(BlockQueue *bq)
      */
     blkqueue_pop(bq);
     QTAILQ_INSERT_TAIL(&bq->in_flight, req, link);
-//fprintf(stderr, "Inserting to in_flight: %p\n", req);
 
     bq->in_flight_num++;
     bq->in_flight_type = req->type;
@@ -436,37 +464,21 @@ static void blkqueue_process_request(BlockQueue *bq)
     }
 }
 
-struct blkqueue_flush_aiocb {
-    BlockQueue *bq;
-    BlockDriverCompletionFunc *cb;
-    void *opaque;
-};
-
-static void *blkqueue_aio_flush_thread(void *opaque)
+void blkqueue_aio_flush(BlockQueueContext *context,
+    BlockDriverCompletionFunc *cb, void *opaque)
 {
-    struct blkqueue_flush_aiocb *acb = opaque;
-
-    /* Process any left over requests */
-    blkqueue_flush(acb->bq);
-
-    acb->cb(acb->opaque, 0);
-    qemu_free(acb);
-
-    return NULL;
-}
-
-void blkqueue_aio_flush(BlockQueue *bq, BlockDriverCompletionFunc *cb,
-    void *opaque)
-{
-    struct blkqueue_flush_aiocb *acb;
+    BlockQueueAIOCB *acb;
+    int ret;
 
     acb = qemu_malloc(sizeof(*acb));
-    acb->bq = bq;
     acb->cb = cb;
     acb->opaque = opaque;
 
-    /* FIXME This is very broken */
-    qemu_thread_create(NULL, blkqueue_aio_flush_thread, acb);
+    ret = insert_barrier(context, acb);
+    if (ret < 0) {
+        cb(opaque, ret);
+        qemu_free(acb);
+    }
 }
 
 void blkqueue_flush(BlockQueue *bq)
