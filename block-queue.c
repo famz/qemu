@@ -26,7 +26,7 @@
 
 #include "qemu-common.h"
 #include "qemu-queue.h"
-#include "block.h"
+#include "block_int.h"
 #include "block-queue.h"
 
 /* TODO items for blkqueue
@@ -55,11 +55,9 @@ enum blkqueue_req_type {
 };
 
 typedef struct BlockQueueAIOCB {
-    BlockDriverCompletionFunc *cb;
-    void *opaque;
+    BlockDriverAIOCB common;
     QLIST_ENTRY(BlockQueueAIOCB) link;
 } BlockQueueAIOCB;
-
 
 typedef struct BlockQueueRequest {
     enum blkqueue_req_type type;
@@ -97,6 +95,12 @@ struct BlockQueue {
 
 
 static void blkqueue_process_request(BlockQueue *bq);
+static void blkqueue_aio_cancel(BlockDriverAIOCB *blockacb);
+
+static AIOPool blkqueue_aio_pool = {
+    .aiocb_size         = sizeof(struct BlockQueueAIOCB),
+    .cancel             = blkqueue_aio_cancel,
+};
 
 BlockQueue *blkqueue_create(BlockDriverState *bs)
 {
@@ -384,7 +388,7 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
     QTAILQ_REMOVE(&bq->in_flight, req, link);
 //fprintf(stderr, "Removing from in_flight: %p (ret = %d)\n", req, ret);
     QLIST_FOREACH_SAFE(acb, &req->acbs, link, next) {
-        acb->cb(acb->opaque, 0); /* TODO ret */
+        acb->common.cb(acb->common.opaque, 0); /* TODO ret */
         qemu_free(acb);
     }
 
@@ -464,21 +468,33 @@ static void blkqueue_process_request(BlockQueue *bq)
     }
 }
 
-void blkqueue_aio_flush(BlockQueueContext *context,
+static void blkqueue_aio_cancel(BlockDriverAIOCB *blockacb)
+{
+    BlockQueueAIOCB *acb = (BlockQueueAIOCB*) blockacb;
+
+    /*
+     * We can't cancel the flush any more, but that doesn't hurt. We just
+     * need to make sure that we don't call the callback when it completes.
+     */
+    QLIST_REMOVE(acb, link);
+    qemu_free(acb);
+}
+
+BlockDriverAIOCB* blkqueue_aio_flush(BlockQueueContext *context,
     BlockDriverCompletionFunc *cb, void *opaque)
 {
     BlockQueueAIOCB *acb;
     int ret;
 
-    acb = qemu_malloc(sizeof(*acb));
-    acb->cb = cb;
-    acb->opaque = opaque;
+    acb = qemu_aio_get(&blkqueue_aio_pool, NULL, cb, opaque);
 
     ret = insert_barrier(context, acb);
     if (ret < 0) {
         cb(opaque, ret);
         qemu_free(acb);
     }
+
+    return &acb->common;
 }
 
 void blkqueue_flush(BlockQueue *bq)
