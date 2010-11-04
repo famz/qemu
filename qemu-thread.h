@@ -36,7 +36,6 @@ int qemu_cond_timedwait(QemuCond *cond, QemuMutex *mutex, uint64_t msecs);
 void qemu_thread_create(QemuThread *thread,
                        void *(*start_routine)(void*),
                        void *arg);
-void *qemu_thread_join(QemuThread *thread);
 void qemu_thread_signal(QemuThread *thread, int sig);
 void qemu_thread_self(QemuThread *thread);
 int qemu_thread_equal(QemuThread *thread1, QemuThread *thread2);
