@@ -29,6 +29,8 @@
 #include "block_int.h"
 #include "block-queue.h"
 
+#define WRITEBACK_MODES (BDRV_O_NOCACHE | BDRV_O_CACHE_WB)
+
 /* TODO items for blkqueue
  *
  * - Error handling doesn't really exist. If something goes wrong with writing
@@ -41,8 +43,6 @@
  *   to shut down the VM and end up in the same situation as with a host crash.
  *
  *   Or maybe it would even be enough to start failing all new requests.
- *
- * - Disable queue for cache=writethrough
  *
  * - Need a real bdrv_aio_pwrite implementation
  */
@@ -248,6 +248,11 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     BlockQueue *bq = context->bq;
     BlockQueueRequest *section_req;
 
+    /* Don't use the queue for writethrough images */
+    if ((bq->bs->open_flags & WRITEBACK_MODES) == 0) {
+        return bdrv_pwrite(bq->bs, offset, buf, size);
+    }
+
     /* TODO Remove overwritten writes in the same section from the queue */
 
     /* Create request structure */
@@ -440,6 +445,7 @@ static int blkqueue_submit_request(BlockQueue *bq)
     /* Submit the request */
     switch (req->type) {
         case REQ_TYPE_WRITE:
+            /* FIXME This may reorder writes to the same offset */
             acb = bdrv_aio_pwrite(bq->bs, req->offset, req->buf, req->size,
                 blkqueue_process_request_cb, req);
             break;
@@ -484,8 +490,15 @@ BlockDriverAIOCB* blkqueue_aio_flush(BlockQueueContext *context,
     BlockDriverCompletionFunc *cb, void *opaque)
 {
     BlockQueueAIOCB *acb;
+    BlockDriverState *bs = context->bq->bs;
     int ret;
 
+    /* Don't use the queue for writethrough images */
+    if ((bs->open_flags & WRITEBACK_MODES) == 0) {
+        return bdrv_aio_flush(bs, cb, opaque);
+    }
+
+    /* Insert a barrier into the queue */
     acb = qemu_aio_get(&blkqueue_aio_pool, NULL, cb, opaque);
 
     ret = insert_barrier(context, acb);

@@ -320,7 +320,7 @@ int main(void)
 
     bdrv_init();
     bs = bdrv_new("");
-    ret = bdrv_open(bs, "block-queue.img", BDRV_O_RDWR, NULL);
+    ret = bdrv_open(bs, "block-queue.img", BDRV_O_RDWR | BDRV_O_CACHE_WB, NULL);
     if (ret < 0) {
         fprintf(stderr, "Couldn't open block-queue.img: %s\n",
             strerror(-ret));
