@@ -22,8 +22,6 @@
  * THE SOFTWARE.
  */
 
-#include <signal.h>
-
 #include "qemu-common.h"
 #include "qemu-queue.h"
 #include "block_int.h"
@@ -356,6 +354,17 @@ static int insert_barrier(BlockQueueContext *context, BlockQueueAIOCB *acb)
     /* Find another barrier to merge with. */
     QSIMPLEQ_FOREACH(section_req, &bq->sections, link_section) {
         if (section_req->section >= req->section) {
+
+            /*
+             * If acb is set, the intention of the barrier request is to flush
+             * the complete queue and notify the caller when all requests have
+             * been processed. To achieve this, we may only merge with the very
+             * last request in the queue.
+             */
+            if (acb && QTAILQ_NEXT(section_req, link)) {
+                continue;
+            }
+
             req->section = section_req->section;
             context->section = section_req->section + 1;
             qemu_free(req);
@@ -561,7 +570,6 @@ BlockDriverAIOCB* blkqueue_aio_flush(BlockQueueContext *context,
     /* Insert a barrier into the queue */
     acb = qemu_aio_get(&blkqueue_aio_pool, NULL, cb, opaque);
 
-    /* FIXME Need to make sure that the barrier is not merged */
     ret = insert_barrier(context, acb);
     if (ret < 0) {
         cb(opaque, ret);
