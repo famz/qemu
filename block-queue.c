@@ -122,8 +122,8 @@ void blkqueue_destroy(BlockQueue *bq)
 {
     blkqueue_flush(bq);
 
-    fprintf(stderr, "blkqueue_destroy: %d/%d barriers left\n",
-        bq->barriers_submitted, bq->barriers_requested);
+//    fprintf(stderr, "blkqueue_destroy: %d/%d barriers left\n",
+//        bq->barriers_submitted, bq->barriers_requested);
 
     assert(QTAILQ_FIRST(&bq->in_flight) == NULL);
     assert(QTAILQ_FIRST(&bq->queue) == NULL);
@@ -350,6 +350,11 @@ out:
 
 int blkqueue_barrier(BlockQueueContext *context)
 {
+    /* Don't flush for writethrough images */
+    if ((context->bq->bs->open_flags & WRITEBACK_MODES) == 0) {
+        return 0;
+    }
+
     return insert_barrier(context, NULL);
 }
 
@@ -414,6 +419,9 @@ static int blkqueue_submit_request(BlockQueue *bq)
     if (req == NULL) {
         return -1;
     }
+
+    /* Writethrough images aren't supposed to have any queue entries */
+    assert((bq->bs->open_flags & WRITEBACK_MODES) != 0);
 
     /*
      * If we're currently processing a barrier, or the new request is a
