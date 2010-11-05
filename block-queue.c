@@ -29,6 +29,13 @@
 #include "block_int.h"
 #include "block-queue.h"
 
+#define BLKQUEUE_DEBUG
+#ifdef BLKQUEUE_DEBUG
+#define DPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
+#else
+#define DPRINTF(...) do {} while(0)
+#endif
+
 #define WRITEBACK_MODES (BDRV_O_NOCACHE | BDRV_O_CACHE_WB)
 
 /* TODO items for blkqueue
@@ -275,20 +282,20 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
             req->section = section_req->section;
             context->section = section_req->section;
             QTAILQ_INSERT_BEFORE(section_req, req, link);
-            bq->queue_size++;
             goto out;
         }
     }
 
     /* If there was no barrier, just put it at the end. */
     QTAILQ_INSERT_TAIL(&bq->queue, req, link);
-    bq->queue_size++;
 
+out:
+    DPRINTF("queue-ins pwrite: %p [%lx + %lx]\n", req, req->offset, req->size);
+    bq->queue_size++;
 #ifndef RUN_TESTS
     blkqueue_process_request(bq);
 #endif
 
-out:
     return 0;
 }
 
@@ -322,6 +329,7 @@ static int insert_barrier(BlockQueueContext *context, BlockQueueAIOCB *acb)
      * If there wasn't a barrier for the same section yet, insert a new one at
      * the end.
      */
+    DPRINTF("queue-ins flush: %p\n", req);
     QTAILQ_INSERT_TAIL(&bq->queue, req, link);
     QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
     bq->queue_size++;
@@ -394,6 +402,8 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
     BlockQueue *bq = req->bq;
     BlockQueueAIOCB *acb, *next;
 
+    DPRINTF("  done    req:    %p [%lx + %lx]\n", req, req->offset, req->size);
+
     /* TODO Error reporting! */
     QTAILQ_REMOVE(&bq->in_flight, req, link);
 //fprintf(stderr, "Removing from in_flight: %p (ret = %d)\n", req, ret);
@@ -454,10 +464,13 @@ static int blkqueue_submit_request(BlockQueue *bq)
     switch (req->type) {
         case REQ_TYPE_WRITE:
             /* FIXME This may reorder writes to the same offset */
+            DPRINTF("  process pwrite: %p [%lx + %lx]\n",
+                req, req->offset, req->size);
             acb = bdrv_aio_pwrite(bq->bs, req->offset, req->buf, req->size,
                 blkqueue_process_request_cb, req);
             break;
         case REQ_TYPE_BARRIER:
+            DPRINTF("  process flush\n");
             acb = bdrv_aio_flush(bq->bs, blkqueue_process_request_cb, req);
             break;
         default:
