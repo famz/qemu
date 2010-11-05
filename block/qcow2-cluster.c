@@ -647,11 +647,12 @@ uint64_t qcow2_alloc_compressed_cluster_offset(BlockDriverState *bs,
 
     BLKDBG_EVENT(bs->file, BLKDBG_L2_UPDATE_COMPRESSED);
     l2_table[l2_index] = cpu_to_be64(cluster_offset);
-    if (bdrv_pwrite_sync(bs->file,
+    if (blkqueue_pwrite(&s->bq_context,
                     l2_offset + l2_index * sizeof(uint64_t),
                     l2_table + l2_index,
                     sizeof(uint64_t)) < 0)
         return 0;
+    blkqueue_barrier(&s->bq_context);
 
     return cluster_offset;
 }

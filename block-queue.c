@@ -29,7 +29,8 @@
 #include "block_int.h"
 #include "block-queue.h"
 
-#define BLKQUEUE_DEBUG
+//#define BLKQUEUE_DEBUG
+
 #ifdef BLKQUEUE_DEBUG
 #define DPRINTF(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 #else

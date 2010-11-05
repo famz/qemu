@@ -833,9 +833,10 @@ int qcow2_update_snapshot_refcount(BlockDriverState *bs,
                 }
             }
             if (l2_modified) {
-                if (bdrv_pwrite_sync(bs->file,
+                if (blkqueue_pwrite(&s->bq_context,
                                 l2_offset, l2_table, l2_size) < 0)
                     goto fail;
+                blkqueue_barrier(&s->bq_context);
             }
 
             if (addend != 0) {
@@ -857,9 +858,10 @@ int qcow2_update_snapshot_refcount(BlockDriverState *bs,
     if (l1_modified) {
         for(i = 0; i < l1_size; i++)
             cpu_to_be64s(&l1_table[i]);
-        if (bdrv_pwrite_sync(bs->file, l1_table_offset, l1_table,
+        if (blkqueue_pwrite(&s->bq_context, l1_table_offset, l1_table,
                         l1_size2) < 0)
             goto fail;
+        blkqueue_barrier(&s->bq_context);
         for(i = 0; i < l1_size; i++)
             be64_to_cpus(&l1_table[i]);
     }
