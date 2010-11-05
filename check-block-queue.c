@@ -142,14 +142,14 @@ static void test_merge(BlockDriverState *bs)
     QUEUE_WRITE(&ctx2,  512, buf,  42, 0x34);
     QUEUE_WRITE(&ctx1, 1024, buf, 512, 0x12);
     QUEUE_BARRIER(&ctx2);
-    QUEUE_WRITE(&ctx2, 1512, buf,  42, 0x34);
+    QUEUE_WRITE(&ctx2, 1536, buf,  42, 0x34);
 
     /* Verify queue contents */
     POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 0);
     POP_CHECK_WRITE(bq,   512, buf,  42, 0x34, 0);
     POP_CHECK_BARRIER(bq, 0);
     POP_CHECK_WRITE(bq,  1024, buf, 512, 0x12, 1);
-    POP_CHECK_WRITE(bq,  1512, buf,  42, 0x34, 1);
+    POP_CHECK_WRITE(bq,  1536, buf,  42, 0x34, 1);
 
     /* Same queue, new contexts */
     blkqueue_init_context(&ctx1, bq);
@@ -160,13 +160,13 @@ static void test_merge(BlockDriverState *bs)
     QUEUE_WRITE(&ctx2,  512, buf,  42, 0x34);
     QUEUE_WRITE(&ctx2,   12, buf,  20, 0x45);
     QUEUE_BARRIER(&ctx2);
-    QUEUE_WRITE(&ctx2,  892, buf, 142, 0x56);
+    QUEUE_WRITE(&ctx2, 2892, buf, 142, 0x56);
 
     QUEUE_WRITE(&ctx1,    0, buf,   8, 0x12);
     QUEUE_BARRIER(&ctx1);
     QUEUE_WRITE(&ctx1, 1024, buf, 512, 0x12);
     QUEUE_BARRIER(&ctx1);
-    QUEUE_WRITE(&ctx1, 1512, buf,  42, 0x34);
+    QUEUE_WRITE(&ctx1, 2512, buf,  42, 0x34);
     QUEUE_BARRIER(&ctx1);
 
     /* Verify queue contents */
@@ -176,8 +176,8 @@ static void test_merge(BlockDriverState *bs)
     POP_CHECK_WRITE(bq,    12, buf,  20, 0x45, 1);
     POP_CHECK_WRITE(bq,  1024, buf, 512, 0x12, 1);
     POP_CHECK_BARRIER(bq, 1);
-    POP_CHECK_WRITE(bq,   892, buf, 142, 0x56, 2);
-    POP_CHECK_WRITE(bq,  1512, buf,  42, 0x34, 2);
+    POP_CHECK_WRITE(bq,  2892, buf, 142, 0x56, 2);
+    POP_CHECK_WRITE(bq,  2512, buf,  42, 0x34, 2);
     POP_CHECK_BARRIER(bq, 2);
 
     blkqueue_destroy(bq);
@@ -252,8 +252,8 @@ static void test_read_order(BlockDriverState *bs)
     POP_CHECK_WRITE(bq,    25, buf,   5, 0x44, 0);
     POP_CHECK_WRITE(bq,    10, buf,   5, 0x34, 0);
     POP_CHECK_BARRIER(bq, 0);
-    POP_CHECK_WRITE(bq,     5, buf,   5, 0x12, 1);
-    POP_CHECK_WRITE(bq,     0, buf,  10, 0x34, 1);
+    POP_CHECK_WRITE(bq,     5, buf,   5, 0x34, 1);
+    POP_CHECK_WRITE(bq,     0, buf,   5, 0x34, 1);
     POP_CHECK_BARRIER(bq, 1);
 
     blkqueue_destroy(bq);
@@ -279,8 +279,7 @@ static void test_write_order(BlockDriverState *bs)
     /* Verify queue contents */
     POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 0);
     POP_CHECK_BARRIER(bq, 0);
-    POP_CHECK_WRITE(bq,   512, buf, 512, 0x56, 0);
-    POP_CHECK_WRITE(bq,   512, buf, 512, 0x34, 0);
+    POP_CHECK_WRITE(bq,   512, buf, 512, 0x34, 1);
 
     /* Queue requests once again */
     blkqueue_init_context(&context, bq);
@@ -292,11 +291,11 @@ static void test_write_order(BlockDriverState *bs)
     QUEUE_WRITE(&context, 512, buf, 512, 0x34);
 
     /* Check if the right values are read back */
-    memset(buf2, 512, 0x34);
+    memset(buf2, 0x34, 512);
     CHECK_READ(&context, 512, buf, 512, buf2);
     blkqueue_process_request(bq);
     qemu_aio_flush();
-    memset(buf2, 512, 0x34);
+    memset(buf2, 0x34, 512);
     CHECK_READ(&context, 512, buf, 512, buf2);
 
     blkqueue_destroy(bq);
@@ -321,8 +320,6 @@ static void test_process_request(BlockDriverState *bs)
 
     /* Process the requests */
     blkqueue_process_request(bq);
-    assert(bq->in_flight_num == 1);
-    assert(bq->in_flight_type == REQ_TYPE_WRITE);
 
     /* Check if we still read the same */
     CHECK_READ(&ctx1, 0, buf, 64, buf2);
@@ -332,6 +329,9 @@ static void test_process_request(BlockDriverState *bs)
     assert(bq->barriers_submitted == 1);
     assert(bq->in_flight_num == 0);
     CHECK_READ(&ctx1, 0, buf, 64, buf2);
+
+    /* Run the barrier */
+    blkqueue_flush(bq);
 
     /* Verify the queue is empty */
     assert(blkqueue_pop(bq) == NULL);

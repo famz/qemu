@@ -98,6 +98,9 @@ struct BlockQueue {
     QSIMPLEQ_HEAD(, BlockQueueRequest) sections;
 };
 
+typedef int (*blkqueue_rw_fn)(BlockQueueContext *context, uint64_t offset,
+    void *buf, uint64_t size);
+typedef void (*blkqueue_handle_overlap)(void *new, void *old, size_t size);
 
 static void blkqueue_process_request(BlockQueue *bq);
 static void blkqueue_aio_cancel(BlockDriverAIOCB *blockacb);
@@ -139,15 +142,17 @@ void blkqueue_destroy(BlockQueue *bq)
 }
 
 /*
- * Checks if a read request accesses a region that is written by a write
- * request in the queue. If so, memcpy the data from the write request.
+ * Checks if a new read/write request accesses a region that is written by a
+ * write request in the queue. If so, call the given overlap handler that can
+ * use memcpy to work on the queue instead of accessing the disk.
  *
- * Returns true if the read request is handled completely, false if the caller
- * needs to continue reading from other queues or from the disk.
+ * Returns true if the new request is handled completely, false if the caller
+ * needs to continue accessing other queues or the disk.
  */
-static bool blkqueue_pread_check_queues(BlockQueueContext *context,
+static bool blkqueue_check_queue_overlap(BlockQueueContext *context,
     struct bq_queue_head *queue, uint64_t *_offset, void **_buf,
-    uint64_t *_size)
+    uint64_t *_size,
+    blkqueue_rw_fn recurse, blkqueue_handle_overlap handle_overlap)
 {
     BlockQueueRequest *req;
 
@@ -155,7 +160,7 @@ static bool blkqueue_pread_check_queues(BlockQueueContext *context,
     void *buf       = *_buf;
     uint64_t size   = *_size;
 
-    /* Reverse order to return data written by the latest write. */
+    /* Reverse order to access most current data */
     QTAILQ_FOREACH_REVERSE(req, queue, bq_queue_head, link) {
         uint64_t end = offset + size;
         uint64_t req_end = req->offset + req->size;
@@ -171,6 +176,9 @@ static bool blkqueue_pread_check_queues(BlockQueueContext *context,
          * If we read from a write in the queue (i.e. our read overlaps the
          * write request), our next write probably depends on this write, so
          * let's move forward to its section.
+         *
+         * If we're processing a new write, we definitely have a dependency,
+         * because we must not overwrite the newer data by the older one.
          */
         if (end > req->offset && offset < req_end) {
             context->section = MAX(context->section, req->section);
@@ -178,31 +186,35 @@ static bool blkqueue_pread_check_queues(BlockQueueContext *context,
 
         /* How we continue, depends on the kind of overlap we have */
         if ((offset >= req->offset) && (end <= req_end)) {
-            /* Completely contained in the write request */
-            memcpy(buf, &req_buf[offset - req->offset], size);
+            /* Completely contained in the queued request */
+            handle_overlap(buf, &req_buf[offset - req->offset], size);
             return true;
         } else if ((end >= req->offset) && (end <= req_end)) {
-            /* Overlap in the end of the read request */
+            /* Overlap in the end of the new request */
             assert(offset < req->offset);
-            memcpy(&read_buf[req->offset - offset], req_buf, end - req->offset);
+            handle_overlap(&read_buf[req->offset - offset], req_buf,
+                end - req->offset);
             size = req->offset - offset;
         } else if ((offset >= req->offset) && (offset < req_end)) {
-            /* Overlap in the start of the read request */
+            /* Overlap in the start of the new request */
             assert(end > req_end);
-            memcpy(read_buf, &req_buf[offset - req->offset], req_end - offset);
+            handle_overlap(read_buf, &req_buf[offset - req->offset],
+                req_end - offset);
             buf = read_buf = &read_buf[req_end - offset];
             offset = req_end;
             size = end - req_end;
         } else if ((req->offset >= offset) && (req_end <= end)) {
             /*
-             * The write request is completely contained in the read request.
-             * memcpy the data from the write request here, continue with the
-             * data before the write request and handle the data after the
-             * write request with a recursive call.
+             * The queued request is completely contained in the new request.
+             * Use memcpy for the data from the queued request here, continue
+             * with the data before the queued request and handle the data
+             * after the queued request with a recursive call.
              */
-            memcpy(&read_buf[req->offset - offset], req_buf, req_end - req->offset);
+            handle_overlap(&read_buf[req->offset - offset], req_buf,
+                req_end - req->offset);
             size = req->offset - offset;
-            blkqueue_pread(context, req_end, &read_buf[req_end - offset], end - req_end);
+            recurse(context, req_end, &read_buf[req_end - offset],
+                end - req_end);
         }
     }
 
@@ -212,6 +224,11 @@ static bool blkqueue_pread_check_queues(BlockQueueContext *context,
     *_size      = size;
 
     return false;
+}
+
+static void pread_handle_overlap(void *new, void *old, size_t size)
+{
+    memcpy(new, old, size);
 }
 
 int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
@@ -228,12 +245,12 @@ int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
      * we have a second queue of requests that are already submitted, but
      * haven't completed yet.
      */
-    completed = blkqueue_pread_check_queues(context, &bq->queue, &offset,
-        &buf, &size);
+    completed = blkqueue_check_queue_overlap(context, &bq->queue, &offset,
+        &buf, &size, &blkqueue_pread, &pread_handle_overlap);
 
     if (!completed) {
-        completed = blkqueue_pread_check_queues(context, &bq->in_flight,
-            &offset, &buf, &size);
+        completed = blkqueue_check_queue_overlap(context, &bq->in_flight,
+            &offset, &buf, &size, &blkqueue_pread, &pread_handle_overlap);
     }
 
     if (completed) {
@@ -249,18 +266,33 @@ int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
     return 0;
 }
 
+static void pwrite_handle_overlap(void *new, void *old, size_t size)
+{
+    /* FIXME Only merge if in the same section or later */
+    DPRINTF("update    pwrite: %p <- %p [%ld]\n", old, new, size);
+    memcpy(old, new, size);
+}
+
 int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     uint64_t size)
 {
     BlockQueue *bq = context->bq;
     BlockQueueRequest *section_req;
+    bool completed;
 
     /* Don't use the queue for writethrough images */
     if ((bq->bs->open_flags & WRITEBACK_MODES) == 0) {
         return bdrv_pwrite(bq->bs, offset, buf, size);
     }
 
-    /* TODO Remove overwritten writes in the same section from the queue */
+    /* First check if there are any pending writes for the same data. */
+    DPRINTF("--        pwrite: [%#lx + %ld]\n", offset, size);
+    completed = blkqueue_check_queue_overlap(context, &bq->queue, &offset,
+        &buf, &size, &blkqueue_pwrite, &pwrite_handle_overlap);
+
+    if (completed) {
+        return 0;
+    }
 
     /* Create request structure */
     BlockQueueRequest *req = qemu_malloc(sizeof(*req));
@@ -290,7 +322,7 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     QTAILQ_INSERT_TAIL(&bq->queue, req, link);
 
 out:
-    DPRINTF("queue-ins pwrite: %p [%lx + %lx]\n", req, req->offset, req->size);
+    DPRINTF("queue-ins pwrite: %p [%#lx + %ld]\n", req, req->offset, req->size);
     bq->queue_size++;
 #ifndef RUN_TESTS
     blkqueue_process_request(bq);
@@ -402,7 +434,7 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
     BlockQueue *bq = req->bq;
     BlockQueueAIOCB *acb, *next;
 
-    DPRINTF("  done    req:    %p [%lx + %lx]\n", req, req->offset, req->size);
+    DPRINTF("  done    req:    %p [%#lx + %ld]\n", req, req->offset, req->size);
 
     /* TODO Error reporting! */
     QTAILQ_REMOVE(&bq->in_flight, req, link);
@@ -434,11 +466,12 @@ static int blkqueue_submit_request(BlockQueue *bq)
     assert((bq->bs->open_flags & WRITEBACK_MODES) != 0);
 
     /*
-     * If we're currently processing a barrier, or the new request is a
-     * barrier, we need to guarantee this barrier semantics, i.e. we need to
-     * wait for completion before we can submit new requests.
+     * We need to wait for completion before we can submit new requests:
+     * 1. If we're currently processing a barrier, or the new request is a
+     *    barrier, we need to guarantee this barrier semantics.
+     * 2. We must make sure that newer writes cannot pass older ones.
      */
-    if (bq->in_flight_num > 0 && bq->in_flight_type != req->type) {
+    if (bq->in_flight_num > 0) {
         return -1;
     }
 
@@ -464,7 +497,7 @@ static int blkqueue_submit_request(BlockQueue *bq)
     switch (req->type) {
         case REQ_TYPE_WRITE:
             /* FIXME This may reorder writes to the same offset */
-            DPRINTF("  process pwrite: %p [%lx + %lx]\n",
+            DPRINTF("  process pwrite: %p [%#lx + %ld]\n",
                 req, req->offset, req->size);
             acb = bdrv_aio_pwrite(bq->bs, req->offset, req->buf, req->size,
                 blkqueue_process_request_cb, req);
@@ -522,6 +555,7 @@ BlockDriverAIOCB* blkqueue_aio_flush(BlockQueueContext *context,
     /* Insert a barrier into the queue */
     acb = qemu_aio_get(&blkqueue_aio_pool, NULL, cb, opaque);
 
+    /* FIXME Need to make sure that the barrier is not merged */
     ret = insert_barrier(context, acb);
     if (ret < 0) {
         cb(opaque, ret);
