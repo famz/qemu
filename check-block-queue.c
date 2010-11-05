@@ -267,6 +267,7 @@ static void test_write_order(BlockDriverState *bs)
 
     bq = blkqueue_create(bs);
 
+    /* Merging two writes */
     /* Queue requests */
     blkqueue_init_context(&context, bq);
     QUEUE_WRITE(&context,   0, buf, 512, 0x12);
@@ -297,6 +298,24 @@ static void test_write_order(BlockDriverState *bs)
     qemu_aio_flush();
     memset(buf2, 0x34, 512);
     CHECK_READ(&context, 512, buf, 512, buf2);
+
+    blkqueue_flush(bq);
+
+    /* Must not merge with write in earlier section */
+    /* Queue requests */
+    blkqueue_init_context(&context, bq);
+    QUEUE_WRITE(&context,   0, buf, 512, 0x12);
+
+    blkqueue_init_context(&context, bq);
+    QUEUE_WRITE(&context, 512, buf, 512, 0x34);
+    QUEUE_BARRIER(&context);
+    QUEUE_WRITE(&context,   0, buf, 512, 0x56);
+
+    /* Verify queue contents */
+    POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 0);
+    POP_CHECK_WRITE(bq,   512, buf, 512, 0x34, 0);
+    POP_CHECK_BARRIER(bq, 0);
+    POP_CHECK_WRITE(bq,     0, buf, 512, 0x56, 1);
 
     blkqueue_destroy(bq);
 }

@@ -152,7 +152,8 @@ void blkqueue_destroy(BlockQueue *bq)
 static bool blkqueue_check_queue_overlap(BlockQueueContext *context,
     struct bq_queue_head *queue, uint64_t *_offset, void **_buf,
     uint64_t *_size,
-    blkqueue_rw_fn recurse, blkqueue_handle_overlap handle_overlap)
+    blkqueue_rw_fn recurse, blkqueue_handle_overlap handle_overlap,
+    int min_section)
 {
     BlockQueueRequest *req;
 
@@ -169,6 +170,11 @@ static bool blkqueue_check_queue_overlap(BlockQueueContext *context,
 
         /* We're only interested in queued writes */
         if (req->type != REQ_TYPE_WRITE) {
+            continue;
+        }
+
+        /* Ignore requests that are too early (needed for merging requests */
+        if (req->section < min_section) {
             continue;
         }
 
@@ -246,11 +252,11 @@ int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
      * haven't completed yet.
      */
     completed = blkqueue_check_queue_overlap(context, &bq->queue, &offset,
-        &buf, &size, &blkqueue_pread, &pread_handle_overlap);
+        &buf, &size, &blkqueue_pread, &pread_handle_overlap, 0);
 
     if (!completed) {
         completed = blkqueue_check_queue_overlap(context, &bq->in_flight,
-            &offset, &buf, &size, &blkqueue_pread, &pread_handle_overlap);
+            &offset, &buf, &size, &blkqueue_pread, &pread_handle_overlap, 0);
     }
 
     if (completed) {
@@ -268,7 +274,6 @@ int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
 
 static void pwrite_handle_overlap(void *new, void *old, size_t size)
 {
-    /* FIXME Only merge if in the same section or later */
     DPRINTF("update    pwrite: %p <- %p [%ld]\n", old, new, size);
     memcpy(old, new, size);
 }
@@ -288,7 +293,8 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     /* First check if there are any pending writes for the same data. */
     DPRINTF("--        pwrite: [%#lx + %ld]\n", offset, size);
     completed = blkqueue_check_queue_overlap(context, &bq->queue, &offset,
-        &buf, &size, &blkqueue_pwrite, &pwrite_handle_overlap);
+        &buf, &size, &blkqueue_pwrite, &pwrite_handle_overlap,
+        context->section);
 
     if (completed) {
         return 0;
@@ -496,7 +502,6 @@ static int blkqueue_submit_request(BlockQueue *bq)
     /* Submit the request */
     switch (req->type) {
         case REQ_TYPE_WRITE:
-            /* FIXME This may reorder writes to the same offset */
             DPRINTF("  process pwrite: %p [%#lx + %ld]\n",
                 req, req->offset, req->size);
             acb = bdrv_aio_pwrite(bq->bs, req->offset, req->buf, req->size,
