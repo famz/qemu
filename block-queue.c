@@ -236,6 +236,11 @@ static void pread_handle_overlap(void *new, void *old, size_t size)
     memcpy(new, old, size);
 }
 
+/*
+ * Read from the file like bdrv_pread, but consider pending writes so that
+ * consistency is maintained when blkqueue_pread/pwrite is used instead of
+ * bdrv_pread/pwrite.
+ */
 int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
     uint64_t size)
 {
@@ -277,6 +282,9 @@ static void pwrite_handle_overlap(void *new, void *old, size_t size)
     memcpy(old, new, size);
 }
 
+/*
+ * Adds a write request to the queue.
+ */
 int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     uint64_t size)
 {
@@ -404,6 +412,9 @@ out:
     return 0;
 }
 
+/*
+ * Adds a barrier request to the queue.
+ */
 int blkqueue_barrier(BlockQueueContext *context)
 {
     /* Don't flush for writethrough images */
@@ -415,7 +426,8 @@ int blkqueue_barrier(BlockQueueContext *context)
 }
 
 /*
- * Caller needs to hold the bq->lock mutex
+ * Removes the first request from the queue and returns it. While doing so, it
+ * also takes care of the section list.
  */
 static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
 {
@@ -467,6 +479,13 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
     blkqueue_process_request(bq);
 }
 
+/*
+ * Checks if the first request on the queue can run. If so, remove it from the
+ * queue, submit the request and put it onto the queue of in-flight requests.
+ *
+ * Returns 0 if a request has been submitted, -1 if no request can run or an
+ * error has occurred.
+ */
 static int blkqueue_submit_request(BlockQueue *bq)
 {
     BlockDriverAIOCB *acb;
@@ -534,6 +553,9 @@ static int blkqueue_submit_request(BlockQueue *bq)
     return 0;
 }
 
+/*
+ * Starts execution of the queue if requests are ready to run.
+ */
 static void blkqueue_process_request(BlockQueue *bq)
 {
     int ret = 0;
@@ -555,6 +577,10 @@ static void blkqueue_aio_cancel(BlockDriverAIOCB *blockacb)
     qemu_free(acb);
 }
 
+/*
+ * Inserts a barrier at the end of the queue (or merges with an existing
+ * barrier there). Once the barrier has completed, the callback is called.
+ */
 BlockDriverAIOCB* blkqueue_aio_flush(BlockQueueContext *context,
     BlockDriverCompletionFunc *cb, void *opaque)
 {
@@ -579,6 +605,12 @@ BlockDriverAIOCB* blkqueue_aio_flush(BlockQueueContext *context,
     return &acb->common;
 }
 
+/*
+ * Flushes the queue (i.e. disables waiting for new requests to be batched) and
+ * waits until all requests in the queue have completed.
+ *
+ * Note that unlike blkqueue_aio_flush this does not call bdrv_flush().
+ */
 void blkqueue_flush(BlockQueue *bq)
 {
     bq->flushing = 1;
