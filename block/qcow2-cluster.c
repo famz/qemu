@@ -395,7 +395,7 @@ static int qcow_read(BlockDriverState *bs, int64_t sector_num,
         } else {
             BLKDBG_EVENT(bs->file, BLKDBG_READ);
             ret = blkqueue_pread(&s->bq_context, cluster_offset + index_in_cluster * 512, buf, n * 512);
-            if (ret != n * 512)
+            if (ret < 0)
                 return -1;
             if (s->crypt_method) {
                 qcow2_encrypt_sectors(s, sector_num, buf, buf, n, 0,
