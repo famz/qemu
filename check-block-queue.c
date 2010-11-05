@@ -259,6 +259,49 @@ static void test_read_order(BlockDriverState *bs)
     blkqueue_destroy(bq);
 }
 
+static void test_write_order(BlockDriverState *bs)
+{
+    uint8_t buf[512], buf2[512];
+    BlockQueue *bq;
+    BlockQueueContext context;
+
+    bq = blkqueue_create(bs);
+
+    /* Queue requests */
+    blkqueue_init_context(&context, bq);
+    QUEUE_WRITE(&context,   0, buf, 512, 0x12);
+    QUEUE_BARRIER(&context);
+    QUEUE_WRITE(&context, 512, buf, 512, 0x56);
+
+    blkqueue_init_context(&context, bq);
+    QUEUE_WRITE(&context, 512, buf, 512, 0x34);
+
+    /* Verify queue contents */
+    POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 0);
+    POP_CHECK_BARRIER(bq, 0);
+    POP_CHECK_WRITE(bq,   512, buf, 512, 0x56, 0);
+    POP_CHECK_WRITE(bq,   512, buf, 512, 0x34, 0);
+
+    /* Queue requests once again */
+    blkqueue_init_context(&context, bq);
+    QUEUE_WRITE(&context,   0, buf, 512, 0x12);
+    QUEUE_BARRIER(&context);
+    QUEUE_WRITE(&context, 512, buf, 512, 0x56);
+
+    blkqueue_init_context(&context, bq);
+    QUEUE_WRITE(&context, 512, buf, 512, 0x34);
+
+    /* Check if the right values are read back */
+    memset(buf2, 512, 0x34);
+    CHECK_READ(&context, 512, buf, 512, buf2);
+    blkqueue_process_request(bq);
+    qemu_aio_flush();
+    memset(buf2, 512, 0x34);
+    CHECK_READ(&context, 512, buf, 512, buf2);
+
+    blkqueue_destroy(bq);
+}
+
 static void test_process_request(BlockDriverState *bs)
 {
     uint8_t buf[512], buf2[512];
@@ -331,6 +374,7 @@ int main(void)
     run_test(&test_merge, bs);
     run_test(&test_read, bs);
     run_test(&test_read_order, bs);
+    run_test(&test_write_order, bs);
     run_test(&test_process_request, bs);
 
     bdrv_delete(bs);
