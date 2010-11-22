@@ -136,6 +136,21 @@ static int qcow_read_extensions(BlockDriverState *bs, uint64_t start_offset,
     return 0;
 }
 
+static bool qcow_blkqueue_error_cb(void *opaque, int ret)
+{
+    BlockDriverState *bs = opaque;
+    BlockErrorAction action = bdrv_get_on_error(bs, 0);
+
+    if ((action == BLOCK_ERR_STOP_ENOSPC && ret == -ENOSPC)
+        || action == BLOCK_ERR_STOP_ANY)
+    {
+        bdrv_mon_event(bs, BDRV_ACTION_STOP, 0);
+        vm_stop(0);
+        return true;
+    }
+
+    return false;
+}
 
 static int qcow_open(BlockDriverState *bs, int flags)
 {
@@ -238,7 +253,7 @@ static int qcow_open(BlockDriverState *bs, int flags)
         goto fail;
 
     /* Block queue */
-    s->bq = blkqueue_create(bs->file);
+    s->bq = blkqueue_create(bs->file, qcow_blkqueue_error_cb, bs);
     blkqueue_init_context(&s->bq_context, s->bq);
 
 #ifdef DEBUG_ALLOC
@@ -1161,9 +1176,22 @@ static int qcow_write_compressed(BlockDriverState *bs, int64_t sector_num,
 static int qcow_flush(BlockDriverState *bs)
 {
     BDRVQcowState *s = bs->opaque;
+    int ret;
 
-    /* FIXME Error handling */
-    blkqueue_flush(s->bq);
+    ret = blkqueue_flush(s->bq);
+    if (ret < 0) {
+        /*
+         * Getting an error here means that we couldn't handle an write error
+         * by stopping the guest. In this case we don't know which metadata
+         * writes have succeeded. Reopen the qcow2 layer to make sure that all
+         * caches are invalidated.
+         */
+        qemu_aio_flush();
+        qcow_close(bs);
+        qcow_open(bs, 0);
+
+        return ret;
+    }
 
     return bdrv_flush(bs->file);
 }
@@ -1175,6 +1203,7 @@ static BlockDriverAIOCB *qcow_aio_flush(BlockDriverState *bs,
     BlockQueueContext context;
 
     blkqueue_init_context(&context, s->bq);
+    /* FIXME Error handling */
     return blkqueue_aio_flush(&context, cb, opaque);
 }
 

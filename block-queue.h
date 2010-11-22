@@ -29,12 +29,23 @@
 
 typedef struct BlockQueue BlockQueue;
 
+/*
+ * Returns true if the error has been handled (e.g. by stopping the VM), the
+ * error status should be cleared and the requests should be re-inserted into
+ * the queue.
+ *
+ * Returns false if the request should be completed and the next flush should
+ * fail.
+ */
+typedef bool (*BlockQueueErrorHandler)(void *opaque, int ret);
+
 typedef struct BlockQueueContext {
     BlockQueue* bq;
     unsigned    section;
 } BlockQueueContext;
 
-BlockQueue *blkqueue_create(BlockDriverState *bs);
+BlockQueue *blkqueue_create(BlockDriverState *bs,
+    BlockQueueErrorHandler error_handler, void *error_opaque);
 void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq);
 void blkqueue_destroy(BlockQueue *bq);
 int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
@@ -42,7 +53,7 @@ int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
 int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     uint64_t size);
 int blkqueue_barrier(BlockQueueContext *context);
-void blkqueue_flush(BlockQueue *bq);
+int blkqueue_flush(BlockQueue *bq);
 BlockDriverAIOCB* blkqueue_aio_flush(BlockQueueContext *context,
     BlockDriverCompletionFunc *cb, void *opaque);
 

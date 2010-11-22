@@ -310,9 +310,10 @@ void qemu_notify_event(void)
 void qemu_mutex_lock_iothread(void) {}
 void qemu_mutex_unlock_iothread(void) {}
 
-void vm_stop(int reason)
+bool vm_stop(int reason)
 {
     do_vm_stop(reason);
+    return true;
 }
 
 #else /* CONFIG_IOTHREAD */
@@ -848,7 +849,7 @@ static void qemu_system_vmstop_request(int reason)
     qemu_notify_event();
 }
 
-void vm_stop(int reason)
+bool vm_stop(int reason)
 {
     QemuThread me;
     qemu_thread_self(&me);
@@ -863,9 +864,10 @@ void vm_stop(int reason)
             cpu_exit(cpu_single_env);
             cpu_single_env->stop = 1;
         }
-        return;
+        return true;
     }
     do_vm_stop(reason);
+    return true;
 }
 
 #endif

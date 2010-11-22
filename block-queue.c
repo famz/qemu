@@ -88,6 +88,10 @@ struct BlockQueue {
     int                 queue_size;
     int                 flushing;
 
+    BlockQueueErrorHandler  error_handler;
+    void*                   error_opaque;
+    int                     error_ret;
+
     unsigned int            in_flight_num;
     enum blkqueue_req_type  in_flight_type;
 
@@ -109,10 +113,13 @@ static AIOPool blkqueue_aio_pool = {
     .cancel             = blkqueue_aio_cancel,
 };
 
-BlockQueue *blkqueue_create(BlockDriverState *bs)
+BlockQueue *blkqueue_create(BlockDriverState *bs,
+    BlockQueueErrorHandler error_handler, void *error_opaque)
 {
     BlockQueue *bq = qemu_mallocz(sizeof(BlockQueue));
     bq->bs = bs;
+    bq->error_handler = error_handler;
+    bq->error_opaque = error_opaque;
 
     QTAILQ_INIT(&bq->queue);
     QTAILQ_INIT(&bq->in_flight);
@@ -464,18 +471,60 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
 
     DPRINTF("  done    req:    %p [%#lx + %ld]\n", req, req->offset, req->size);
 
-    /* TODO Error reporting! */
+    /* Remove from in-flight list */
     QTAILQ_REMOVE(&bq->in_flight, req, link);
-//fprintf(stderr, "Removing from in_flight: %p (ret = %d)\n", req, ret);
-    QLIST_FOREACH_SAFE(acb, &req->acbs, link, next) {
-        acb->common.cb(acb->common.opaque, 0); /* TODO ret */
-        qemu_free(acb);
-    }
-
-    blkqueue_free_request(req);
-
     bq->in_flight_num--;
 
+    /*
+     * Error handling gets a bit complicated, because we have already completed
+     * the requests that went wrong. There are two ways of dealing with this:
+     *
+     * 1. With werror=stop we can put the request back into the queue and stop
+     *    the VM. When the user continues the VM, the request is retried.
+     *
+     * 2. In other cases we need to return an error on the next bdrv_flush. The
+     *    caller must cope with the fact that he doesn't know which of the
+     *    requests succeeded (i.e. invalidate all caches)
+     *
+     * If we're in an blkqueue_aio_flush, we must return an error in both
+     * cases. If we stop the VM, we can clear bq->errno immediately again.
+     * Otherwise, it's cleared in bdrv_(aio_)flush.
+     */
+    if (ret < 0) {
+        if (bq->error_ret != -ENOSPC) {
+            bq->error_ret = ret;
+        }
+    }
+
+    /* Call any callbacks attached to the request (see blkqueue_aio_flush) */
+    QLIST_FOREACH_SAFE(acb, &req->acbs, link, next) {
+        acb->common.cb(acb->common.opaque, bq->error_ret);
+        qemu_free(acb);
+    }
+    QLIST_INIT(&req->acbs);
+
+    /* Handle errors in the VM stop case */
+    if (ret < 0) {
+        if (bq->error_handler(bq->error_opaque, ret)) {
+
+            /* Reinsert request into the queue */
+            QTAILQ_INSERT_HEAD(&bq->queue, req, link);
+            if (req->type == REQ_TYPE_BARRIER) {
+                QSIMPLEQ_INSERT_HEAD(&bq->sections, req, link_section);
+            }
+
+            /* Clear the error */
+            bq->error_ret = 0;
+            return;
+        }
+
+        /* TODO Fail any flushes that may wait in vain for the queue to become empty */
+    }
+
+    /* Free the request */
+    blkqueue_free_request(req);
+
+    /* Check if there are more requests to submit */
     blkqueue_process_request(bq);
 }
 
@@ -490,6 +539,15 @@ static int blkqueue_submit_request(BlockQueue *bq)
 {
     BlockDriverAIOCB *acb;
     BlockQueueRequest *req;
+
+    /*
+     * If we had an error, we must not submit new requests from another
+     * section or may we get ordering problems. In fact, not submitting any new
+     * requests looks like a good idea in this case.
+     */
+    if (bq->error_ret) {
+        return -1;
+    }
 
     /* Fetch a request */
     req = QTAILQ_FIRST(&bq->queue);
@@ -611,8 +669,10 @@ BlockDriverAIOCB* blkqueue_aio_flush(BlockQueueContext *context,
  *
  * Note that unlike blkqueue_aio_flush this does not call bdrv_flush().
  */
-void blkqueue_flush(BlockQueue *bq)
+int blkqueue_flush(BlockQueue *bq)
 {
+    int res;
+
     bq->flushing = 1;
 
     /* Process any left over requests */
@@ -622,4 +682,8 @@ void blkqueue_flush(BlockQueue *bq)
     }
 
     bq->flushing = 0;
+
+    res = bq->error_ret;
+    bq->error_ret = 0;
+    return res;
 }
