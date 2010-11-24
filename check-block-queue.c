@@ -108,7 +108,7 @@ static void test_basic(BlockDriverState *bs)
     BlockQueue *bq;
     BlockQueueContext context;
 
-    bq = blkqueue_create(bs);
+    bq = blkqueue_create(bs, NULL, NULL);
     blkqueue_init_context(&context, bq);
 
     /* Queue requests */
@@ -132,7 +132,7 @@ static void test_merge(BlockDriverState *bs)
     BlockQueue *bq;
     BlockQueueContext ctx1, ctx2;
 
-    bq = blkqueue_create(bs);
+    bq = blkqueue_create(bs, NULL, NULL);
     blkqueue_init_context(&ctx1, bq);
     blkqueue_init_context(&ctx2, bq);
 
@@ -189,7 +189,7 @@ static void test_read(BlockDriverState *bs)
     BlockQueue *bq;
     BlockQueueContext ctx1;
 
-    bq = blkqueue_create(bs);
+    bq = blkqueue_create(bs, NULL, NULL);
     blkqueue_init_context(&ctx1, bq);
 
     /* Queue requests and do some test reads */
@@ -230,7 +230,7 @@ static void test_read_order(BlockDriverState *bs)
     BlockQueue *bq;
     BlockQueueContext ctx1, ctx2;
 
-    bq = blkqueue_create(bs);
+    bq = blkqueue_create(bs, NULL, NULL);
     blkqueue_init_context(&ctx1, bq);
     blkqueue_init_context(&ctx2, bq);
 
@@ -265,7 +265,7 @@ static void test_write_order(BlockDriverState *bs)
     BlockQueue *bq;
     BlockQueueContext context;
 
-    bq = blkqueue_create(bs);
+    bq = blkqueue_create(bs, NULL, NULL);
 
     /* Merging two writes */
     /* Queue requests */
@@ -326,7 +326,7 @@ static void test_process_request(BlockDriverState *bs)
     BlockQueue *bq;
     BlockQueueContext ctx1;
 
-    bq = blkqueue_create(bs);
+    bq = blkqueue_create(bs, NULL, NULL);
     blkqueue_init_context(&ctx1, bq);
 
     /* Queue requests and do a test read */
