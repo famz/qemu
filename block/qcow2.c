@@ -1203,7 +1203,7 @@ static BlockDriverAIOCB *qcow_aio_flush(BlockDriverState *bs,
     BlockQueueContext context;
 
     blkqueue_init_context(&context, s->bq);
-    /* FIXME Error handling */
+    /* FIXME Error handling for werror=report/ignore */
     return blkqueue_aio_flush(&context, cb, opaque);
 }
 

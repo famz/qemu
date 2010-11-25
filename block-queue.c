@@ -463,6 +463,38 @@ static void blkqueue_free_request(BlockQueueRequest *req)
     qemu_free(req);
 }
 
+/*
+ * If there are any blkqueue_aio_flush callbacks pending, call them with ret
+ * as the error code and remove them from the queue.
+ *
+ * If keep_queue is false, all requests are removed from the queue
+ */
+static void blkqueue_fail_flush(BlockQueue *bq, int ret, bool keep_queue)
+{
+    BlockQueueRequest *req, *next_req;
+    BlockQueueAIOCB *acb, *next_acb;
+
+    QTAILQ_FOREACH_SAFE(req, &bq->queue, link, next_req) {
+
+        /* Call and remove registered callbacks */
+        QLIST_FOREACH_SAFE(acb, &req->acbs, link, next_acb) {
+            acb->common.cb(acb->common.opaque, bq->error_ret);
+            qemu_free(acb);
+        }
+        QLIST_INIT(&req->acbs);
+
+        /* If requested, remove the request itself */
+        QTAILQ_REMOVE(&bq->queue, req, link);
+        if (req->type == REQ_TYPE_BARRIER) {
+            QSIMPLEQ_REMOVE(&bq->sections, req, BlockQueueRequest,
+                link_section);
+        }
+    }
+
+    /* Make sure that blkqueue_flush stops running */
+    bq->flushing = ret;
+}
+
 static void blkqueue_process_request_cb(void *opaque, int ret)
 {
     BlockQueueRequest *req = opaque;
@@ -505,23 +537,25 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
 
     /* Handle errors in the VM stop case */
     if (ret < 0) {
-        if (bq->error_handler(bq->error_opaque, ret)) {
+        bool keep_queue = bq->error_handler(bq->error_opaque, ret);
 
+        /* Fail any flushes that may wait for the queue to become empty */
+        blkqueue_fail_flush(bq, bq->error_ret, keep_queue);
+
+        if (keep_queue) {
             /* Reinsert request into the queue */
             QTAILQ_INSERT_HEAD(&bq->queue, req, link);
             if (req->type == REQ_TYPE_BARRIER) {
                 QSIMPLEQ_INSERT_HEAD(&bq->sections, req, link_section);
             }
 
-            /* Clear the error */
+            /* Clear the error to restore a normal state after 'cont' */
             bq->error_ret = 0;
             return;
         }
-
-        /* TODO Fail any flushes that may wait in vain for the queue to become empty */
     }
 
-    /* Free the request */
+    /* Cleanup */
     blkqueue_free_request(req);
 
     /* Check if there are more requests to submit */
@@ -676,14 +710,25 @@ int blkqueue_flush(BlockQueue *bq)
     bq->flushing = 1;
 
     /* Process any left over requests */
-    while (bq->in_flight_num || QTAILQ_FIRST(&bq->queue)) {
+    while ((bq->flushing > 0) &&
+        (bq->in_flight_num || QTAILQ_FIRST(&bq->queue)))
+    {
         blkqueue_process_request(bq);
         qemu_aio_wait();
     }
 
-    bq->flushing = 0;
+    /*
+     * bq->flushing contains the error if it could be handled by stopping the
+     * VM, error_ret contains it if we're not allowed to do this.
+     */
+    if (bq->flushing < 0) {
+        res = bq->flushing;
+    } else {
+        res = bq->error_ret;
+    }
 
-    res = bq->error_ret;
+    bq->flushing = 0;
     bq->error_ret = 0;
+
     return res;
 }
