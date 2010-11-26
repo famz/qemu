@@ -48,6 +48,7 @@ BlockQueue *blkqueue_create(BlockDriverState *bs,
     BlockQueueErrorHandler error_handler, void *error_opaque);
 void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq);
 void blkqueue_destroy(BlockQueue *bq);
+bool blkqueue_is_empty(BlockQueue *bq);
 int blkqueue_pread(BlockQueueContext *context, uint64_t offset, void *buf,
     uint64_t size);
 int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,

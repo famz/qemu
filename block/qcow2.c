@@ -1181,14 +1181,15 @@ static int qcow_flush(BlockDriverState *bs)
     ret = blkqueue_flush(s->bq);
     if (ret < 0) {
         /*
-         * Getting an error here means that we couldn't handle an write error
-         * by stopping the guest. In this case we don't know which metadata
-         * writes have succeeded. Reopen the qcow2 layer to make sure that all
-         * caches are invalidated.
+         * If the queue is empty, we couldn't handle the write error by
+         * stopping the guest. In this case we don't know which metadata writes
+         * have succeeded. Reopen the qcow2 layer to make sure that all caches
+         * are invalidated.
          */
-        qemu_aio_flush();
-        qcow_close(bs);
-        qcow_open(bs, 0);
+        if (blkqueue_is_empty(s->bq)) {
+            qcow_close(bs);
+            qcow_open(bs, 0);
+        }
 
         return ret;
     }
@@ -1196,15 +1197,42 @@ static int qcow_flush(BlockDriverState *bs)
     return bdrv_flush(bs->file);
 }
 
+typedef struct QcowFlushAIOCB {
+    BlockDriverState *bs;
+    BlockDriverCompletionFunc *cb;
+    void *opaque;
+} QcowFlushAIOCB;
+
+static void qcow_aio_flush_cb(void *opaque, int ret)
+{
+    QcowFlushAIOCB *acb = opaque;
+    BlockDriverState *bs = acb->bs;
+    BDRVQcowState *s = bs->opaque;
+
+    if (blkqueue_is_empty(s->bq)) {
+        qcow_close(bs);
+        qcow_open(bs, 0);
+    }
+
+    acb->cb(acb->opaque, ret);
+    qemu_free(acb);
+}
+
 static BlockDriverAIOCB *qcow_aio_flush(BlockDriverState *bs,
          BlockDriverCompletionFunc *cb, void *opaque)
 {
     BDRVQcowState *s = bs->opaque;
     BlockQueueContext context;
+    QcowFlushAIOCB *acb;
 
     blkqueue_init_context(&context, s->bq);
-    /* FIXME Error handling for werror=report/ignore */
-    return blkqueue_aio_flush(&context, cb, opaque);
+
+    acb = qemu_malloc(sizeof(*acb));
+    acb->bs = bs;
+    acb->cb = cb;
+    acb->opaque = opaque;
+
+    return blkqueue_aio_flush(&context, qcow_aio_flush_cb, acb);
 }
 
 static int64_t qcow_vm_state_offset(BDRVQcowState *s)

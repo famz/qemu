@@ -147,6 +147,11 @@ void blkqueue_destroy(BlockQueue *bq)
     qemu_free(bq);
 }
 
+bool blkqueue_is_empty(BlockQueue *bq)
+{
+    return (QTAILQ_FIRST(&bq->queue) == NULL);
+}
+
 /*
  * Checks if a new read/write request accesses a region that is written by a
  * write request in the queue. If so, call the given overlap handler that can
@@ -478,16 +483,18 @@ static void blkqueue_fail_flush(BlockQueue *bq, int ret, bool keep_queue)
 
         /* Call and remove registered callbacks */
         QLIST_FOREACH_SAFE(acb, &req->acbs, link, next_acb) {
-            acb->common.cb(acb->common.opaque, bq->error_ret);
+            acb->common.cb(acb->common.opaque, ret);
             qemu_free(acb);
         }
         QLIST_INIT(&req->acbs);
 
         /* If requested, remove the request itself */
-        QTAILQ_REMOVE(&bq->queue, req, link);
-        if (req->type == REQ_TYPE_BARRIER) {
-            QSIMPLEQ_REMOVE(&bq->sections, req, BlockQueueRequest,
-                link_section);
+        if (!keep_queue) {
+            QTAILQ_REMOVE(&bq->queue, req, link);
+            if (req->type == REQ_TYPE_BARRIER) {
+                QSIMPLEQ_REMOVE(&bq->sections, req, BlockQueueRequest,
+                    link_section);
+            }
         }
     }
 
@@ -705,7 +712,7 @@ BlockDriverAIOCB* blkqueue_aio_flush(BlockQueueContext *context,
  */
 int blkqueue_flush(BlockQueue *bq)
 {
-    int res;
+    int res = 0;
 
     bq->flushing = 1;
 
@@ -721,10 +728,18 @@ int blkqueue_flush(BlockQueue *bq)
      * bq->flushing contains the error if it could be handled by stopping the
      * VM, error_ret contains it if we're not allowed to do this.
      */
-    if (bq->flushing < 0) {
-        res = bq->flushing;
-    } else {
+    if (bq->error_ret < 0) {
         res = bq->error_ret;
+
+        /*
+         * Wait for AIO requests, so that the queue is really unused after
+         * blkqueue_flush() and the caller can destroy it
+         */
+        if (res < 0) {
+            qemu_aio_flush();
+        }
+    } else if (bq->flushing < 0) {
+        res = bq->flushing;
     }
 
     bq->flushing = 0;
