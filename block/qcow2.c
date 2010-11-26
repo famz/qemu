@@ -254,7 +254,8 @@ static int qcow_open(BlockDriverState *bs, int flags)
 
     /* Block queue */
     s->bq = blkqueue_create(bs->file, qcow_blkqueue_error_cb, bs);
-    blkqueue_init_context(&s->bq_context, s->bq);
+    blkqueue_init_context(&s->initial_bq_context, s->bq);
+    s->bq_context = &s->initial_bq_context;
 
 #ifdef DEBUG_ALLOC
     qcow2_check_refcounts(bs);
@@ -360,6 +361,7 @@ typedef struct QCowAIOCB {
     QEMUIOVector hd_qiov;
     QEMUBH *bh;
     QCowL2Meta l2meta;
+    BlockQueueContext bq_context;
     QLIST_ENTRY(QCowAIOCB) next_depend;
 } QCowAIOCB;
 
@@ -405,6 +407,8 @@ static void qcow_aio_read_cb(void *opaque, int ret)
     BlockDriverState *bs = acb->common.bs;
     BDRVQcowState *s = bs->opaque;
     int index_in_cluster, n1;
+
+    s->bq_context = &acb->bq_context;
 
     acb->hd_aiocb = NULL;
     if (ret < 0)
@@ -558,7 +562,7 @@ static QCowAIOCB *qcow_aio_setup(BlockDriverState *bs,
     QLIST_INIT(&acb->l2meta.dependent_requests);
 
     /* TODO Push the context into l2meta */
-    blkqueue_init_context(&s->bq_context, s->bq);
+    blkqueue_init_context(&acb->bq_context, s->bq);
 
     return acb;
 }
@@ -606,6 +610,7 @@ static void qcow_aio_write_cb(void *opaque, int ret)
     int index_in_cluster;
     int n_end;
 
+    s->bq_context = &acb->bq_context;
     acb->hd_aiocb = NULL;
 
     if (ret >= 0) {

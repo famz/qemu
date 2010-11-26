@@ -109,7 +109,8 @@ typedef struct BDRVQcowState {
     int64_t free_byte_offset;
 
     BlockQueue *bq;
-    BlockQueueContext bq_context;
+    BlockQueueContext *bq_context;
+    BlockQueueContext initial_bq_context;
 
     uint32_t crypt_method; /* current crypt method, 0 if no key yet */
     uint32_t crypt_method_header;
