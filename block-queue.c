@@ -38,18 +38,6 @@
 #define WRITEBACK_MODES (BDRV_O_NOCACHE | BDRV_O_CACHE_WB)
 
 /* TODO items for blkqueue
- *
- * - Error handling doesn't really exist. If something goes wrong with writing
- *   metadata we can't fail the guest request any more because it's long
- *   completed. Losing this data is actually okay, the guest hasn't flushed yet.
- *
- *   However, we need to be able to fail a flush, and we also need some way to
- *   handle errors transparently. This probably means that we have to stop the VM
- *   and let the user fix things so that we can retry. The only other way would be
- *   to shut down the VM and end up in the same situation as with a host crash.
- *
- *   Or maybe it would even be enough to start failing all new requests.
- *
  * - Need a real bdrv_aio_pwrite implementation
  */
 
@@ -426,6 +414,9 @@ out:
 
 /*
  * Adds a barrier request to the queue.
+ *
+ * A barrier requested by blkqueue_barrier orders requests within the given
+ * context. It does not do global ordering.
  */
 int blkqueue_barrier(BlockQueueContext *context)
 {
