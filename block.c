@@ -2106,34 +2106,171 @@ BlockDriverAIOCB *bdrv_aio_writev(BlockDriverState *bs, int64_t sector_num,
     return ret;
 }
 
-struct pread_acb {
-    QEMUBH *bh;
-    BlockDriverCompletionFunc *cb;
-    void *opaque;
-    int ret;
-};
+typedef struct PwriteAIOCB {
+    BlockDriverAIOCB    common;
+    int                 state;
+    int64_t             offset;
+    size_t              bytes;
+    uint8_t*            buf;
+    uint8_t*            tmp_buf;
+    struct iovec        iov;
+    QEMUIOVector        qiov;
+} PwriteAIOCB;
 
-static void bdrv_aio_pwrite_cb(void *opaque)
+static void pwrite_aio_cancel(BlockDriverAIOCB *blockacb)
 {
-    struct pread_acb *x = opaque;
-
-    x->cb(x->opaque, x->ret);
-    qemu_bh_delete(x->bh);
-    free(x);
+    qemu_aio_flush();
 }
 
-/* TODO Yes, this is a really bad fake implementation */
-BlockDriverAIOCB *bdrv_aio_pwrite(BlockDriverState *bs, int64_t offset, void* buf,
-    size_t bytes, BlockDriverCompletionFunc *cb, void *opaque)
-{
-    struct pread_acb *x = qemu_malloc(sizeof(*x));
-    x->bh = qemu_bh_new(bdrv_aio_pwrite_cb, x);
-    x->cb = cb;
-    x->opaque = opaque;
-    x->ret = bdrv_pwrite(bs, offset, buf, bytes);
-    qemu_bh_schedule(x->bh);
+static AIOPool blkqueue_aio_pool = {
+    .aiocb_size         = sizeof(PwriteAIOCB),
+    .cancel             = pwrite_aio_cancel,
+};
 
-    return (BlockDriverAIOCB*) 42;
+static void bdrv_aio_pwrite_cb(void *opaque, int ret)
+{
+    PwriteAIOCB *acb = opaque;
+    BlockDriverAIOCB *tmp_acb;
+    int64_t sector_num;
+
+    if (ret < 0) {
+        goto done;
+    }
+
+    sector_num = acb->offset >> BDRV_SECTOR_BITS;
+
+    switch (acb->state) {
+    case 0: {
+        /* Read first sector if needed */
+        int len;
+
+        len = (BDRV_SECTOR_SIZE - acb->offset) & (BDRV_SECTOR_SIZE - 1);
+
+        if (len > 0) {
+            acb->state = 1;
+            acb->tmp_buf = qemu_blockalign(acb->common.bs, BDRV_SECTOR_SIZE);
+            acb->iov.iov_base = acb->tmp_buf;
+            acb->iov.iov_len = BDRV_SECTOR_SIZE;
+            qemu_iovec_init_external(&acb->qiov, &acb->iov, 1);
+            tmp_acb = bdrv_aio_readv(acb->common.bs, sector_num, &acb->qiov, 1,
+                bdrv_aio_pwrite_cb, acb);
+            if (tmp_acb == NULL) {
+                bdrv_aio_pwrite_cb(acb, -EIO);
+            }
+        } else {
+            acb->state = 2;
+            bdrv_aio_pwrite_cb(acb, 0);
+        }
+        break;
+    }
+
+    case 1: {
+        /* Modify first cluster and write it back */
+        int len;
+
+        len = (BDRV_SECTOR_SIZE - acb->offset) & (BDRV_SECTOR_SIZE - 1);
+        if (len > acb->bytes) {
+            len = acb->bytes;
+        }
+
+        memcpy(acb->tmp_buf + (acb->offset & (BDRV_SECTOR_SIZE - 1)),
+            acb->buf, len);
+
+        acb->state = 2;
+        acb->offset += len;
+        acb->buf += len;
+        acb->bytes -= len;
+
+        tmp_acb = bdrv_aio_writev(acb->common.bs, sector_num, &acb->qiov, 1,
+            bdrv_aio_pwrite_cb, acb);
+        if (tmp_acb == NULL) {
+            bdrv_aio_pwrite_cb(acb, -EIO);
+        }
+        break;
+    }
+
+    case 2: {
+        /* Write the sectors "in place" */
+        int nb_sectors = acb->bytes >> BDRV_SECTOR_BITS;
+
+        acb->state = 3;
+        if (nb_sectors > 0) {
+            int len = nb_sectors << BDRV_SECTOR_BITS;
+
+            acb->iov.iov_base = acb->buf;
+            acb->iov.iov_len = len;
+            qemu_iovec_init_external(&acb->qiov, &acb->iov, 1);
+
+            acb->offset += len;
+            acb->buf += len;
+            acb->bytes -= len;
+
+            tmp_acb = bdrv_aio_writev(acb->common.bs, sector_num, &acb->qiov,
+                nb_sectors, bdrv_aio_pwrite_cb, acb);
+            if (tmp_acb == NULL) {
+                bdrv_aio_pwrite_cb(acb, -EIO);
+            }
+        } else {
+            bdrv_aio_pwrite_cb(acb, 0);
+        }
+        break;
+    }
+
+    case 3: {
+        /* Read last sector if needed */
+        if (acb->bytes == 0) {
+            goto done;
+        }
+
+        acb->state = 4;
+        acb->iov.iov_base = acb->tmp_buf;
+        acb->iov.iov_len = BDRV_SECTOR_SIZE;
+        qemu_iovec_init_external(&acb->qiov, &acb->iov, 1);
+        tmp_acb = bdrv_aio_readv(acb->common.bs, sector_num, &acb->qiov, 1,
+            bdrv_aio_pwrite_cb, acb);
+        if (tmp_acb == NULL) {
+            bdrv_aio_pwrite_cb(acb, -EIO);
+        }
+        break;
+    }
+
+    case 4:
+        /* Modify and write last sector */
+        acb->state = 5;
+        memcpy(acb->tmp_buf, acb->buf, acb->bytes);
+        tmp_acb = bdrv_aio_writev(acb->common.bs, sector_num, &acb->qiov, 1,
+            bdrv_aio_pwrite_cb, acb);
+        if (tmp_acb == NULL) {
+            bdrv_aio_pwrite_cb(acb, -EIO);
+        }
+        break;
+
+    case 5:
+        goto done;
+    }
+    return;
+
+done:
+    qemu_free(acb->tmp_buf);
+    acb->common.cb(acb->common.opaque, ret);
+    qemu_aio_release(acb);
+}
+
+BlockDriverAIOCB *bdrv_aio_pwrite(BlockDriverState *bs, int64_t offset,
+    void* buf, size_t bytes, BlockDriverCompletionFunc *cb, void *opaque)
+{
+    PwriteAIOCB *acb;
+
+    acb = qemu_aio_get(&blkqueue_aio_pool, bs, cb, opaque);
+    acb->state      = 0;
+    acb->offset     = offset;
+    acb->buf        = buf;
+    acb->bytes      = bytes;
+    acb->tmp_buf    = NULL;
+
+    bdrv_aio_pwrite_cb(acb, 0);
+
+    return &acb->common;
 }
 
 
