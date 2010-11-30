@@ -37,10 +37,6 @@
 
 #define WRITEBACK_MODES (BDRV_O_NOCACHE | BDRV_O_CACHE_WB)
 
-/* TODO items for blkqueue
- * - Need a real bdrv_aio_pwrite implementation
- */
-
 enum blkqueue_req_type {
     REQ_TYPE_WRITE,
     REQ_TYPE_BARRIER,
@@ -126,8 +122,8 @@ void blkqueue_destroy(BlockQueue *bq)
 {
     blkqueue_flush(bq);
 
-//    fprintf(stderr, "blkqueue_destroy: %d/%d barriers left\n",
-//        bq->barriers_submitted, bq->barriers_requested);
+    DPRINTF("blkqueue_destroy: %d/%d barriers left\n",
+        bq->barriers_submitted, bq->barriers_requested);
 
     assert(QTAILQ_FIRST(&bq->in_flight) == NULL);
     assert(QTAILQ_FIRST(&bq->queue) == NULL);
