@@ -2222,6 +2222,10 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
             goto done;
         }
 
+        if (acb->tmp_buf == NULL) {
+            acb->tmp_buf = qemu_blockalign(acb->common.bs, BDRV_SECTOR_SIZE);
+        }
+
         acb->state = 4;
         acb->iov.iov_base = acb->tmp_buf;
         acb->iov.iov_len = BDRV_SECTOR_SIZE;

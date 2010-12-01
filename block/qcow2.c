@@ -145,8 +145,7 @@ static bool qcow_blkqueue_error_cb(void *opaque, int ret)
         || action == BLOCK_ERR_STOP_ANY)
     {
         bdrv_mon_event(bs, BDRV_ACTION_STOP, 0);
-        vm_stop(0);
-        return true;
+        return vm_stop(0);
     }
 
     return false;
@@ -317,8 +316,12 @@ static int qcow_set_key(BlockDriverState *bs, const char *key)
 static int qcow_is_allocated(BlockDriverState *bs, int64_t sector_num,
                              int nb_sectors, int *pnum)
 {
+    BDRVQcowState *s = bs->opaque;
     uint64_t cluster_offset;
     int ret;
+
+    blkqueue_init_context(&s->initial_bq_context, s->bq);
+    s->bq_context = &s->initial_bq_context;
 
     *pnum = nb_sectors;
     /* FIXME We can get errors here, but the bdrv_is_allocated interface can't

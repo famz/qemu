@@ -701,7 +701,12 @@ int blkqueue_flush(BlockQueue *bq)
 {
     int res = 0;
 
-    bq->flushing = 1;
+    if (bq->error_ret == 0) {
+        bq->flushing = 1;
+    } else {
+        bq->flushing = bq->error_ret;
+        qemu_aio_flush();
+    }
 
     /* Process any left over requests */
     while ((bq->flushing > 0) &&
