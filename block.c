@@ -2106,9 +2106,18 @@ BlockDriverAIOCB *bdrv_aio_writev(BlockDriverState *bs, int64_t sector_num,
     return ret;
 }
 
+enum PwiteAIOStates {
+    PWRITE_READ_FIRST,
+    PWRITE_WRITE_FIRST,
+    PWRITE_IN_PLACE,
+    PWRITE_READ_LAST,
+    PWRITE_WRITE_LAST,
+    PWRITE_DONE,
+};
+
 typedef struct PwriteAIOCB {
     BlockDriverAIOCB    common;
-    int                 state;
+    enum PwiteAIOStates state;
     int64_t             offset;
     size_t              bytes;
     uint8_t*            buf;
@@ -2140,14 +2149,14 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
     sector_num = acb->offset >> BDRV_SECTOR_BITS;
 
     switch (acb->state) {
-    case 0: {
+    case PWRITE_READ_FIRST: {
         /* Read first sector if needed */
         int len;
 
         len = (BDRV_SECTOR_SIZE - acb->offset) & (BDRV_SECTOR_SIZE - 1);
 
         if (len > 0) {
-            acb->state = 1;
+            acb->state = PWRITE_WRITE_FIRST;
             acb->tmp_buf = qemu_blockalign(acb->common.bs, BDRV_SECTOR_SIZE);
             acb->iov.iov_base = acb->tmp_buf;
             acb->iov.iov_len = BDRV_SECTOR_SIZE;
@@ -2158,13 +2167,13 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
                 bdrv_aio_pwrite_cb(acb, -EIO);
             }
         } else {
-            acb->state = 2;
+            acb->state = PWRITE_IN_PLACE;
             bdrv_aio_pwrite_cb(acb, 0);
         }
         break;
     }
 
-    case 1: {
+    case PWRITE_WRITE_FIRST: {
         /* Modify first cluster and write it back */
         int len;
 
@@ -2176,7 +2185,7 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
         memcpy(acb->tmp_buf + (acb->offset & (BDRV_SECTOR_SIZE - 1)),
             acb->buf, len);
 
-        acb->state = 2;
+        acb->state = PWRITE_IN_PLACE;
         acb->offset += len;
         acb->buf += len;
         acb->bytes -= len;
@@ -2189,11 +2198,11 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
         break;
     }
 
-    case 2: {
+    case PWRITE_IN_PLACE: {
         /* Write the sectors "in place" */
         int nb_sectors = acb->bytes >> BDRV_SECTOR_BITS;
 
-        acb->state = 3;
+        acb->state = PWRITE_READ_LAST;
         if (nb_sectors > 0) {
             int len = nb_sectors << BDRV_SECTOR_BITS;
 
@@ -2216,7 +2225,7 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
         break;
     }
 
-    case 3: {
+    case PWRITE_READ_LAST: {
         /* Read last sector if needed */
         if (acb->bytes == 0) {
             goto done;
@@ -2226,7 +2235,7 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
             acb->tmp_buf = qemu_blockalign(acb->common.bs, BDRV_SECTOR_SIZE);
         }
 
-        acb->state = 4;
+        acb->state = PWRITE_WRITE_LAST;
         acb->iov.iov_base = acb->tmp_buf;
         acb->iov.iov_len = BDRV_SECTOR_SIZE;
         qemu_iovec_init_external(&acb->qiov, &acb->iov, 1);
@@ -2238,9 +2247,9 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
         break;
     }
 
-    case 4:
+    case PWRITE_WRITE_LAST:
         /* Modify and write last sector */
-        acb->state = 5;
+        acb->state = PWRITE_DONE;
         memcpy(acb->tmp_buf, acb->buf, acb->bytes);
         tmp_acb = bdrv_aio_writev(acb->common.bs, sector_num, &acb->qiov, 1,
             bdrv_aio_pwrite_cb, acb);
@@ -2249,7 +2258,7 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
         }
         break;
 
-    case 5:
+    case PWRITE_DONE:
         goto done;
     }
     return;
@@ -2266,7 +2275,7 @@ BlockDriverAIOCB *bdrv_aio_pwrite(BlockDriverState *bs, int64_t offset,
     PwriteAIOCB *acb;
 
     acb = qemu_aio_get(&blkqueue_aio_pool, bs, cb, opaque);
-    acb->state      = 0;
+    acb->state      = PWRITE_READ_FIRST;
     acb->offset     = offset;
     acb->buf        = buf;
     acb->bytes      = bytes;
