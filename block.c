@@ -2117,6 +2117,8 @@ enum PwiteAIOStates {
 
 typedef struct PwriteAIOCB {
     BlockDriverAIOCB    common;
+    QEMUBH*             bh;
+    int                 ret;
     enum PwiteAIOStates state;
     int64_t             offset;
     size_t              bytes;
@@ -2135,6 +2137,16 @@ static AIOPool blkqueue_aio_pool = {
     .aiocb_size         = sizeof(PwriteAIOCB),
     .cancel             = pwrite_aio_cancel,
 };
+
+static void bdrv_aio_pwrite_done_bh(void *opaque)
+{
+    PwriteAIOCB *acb = opaque;
+
+    acb->common.cb(acb->common.opaque, acb->ret);
+
+    qemu_bh_delete(acb->bh);
+    qemu_aio_release(acb);
+}
 
 static void bdrv_aio_pwrite_cb(void *opaque, int ret)
 {
@@ -2265,8 +2277,14 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
 
 done:
     qemu_free(acb->tmp_buf);
-    acb->common.cb(acb->common.opaque, ret);
-    qemu_aio_release(acb);
+
+    /*
+     * Need to complete in a BH because in error cases we may not have returned
+     * from the bdrv_aio_pwrite call yet and we must avoid reentrancy.
+     */
+    acb->bh = qemu_bh_new(bdrv_aio_pwrite_done_bh, acb);
+    acb->ret = ret;
+    qemu_bh_schedule(acb->bh);
 }
 
 BlockDriverAIOCB *bdrv_aio_pwrite(BlockDriverState *bs, int64_t offset,
