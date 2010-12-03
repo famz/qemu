@@ -2276,7 +2276,7 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
     return;
 
 done:
-    qemu_free(acb->tmp_buf);
+    qemu_vfree(acb->tmp_buf);
 
     /*
      * Need to complete in a BH because in error cases we may not have returned

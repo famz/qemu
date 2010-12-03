@@ -310,7 +310,7 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     req->bq         = bq;
     req->offset     = offset;
     req->size       = size;
-    req->buf        = qemu_malloc(size);
+    req->buf        = qemu_blockalign(bq->bs, size);
     req->section    = context->section;
     memcpy(req->buf, buf, size);
 
@@ -451,7 +451,7 @@ out:
 
 static void blkqueue_free_request(BlockQueueRequest *req)
 {
-    qemu_free(req->buf);
+    qemu_vfree(req->buf);
     qemu_free(req);
 }
 
