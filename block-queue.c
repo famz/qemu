@@ -78,7 +78,7 @@ struct BlockQueue {
     void*                   error_opaque;
     int                     error_ret;
 
-    unsigned int            in_flight_num;
+    int                     in_flight_num;
     enum blkqueue_req_type  in_flight_type;
 
     struct bq_queue_head    queue;
@@ -468,7 +468,9 @@ static void blkqueue_remove_request(BlockQueueRequest *req, bool in_flight)
         assert(bq->queue_size >= 0);
     }
 
-    if (req->type == REQ_TYPE_BARRIER) {
+    if (req->type == REQ_TYPE_BARRIER ||
+        req->type == REQ_TYPE_WAIT_FOR_COMPLETION)
+    {
         QSIMPLEQ_REMOVE(&bq->sections, req, BlockQueueRequest, link_section);
     }
 }
@@ -486,7 +488,7 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
         goto out;
     }
 
-    if (req->type == REQ_TYPE_BARRIER) {
+    if (req->type != REQ_TYPE_WRITE) {
         assert(QSIMPLEQ_FIRST(&bq->sections) == req);
     }
 
@@ -544,6 +546,7 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
     /* Remove from in-flight list */
     QTAILQ_REMOVE(&bq->in_flight, req, link);
     bq->in_flight_num--;
+    assert(bq->in_flight_num >= 0);
 
     /*
      * Error handling gets a bit complicated, because we have already completed
@@ -679,12 +682,13 @@ static int blkqueue_submit_request(BlockQueue *bq)
                 blkqueue_process_request_cb, req);
             break;
         case REQ_TYPE_BARRIER:
-            DPRINTF("  process flush\n");
+            DPRINTF("  process flush: %p\n", req);
             acb = bdrv_aio_flush(bq->bs, blkqueue_process_request_cb, req);
             break;
         case REQ_TYPE_WAIT_FOR_COMPLETION:
+            DPRINTF("  process wfc: %p\n", req);
             blkqueue_process_request_cb(req, 0);
-            break;
+            return 0;
         default:
             /* Make gcc happy (acb would be uninitialized) */
             return -1;
