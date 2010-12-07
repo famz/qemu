@@ -71,6 +71,7 @@ struct BlockQueue {
     int                 barriers_submitted;
     int                 queue_size;
     int                 flushing;
+    int                 num_waiting_for_cb;
 
     BlockQueueErrorHandler  error_handler;
     void*                   error_opaque;
@@ -125,6 +126,7 @@ void blkqueue_destroy(BlockQueue *bq)
     DPRINTF("blkqueue_destroy: %d/%d barriers left\n",
         bq->barriers_submitted, bq->barriers_requested);
 
+    assert(bq->num_waiting_for_cb == 0);
     assert(QTAILQ_FIRST(&bq->in_flight) == NULL);
     assert(QTAILQ_FIRST(&bq->queue) == NULL);
     assert(QSIMPLEQ_FIRST(&bq->sections) == NULL);
@@ -399,6 +401,7 @@ static int insert_barrier(BlockQueueContext *context, BlockQueueAIOCB *acb)
 out:
     if (acb) {
         QLIST_INSERT_HEAD(&req->acbs, acb, link);
+        bq->num_waiting_for_cb++;
     }
 
 #ifndef RUN_TESTS
@@ -526,6 +529,8 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
     QLIST_FOREACH_SAFE(acb, &req->acbs, link, next) {
         acb->common.cb(acb->common.opaque, bq->error_ret);
         qemu_free(acb);
+        bq->num_waiting_for_cb--;
+        assert(bq->num_waiting_for_cb >= 0);
     }
     QLIST_INIT(&req->acbs);
 
@@ -596,8 +601,12 @@ static int blkqueue_submit_request(BlockQueue *bq)
         return -1;
     }
 
-    /* Process barriers only if the queue is long enough */
-    if (!bq->flushing) {
+    /*
+     * Process barriers only if the queue is long enough. However, if anyone is
+     * waiting for a callback (or bdrv_flush to complete), we should process
+     * the queue as quickly as possible.
+     */
+    if (!bq->flushing && (bq->num_waiting_for_cb == 0)) {
         if (req->type == REQ_TYPE_BARRIER && bq->queue_size < 50) {
             return -1;
         }
