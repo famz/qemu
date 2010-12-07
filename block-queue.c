@@ -127,6 +127,7 @@ void blkqueue_destroy(BlockQueue *bq)
         bq->barriers_submitted, bq->barriers_requested);
 
     assert(bq->num_waiting_for_cb == 0);
+    assert(bq->queue_size == 0);
     assert(QTAILQ_FIRST(&bq->in_flight) == NULL);
     assert(QTAILQ_FIRST(&bq->queue) == NULL);
     assert(QSIMPLEQ_FIRST(&bq->sections) == NULL);
@@ -425,6 +426,20 @@ int blkqueue_barrier(BlockQueueContext *context)
     return insert_barrier(context, NULL);
 }
 
+/* Removes a request from the queue */
+static void blkqueue_remove_request(BlockQueueRequest *req)
+{
+    BlockQueue *bq = req->bq;
+
+    QTAILQ_REMOVE(&bq->queue, req, link);
+    bq->queue_size--;
+    assert(bq->queue_size >= 0);
+
+    if (req->type == REQ_TYPE_BARRIER) {
+        QSIMPLEQ_REMOVE(&bq->sections, req, BlockQueueRequest, link_section);
+    }
+}
+
 /*
  * Removes the first request from the queue and returns it. While doing so, it
  * also takes care of the section list.
@@ -438,13 +453,11 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
         goto out;
     }
 
-    QTAILQ_REMOVE(&bq->queue, req, link);
-    bq->queue_size--;
-
     if (req->type == REQ_TYPE_BARRIER) {
         assert(QSIMPLEQ_FIRST(&bq->sections) == req);
-        QSIMPLEQ_REMOVE_HEAD(&bq->sections, link_section);
     }
+
+    blkqueue_remove_request(req);
 
 out:
     return req;
@@ -472,17 +485,14 @@ static void blkqueue_fail_flush(BlockQueue *bq, int ret, bool keep_queue)
         /* Call and remove registered callbacks */
         QLIST_FOREACH_SAFE(acb, &req->acbs, link, next_acb) {
             acb->common.cb(acb->common.opaque, ret);
-            qemu_free(acb);
+            qemu_aio_release(acb);
         }
         QLIST_INIT(&req->acbs);
 
         /* If requested, remove the request itself */
         if (!keep_queue) {
-            QTAILQ_REMOVE(&bq->queue, req, link);
-            if (req->type == REQ_TYPE_BARRIER) {
-                QSIMPLEQ_REMOVE(&bq->sections, req, BlockQueueRequest,
-                    link_section);
-            }
+            blkqueue_remove_request(req);
+            blkqueue_free_request(req);
         }
     }
 
@@ -526,7 +536,7 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
     /* Call any callbacks attached to the request (see blkqueue_aio_flush) */
     QLIST_FOREACH_SAFE(acb, &req->acbs, link, next) {
         acb->common.cb(acb->common.opaque, bq->error_ret);
-        qemu_free(acb);
+        qemu_aio_release(acb);
         bq->num_waiting_for_cb--;
         assert(bq->num_waiting_for_cb >= 0);
     }
@@ -541,6 +551,8 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
 
         if (keep_queue) {
             /* Reinsert request into the queue */
+            /* FIXME Merge with possible new requests in the queue, or add barrier */
+            bq->queue_size++;
             QTAILQ_INSERT_HEAD(&bq->queue, req, link);
             if (req->type == REQ_TYPE_BARRIER) {
                 QSIMPLEQ_INSERT_HEAD(&bq->sections, req, link_section);
@@ -594,6 +606,7 @@ static int blkqueue_submit_request(BlockQueue *bq)
      * 1. If we're currently processing a barrier, or the new request is a
      *    barrier, we need to guarantee this barrier semantics.
      * 2. We must make sure that newer writes cannot pass older ones.
+     * FIXME This doesn't do what it's supposed to
      */
     if (bq->in_flight_num > 0) {
         return -1;
@@ -667,7 +680,7 @@ static void blkqueue_aio_cancel(BlockDriverAIOCB *blockacb)
      * need to make sure that we don't call the callback when it completes.
      */
     QLIST_REMOVE(acb, link);
-    qemu_free(acb);
+    qemu_aio_release(acb);
 }
 
 /*
@@ -691,8 +704,8 @@ BlockDriverAIOCB* blkqueue_aio_flush(BlockQueueContext *context,
 
     ret = insert_barrier(context, acb);
     if (ret < 0) {
-        cb(opaque, ret);
-        qemu_free(acb);
+        qemu_aio_release(acb);
+        return NULL;
     }
 
     return &acb->common;
@@ -734,15 +747,15 @@ int blkqueue_flush(BlockQueue *bq)
          * Wait for AIO requests, so that the queue is really unused after
          * blkqueue_flush() and the caller can destroy it
          */
-        if (res < 0) {
-            qemu_aio_flush();
-        }
+        qemu_aio_flush();
     } else if (bq->flushing < 0) {
         res = bq->flushing;
     }
 
     bq->flushing = 0;
     bq->error_ret = 0;
+
+    assert(bq->queue_size == 0);
 
     return res;
 }
