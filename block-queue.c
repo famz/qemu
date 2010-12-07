@@ -454,14 +454,19 @@ static void blkqueue_requeue_request(BlockQueueRequest *req)
     }
 }
 
-/* Removes a request from the queue */
-static void blkqueue_remove_request(BlockQueueRequest *req)
+/*
+ * Removes a request either from the block queue or from the in-flight queue,
+ * whereever it is.
+ */
+static void blkqueue_remove_request(BlockQueueRequest *req, bool in_flight)
 {
     BlockQueue *bq = req->bq;
 
     QTAILQ_REMOVE(&bq->queue, req, link);
-    bq->queue_size--;
-    assert(bq->queue_size >= 0);
+    if (!in_flight) {
+        bq->queue_size--;
+        assert(bq->queue_size >= 0);
+    }
 
     if (req->type == REQ_TYPE_BARRIER) {
         QSIMPLEQ_REMOVE(&bq->sections, req, BlockQueueRequest, link_section);
@@ -485,7 +490,7 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
         assert(QSIMPLEQ_FIRST(&bq->sections) == req);
     }
 
-    blkqueue_remove_request(req);
+    blkqueue_remove_request(req, false);
 
 out:
     return req;
@@ -519,7 +524,7 @@ static void blkqueue_fail_flush(BlockQueue *bq, int ret, bool keep_queue)
 
         /* If requested, remove the request itself */
         if (!keep_queue) {
-            blkqueue_remove_request(req);
+            blkqueue_remove_request(req, true);
             blkqueue_free_request(req);
         }
     }
@@ -706,21 +711,24 @@ static void blkqueue_process_request(BlockQueue *bq)
     }
 
     /*
-     * Now that a bunch of requests is in flight, wait for their completion
+     * If a bunch of writes is in flight now, wait for their completion
      * before submitting more (possibly conflicting) requests.
      *
      * Section 0 ensures that no requests will be queue before it.
      */
-    req = qemu_malloc(sizeof(*req));
-    QLIST_INIT(&req->acbs);
-    req->type       = REQ_TYPE_WAIT_FOR_COMPLETION;
-    req->bq         = bq;
-    req->section    = 0;
-    req->buf        = NULL;
+    if (bq->in_flight_type == REQ_TYPE_WRITE) {
+        req = qemu_malloc(sizeof(*req));
+        QLIST_INIT(&req->acbs);
+        req->type       = REQ_TYPE_WAIT_FOR_COMPLETION;
+        req->bq         = bq;
+        req->section    = 0;
+        req->buf        = NULL;
 
-    DPRINTF("queue-ins wfc:   %p\n", req);
-    QTAILQ_INSERT_HEAD(&bq->queue, req, link);
-    QSIMPLEQ_INSERT_HEAD(&bq->sections, req, link_section);
+        DPRINTF("queue-ins wfc:   %p\n", req);
+        bq->queue_size++;
+        QTAILQ_INSERT_HEAD(&bq->queue, req, link);
+        QSIMPLEQ_INSERT_HEAD(&bq->sections, req, link_section);
+    }
 }
 
 static void blkqueue_aio_cancel(BlockDriverAIOCB *blockacb)
