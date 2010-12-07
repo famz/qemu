@@ -345,21 +345,14 @@ out:
 static int insert_barrier(BlockQueueContext *context, BlockQueueAIOCB *acb)
 {
     BlockQueue *bq = context->bq;
+    BlockQueueRequest *req;
     BlockQueueRequest *section_req;
 
     bq->barriers_requested++;
 
-    /* Create request structure */
-    BlockQueueRequest *req = qemu_malloc(sizeof(*req));
-    QLIST_INIT(&req->acbs);
-    req->type       = REQ_TYPE_BARRIER;
-    req->bq         = bq;
-    req->section    = context->section;
-    req->buf        = NULL;
-
     /* Find another barrier to merge with. */
     QSIMPLEQ_FOREACH(section_req, &bq->sections, link_section) {
-        if (section_req->section >= req->section) {
+        if (section_req->section >= context->section) {
 
             /*
              * If acb is set, the intention of the barrier request is to flush
@@ -371,9 +364,7 @@ static int insert_barrier(BlockQueueContext *context, BlockQueueAIOCB *acb)
                 continue;
             }
 
-            req->section = section_req->section;
             context->section = section_req->section + 1;
-            qemu_free(req);
             req = section_req;
             goto out;
         }
@@ -383,6 +374,13 @@ static int insert_barrier(BlockQueueContext *context, BlockQueueAIOCB *acb)
      * If there wasn't a barrier for the same section yet, insert a new one at
      * the end.
      */
+    req = qemu_malloc(sizeof(*req));
+    QLIST_INIT(&req->acbs);
+    req->type       = REQ_TYPE_BARRIER;
+    req->bq         = bq;
+    req->section    = context->section;
+    req->buf        = NULL;
+
     DPRINTF("queue-ins flush: %p\n", req);
     QTAILQ_INSERT_TAIL(&bq->queue, req, link);
     QSIMPLEQ_INSERT_TAIL(&bq->sections, req, link_section);
