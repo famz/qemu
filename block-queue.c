@@ -40,6 +40,7 @@
 enum blkqueue_req_type {
     REQ_TYPE_WRITE,
     REQ_TYPE_BARRIER,
+    REQ_TYPE_WAIT_FOR_COMPLETION,
 };
 
 typedef struct BlockQueueAIOCB {
@@ -116,7 +117,7 @@ BlockQueue *blkqueue_create(BlockDriverState *bs,
 void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq)
 {
     context->bq = bq;
-    context->section = 0;
+    context->section = 1;
 }
 
 void blkqueue_destroy(BlockQueue *bq)
@@ -426,6 +427,33 @@ int blkqueue_barrier(BlockQueueContext *context)
     return insert_barrier(context, NULL);
 }
 
+/* Reinserts a failed request at the head of the queue */
+static void blkqueue_requeue_request(BlockQueueRequest *req)
+{
+    BlockQueue *bq = req->bq;
+
+    switch (req->type) {
+    case REQ_TYPE_WRITE:
+        assert(QSIMPLEQ_FIRST(&bq->sections) &&
+            QSIMPLEQ_FIRST(&bq->sections)->type ==
+                REQ_TYPE_WAIT_FOR_COMPLETION);
+
+        bq->queue_size++;
+        QTAILQ_INSERT_HEAD(&bq->queue, req, link);
+        break;
+
+    case REQ_TYPE_BARRIER:
+        bq->queue_size++;
+        QTAILQ_INSERT_HEAD(&bq->queue, req, link);
+        QSIMPLEQ_INSERT_HEAD(&bq->sections, req, link_section);
+        break;
+
+    default:
+        /* REQ_TYPE_WAIT_FOR_COMPLETION never fails */
+        abort();
+    }
+}
+
 /* Removes a request from the queue */
 static void blkqueue_remove_request(BlockQueueRequest *req)
 {
@@ -551,12 +579,7 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
 
         if (keep_queue) {
             /* Reinsert request into the queue */
-            /* FIXME Merge with possible new requests in the queue, or add barrier */
-            bq->queue_size++;
-            QTAILQ_INSERT_HEAD(&bq->queue, req, link);
-            if (req->type == REQ_TYPE_BARRIER) {
-                QSIMPLEQ_INSERT_HEAD(&bq->sections, req, link_section);
-            }
+            blkqueue_requeue_request(req);
 
             /* Clear the error to restore a normal state after 'cont' */
             bq->error_ret = 0;
@@ -603,12 +626,20 @@ static int blkqueue_submit_request(BlockQueue *bq)
 
     /*
      * We need to wait for completion before we can submit new requests:
+     *
      * 1. If we're currently processing a barrier, or the new request is a
      *    barrier, we need to guarantee this barrier semantics.
-     * 2. We must make sure that newer writes cannot pass older ones.
-     * FIXME This doesn't do what it's supposed to
+     *
+     * 2. We must make sure that newer writes cannot pass older ones, because
+     *    the new ones could write to the same location. If we didn't wait for
+     *    completion of the old requests, with some bad luck we could first
+     *    write the new data and then overwrite it with older data.
+     *
+     * In-flight requests are protected by a REQ_TYPE_WAIT_FOR_COMPLETION,
+     * so both is achieved by only submitting new requests of the same type as
+     * long as requests are still in flight
      */
-    if (bq->in_flight_num > 0) {
+    if (bq->in_flight_num > 0 && bq->in_flight_type != req->type) {
         return -1;
     }
 
@@ -646,6 +677,9 @@ static int blkqueue_submit_request(BlockQueue *bq)
             DPRINTF("  process flush\n");
             acb = bdrv_aio_flush(bq->bs, blkqueue_process_request_cb, req);
             break;
+        case REQ_TYPE_WAIT_FOR_COMPLETION:
+            blkqueue_process_request_cb(req, 0);
+            break;
         default:
             /* Make gcc happy (acb would be uninitialized) */
             return -1;
@@ -664,11 +698,29 @@ static int blkqueue_submit_request(BlockQueue *bq)
  */
 static void blkqueue_process_request(BlockQueue *bq)
 {
+    BlockQueueRequest *req;
     int ret = 0;
 
     while (ret >= 0) {
         ret = blkqueue_submit_request(bq);
     }
+
+    /*
+     * Now that a bunch of requests is in flight, wait for their completion
+     * before submitting more (possibly conflicting) requests.
+     *
+     * Section 0 ensures that no requests will be queue before it.
+     */
+    req = qemu_malloc(sizeof(*req));
+    QLIST_INIT(&req->acbs);
+    req->type       = REQ_TYPE_WAIT_FOR_COMPLETION;
+    req->bq         = bq;
+    req->section    = 0;
+    req->buf        = NULL;
+
+    DPRINTF("queue-ins wfc:   %p\n", req);
+    QTAILQ_INSERT_HEAD(&bq->queue, req, link);
+    QSIMPLEQ_INSERT_HEAD(&bq->sections, req, link_section);
 }
 
 static void blkqueue_aio_cancel(BlockDriverAIOCB *blockacb)
