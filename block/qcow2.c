@@ -721,12 +721,14 @@ static BlockDriverAIOCB *qcow_aio_writev(BlockDriverState *bs,
 static void qcow_close(BlockDriverState *bs)
 {
     BDRVQcowState *s = bs->opaque;
+
+    blkqueue_destroy(s->bq);
+
     qemu_free(s->l1_table);
     qemu_free(s->l2_cache);
     qemu_free(s->cluster_cache);
     qemu_free(s->cluster_data);
     qcow2_refcount_close(bs);
-    blkqueue_destroy(s->bq);
 }
 
 /*
@@ -1217,7 +1219,7 @@ static void qcow_aio_flush_cb(void *opaque, int ret)
     BlockDriverState *bs = acb->bs;
     BDRVQcowState *s = bs->opaque;
 
-    if (blkqueue_is_empty(s->bq)) {
+    if (ret < 0 && blkqueue_is_empty(s->bq)) {
         qcow_close(bs);
         qcow_open(bs, 0);
     }
