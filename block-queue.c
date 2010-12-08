@@ -26,6 +26,7 @@
 #include "qemu-queue.h"
 #include "block_int.h"
 #include "block-queue.h"
+#include "qemu-error.h"
 
 //#define BLKQUEUE_DEBUG
 
@@ -56,6 +57,7 @@ typedef struct BlockQueueRequest {
     void*       buf;
     uint64_t    size;
     unsigned    section;
+    bool        in_flight;
 
     QLIST_HEAD(, BlockQueueAIOCB) acbs;
 
@@ -93,6 +95,7 @@ typedef void (*blkqueue_handle_overlap)(void *new, void *old, size_t size);
 
 static void blkqueue_process_request(BlockQueue *bq);
 static void blkqueue_aio_cancel(BlockDriverAIOCB *blockacb);
+static void blkqueue_fail_flush(BlockQueue *bq, int ret, bool keep_queue);
 
 static AIOPool blkqueue_aio_pool = {
     .aiocb_size         = sizeof(struct BlockQueueAIOCB),
@@ -122,7 +125,14 @@ void blkqueue_init_context(BlockQueueContext* context, BlockQueue *bq)
 
 void blkqueue_destroy(BlockQueue *bq)
 {
-    blkqueue_flush(bq);
+    int ret;
+
+    ret = blkqueue_flush(bq);
+    if (ret < 0) {
+        error_report("blkqueue_destroy: %s: %s\n",
+            bq->bs->filename, strerror(-ret));
+        blkqueue_fail_flush(bq, ret, false);
+    }
 
     DPRINTF("blkqueue_destroy: %d/%d barriers left\n",
         bq->barriers_submitted, bq->barriers_requested);
@@ -316,6 +326,7 @@ int blkqueue_pwrite(BlockQueueContext *context, uint64_t offset, void *buf,
     req->size       = size;
     req->buf        = qemu_blockalign(bq->bs, size);
     req->section    = context->section;
+    req->in_flight  = false;
     memcpy(req->buf, buf, size);
 
     /*
@@ -382,6 +393,7 @@ static int insert_barrier(BlockQueueContext *context, BlockQueueAIOCB *acb)
     req->bq         = bq;
     req->section    = context->section;
     req->buf        = NULL;
+    req->in_flight  = false;
 
     DPRINTF("queue-ins flush: %p\n", req);
     QTAILQ_INSERT_TAIL(&bq->queue, req, link);
@@ -432,6 +444,8 @@ static void blkqueue_requeue_request(BlockQueueRequest *req)
 {
     BlockQueue *bq = req->bq;
 
+    req->in_flight = false;
+
     switch (req->type) {
     case REQ_TYPE_WRITE:
         assert(QSIMPLEQ_FIRST(&bq->sections) &&
@@ -458,15 +472,18 @@ static void blkqueue_requeue_request(BlockQueueRequest *req)
  * Removes a request either from the block queue or from the in-flight queue,
  * whereever it is.
  */
-static void blkqueue_remove_request(BlockQueueRequest *req, bool in_flight)
+static void blkqueue_remove_request(BlockQueueRequest *req)
 {
     BlockQueue *bq = req->bq;
 
-    QTAILQ_REMOVE(&bq->queue, req, link);
-    if (!in_flight) {
-        bq->queue_size--;
-        assert(bq->queue_size >= 0);
+    if (req->in_flight) {
+        QTAILQ_REMOVE(&bq->in_flight, req, link);
+        return;
     }
+
+    QTAILQ_REMOVE(&bq->queue, req, link);
+    bq->queue_size--;
+    assert(bq->queue_size >= 0);
 
     if (req->type == REQ_TYPE_BARRIER ||
         req->type == REQ_TYPE_WAIT_FOR_COMPLETION)
@@ -492,7 +509,7 @@ static BlockQueueRequest *blkqueue_pop(BlockQueue *bq)
         assert(QSIMPLEQ_FIRST(&bq->sections) == req);
     }
 
-    blkqueue_remove_request(req, false);
+    blkqueue_remove_request(req);
 
 out:
     return req;
@@ -526,7 +543,7 @@ static void blkqueue_fail_flush(BlockQueue *bq, int ret, bool keep_queue)
 
         /* If requested, remove the request itself */
         if (!keep_queue) {
-            blkqueue_remove_request(req, true);
+            blkqueue_remove_request(req);
             blkqueue_free_request(req);
         }
     }
@@ -541,7 +558,8 @@ static void blkqueue_process_request_cb(void *opaque, int ret)
     BlockQueue *bq = req->bq;
     BlockQueueAIOCB *acb, *next;
 
-    DPRINTF("  done    req:    %p [%#lx + %ld]\n", req, req->offset, req->size);
+    DPRINTF("  done    req:    %p [%#lx + %ld], ret = %d\n",
+        req, req->offset, req->size, ret);
 
     /* Remove from in-flight list */
     QTAILQ_REMOVE(&bq->in_flight, req, link);
@@ -673,6 +691,8 @@ static int blkqueue_submit_request(BlockQueue *bq)
     bq->in_flight_num++;
     bq->in_flight_type = req->type;
 
+    req->in_flight = true;
+
     /* Submit the request */
     switch (req->type) {
         case REQ_TYPE_WRITE:
@@ -727,6 +747,7 @@ static void blkqueue_process_request(BlockQueue *bq)
         req->bq         = bq;
         req->section    = 0;
         req->buf        = NULL;
+        req->in_flight  = false;
 
         DPRINTF("queue-ins wfc:   %p\n", req);
         bq->queue_size++;
@@ -819,7 +840,7 @@ int blkqueue_flush(BlockQueue *bq)
     bq->flushing = 0;
     bq->error_ret = 0;
 
-    assert(bq->queue_size == 0);
+    assert(res != 0 || bq->queue_size == 0);
 
     return res;
 }
