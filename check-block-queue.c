@@ -118,10 +118,10 @@ static void test_basic(BlockDriverState *bs)
     QUEUE_WRITE(&context, 678, buf,  42, 0x56);
 
     /* Verify queue contents */
-    POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 0);
-    POP_CHECK_WRITE(bq,   512, buf,  42, 0x34, 0);
-    POP_CHECK_BARRIER(bq, 0);
-    POP_CHECK_WRITE(bq,   678, buf,  42, 0x56, 1);
+    POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 1);
+    POP_CHECK_WRITE(bq,   512, buf,  42, 0x34, 1);
+    POP_CHECK_BARRIER(bq, 1);
+    POP_CHECK_WRITE(bq,   678, buf,  42, 0x56, 2);
 
     blkqueue_destroy(bq);
 }
@@ -145,11 +145,11 @@ static void test_merge(BlockDriverState *bs)
     QUEUE_WRITE(&ctx2, 1536, buf,  42, 0x34);
 
     /* Verify queue contents */
-    POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 0);
-    POP_CHECK_WRITE(bq,   512, buf,  42, 0x34, 0);
-    POP_CHECK_BARRIER(bq, 0);
-    POP_CHECK_WRITE(bq,  1024, buf, 512, 0x12, 1);
-    POP_CHECK_WRITE(bq,  1536, buf,  42, 0x34, 1);
+    POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 1);
+    POP_CHECK_WRITE(bq,   512, buf,  42, 0x34, 1);
+    POP_CHECK_BARRIER(bq, 1);
+    POP_CHECK_WRITE(bq,  1024, buf, 512, 0x12, 2);
+    POP_CHECK_WRITE(bq,  1536, buf,  42, 0x34, 2);
 
     /* Same queue, new contexts */
     blkqueue_init_context(&ctx1, bq);
@@ -170,15 +170,15 @@ static void test_merge(BlockDriverState *bs)
     QUEUE_BARRIER(&ctx1);
 
     /* Verify queue contents */
-    POP_CHECK_WRITE(bq,     0, buf,   8, 0x12, 0);
-    POP_CHECK_BARRIER(bq, 0);
-    POP_CHECK_WRITE(bq,   512, buf,  42, 0x34, 1);
-    POP_CHECK_WRITE(bq,    12, buf,  20, 0x45, 1);
-    POP_CHECK_WRITE(bq,  1024, buf, 512, 0x12, 1);
+    POP_CHECK_WRITE(bq,     0, buf,   8, 0x12, 1);
     POP_CHECK_BARRIER(bq, 1);
-    POP_CHECK_WRITE(bq,  2892, buf, 142, 0x56, 2);
-    POP_CHECK_WRITE(bq,  2512, buf,  42, 0x34, 2);
+    POP_CHECK_WRITE(bq,   512, buf,  42, 0x34, 2);
+    POP_CHECK_WRITE(bq,    12, buf,  20, 0x45, 2);
+    POP_CHECK_WRITE(bq,  1024, buf, 512, 0x12, 2);
     POP_CHECK_BARRIER(bq, 2);
+    POP_CHECK_WRITE(bq,  2892, buf, 142, 0x56, 3);
+    POP_CHECK_WRITE(bq,  2512, buf,  42, 0x34, 3);
+    POP_CHECK_BARRIER(bq, 3);
 
     blkqueue_destroy(bq);
 }
@@ -218,8 +218,8 @@ static void test_read(BlockDriverState *bs)
     CHECK_READ(&ctx1,  0, buf, 32, buf2);
 
     /* Verify queue contents */
-    POP_CHECK_WRITE(bq,     5, buf,   5, 0x12, 0);
-    POP_CHECK_WRITE(bq,     0, buf,   2, 0x12, 0);
+    POP_CHECK_WRITE(bq,     5, buf,   5, 0x12, 1);
+    POP_CHECK_WRITE(bq,     0, buf,   2, 0x12, 1);
 
     blkqueue_destroy(bq);
 }
@@ -249,12 +249,12 @@ static void test_read_order(BlockDriverState *bs)
     QUEUE_BARRIER(&ctx2);
 
     /* Verify queue contents */
-    POP_CHECK_WRITE(bq,    25, buf,   5, 0x44, 0);
-    POP_CHECK_WRITE(bq,    10, buf,   5, 0x34, 0);
-    POP_CHECK_BARRIER(bq, 0);
-    POP_CHECK_WRITE(bq,     5, buf,   5, 0x34, 1);
-    POP_CHECK_WRITE(bq,     0, buf,   5, 0x34, 1);
+    POP_CHECK_WRITE(bq,    25, buf,   5, 0x44, 1);
+    POP_CHECK_WRITE(bq,    10, buf,   5, 0x34, 1);
     POP_CHECK_BARRIER(bq, 1);
+    POP_CHECK_WRITE(bq,     5, buf,   5, 0x34, 2);
+    POP_CHECK_WRITE(bq,     0, buf,   5, 0x34, 2);
+    POP_CHECK_BARRIER(bq, 2);
 
     blkqueue_destroy(bq);
 }
@@ -278,9 +278,9 @@ static void test_write_order(BlockDriverState *bs)
     QUEUE_WRITE(&context, 512, buf, 512, 0x34);
 
     /* Verify queue contents */
-    POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 0);
-    POP_CHECK_BARRIER(bq, 0);
-    POP_CHECK_WRITE(bq,   512, buf, 512, 0x34, 1);
+    POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 1);
+    POP_CHECK_BARRIER(bq, 1);
+    POP_CHECK_WRITE(bq,   512, buf, 512, 0x34, 2);
 
     /* Queue requests once again */
     blkqueue_init_context(&context, bq);
@@ -312,10 +312,10 @@ static void test_write_order(BlockDriverState *bs)
     QUEUE_WRITE(&context,   0, buf, 512, 0x56);
 
     /* Verify queue contents */
-    POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 0);
-    POP_CHECK_WRITE(bq,   512, buf, 512, 0x34, 0);
-    POP_CHECK_BARRIER(bq, 0);
-    POP_CHECK_WRITE(bq,     0, buf, 512, 0x56, 1);
+    POP_CHECK_WRITE(bq,     0, buf, 512, 0x12, 1);
+    POP_CHECK_WRITE(bq,   512, buf, 512, 0x34, 1);
+    POP_CHECK_BARRIER(bq, 1);
+    POP_CHECK_WRITE(bq,     0, buf, 512, 0x56, 2);
 
     blkqueue_destroy(bq);
 }
