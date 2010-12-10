@@ -27,7 +27,7 @@
 #include "block/qcow2.h"
 
 static int64_t alloc_clusters_noref(QcowRequest *req, int64_t size);
-static int QEMU_WARN_UNUSED_RESULT update_refcount(BlockDriverState *bs,
+static int QEMU_WARN_UNUSED_RESULT update_refcount(QcowRequest *req,
                             int64_t offset, int64_t length,
                             int addend);
 
@@ -57,9 +57,8 @@ static int write_refcount_block(QcowRequest *req)
 /*********************************************************/
 /* refcount handling */
 
-int qcow2_refcount_init(QcowRequest *req)
+int qcow2_refcount_init(BlockDriverState *bs)
 {
-    BlockDriverState *bs = req->bs;
     BDRVQcowState *s = bs->opaque;
     int ret, refcount_table_size2, i;
 
@@ -79,9 +78,8 @@ int qcow2_refcount_init(QcowRequest *req)
     return -ENOMEM;
 }
 
-void qcow2_refcount_close(QcowRequest *req)
+void qcow2_refcount_close(BlockDriverState *bs)
 {
-    BlockDriverState *bs = req->bs;
     BDRVQcowState *s = bs->opaque;
     qemu_free(s->refcount_block_cache);
     qemu_free(s->refcount_table);
@@ -261,7 +259,7 @@ static int64_t alloc_refcount_block(QcowRequest *req, int64_t cluster_index)
     } else {
         /* Described somewhere else. This can recurse at most twice before we
          * arrive at a block that describes itself. */
-        ret = update_refcount(bs, new_block, s->cluster_size, 1);
+        ret = update_refcount(req, new_block, s->cluster_size, 1);
         if (ret < 0) {
             goto fail_block;
         }
@@ -460,9 +458,10 @@ static int write_refcount_block_entries(QcowRequest *req,
 }
 
 /* XXX: cache several refcount block clusters ? */
-static int QEMU_WARN_UNUSED_RESULT update_refcount(BlockDriverState *bs,
+static int QEMU_WARN_UNUSED_RESULT update_refcount(QcowRequest *req,
     int64_t offset, int64_t length, int addend)
 {
+    BlockDriverState *bs = req->bs;
     BDRVQcowState *s = bs->opaque;
     int64_t start, last, cluster_offset;
     int64_t refcount_block_offset = 0;
@@ -494,7 +493,7 @@ static int QEMU_WARN_UNUSED_RESULT update_refcount(BlockDriverState *bs,
         table_index = cluster_index >> (s->cluster_bits - REFCOUNT_SHIFT);
         if ((old_table_index >= 0) && (table_index != old_table_index)) {
 
-            ret = write_refcount_block_entries(bs, refcount_block_offset,
+            ret = write_refcount_block_entries(req, refcount_block_offset,
                 first_index, last_index);
             if (ret < 0) {
                 return ret;
@@ -505,7 +504,7 @@ static int QEMU_WARN_UNUSED_RESULT update_refcount(BlockDriverState *bs,
         }
 
         /* Load the refcount block and allocate it if needed */
-        new_block = alloc_refcount_block(bs, cluster_index);
+        new_block = alloc_refcount_block(req, cluster_index);
         if (new_block < 0) {
             ret = new_block;
             goto fail;
@@ -540,7 +539,7 @@ fail:
     /* Write last changed block to disk */
     if (refcount_block_offset != 0) {
         int wret;
-        wret = write_refcount_block_entries(bs, refcount_block_offset,
+        wret = write_refcount_block_entries(req, refcount_block_offset,
             first_index, last_index);
         if (wret < 0) {
             return ret < 0 ? ret : wret;
@@ -553,7 +552,7 @@ fail:
      */
     if (ret < 0) {
         int dummy;
-        dummy = update_refcount(bs, offset, cluster_offset - offset, -addend);
+        dummy = update_refcount(req, offset, cluster_offset - offset, -addend);
         (void)dummy;
     }
 
@@ -575,7 +574,7 @@ static int update_cluster_refcount(QcowRequest *req,
     BDRVQcowState *s = bs->opaque;
     int ret;
 
-    ret = update_refcount(bs, cluster_index << s->cluster_bits, 1, addend);
+    ret = update_refcount(req, cluster_index << s->cluster_bits, 1, addend);
     if (ret < 0) {
         return ret;
     }
@@ -631,7 +630,7 @@ int64_t qcow2_alloc_clusters(QcowRequest *req, int64_t size)
         return offset;
     }
 
-    ret = update_refcount(bs, offset, size, 1);
+    ret = update_refcount(req, offset, size, 1);
     if (ret < 0) {
         return ret;
     }
@@ -696,7 +695,7 @@ void qcow2_free_clusters(QcowRequest *req,
     int ret;
 
     BLKDBG_EVENT(bs->file, BLKDBG_CLUSTER_FREE);
-    ret = update_refcount(bs, offset, size, -1);
+    ret = update_refcount(req, offset, size, -1);
     if (ret < 0) {
         fprintf(stderr, "qcow2_free_clusters failed: %s\n", strerror(-ret));
         /* TODO Remember the clusters to free them later and avoid leaking */
@@ -812,7 +811,7 @@ int qcow2_update_snapshot_refcount(QcowRequest *req,
                                        s->csize_mask) + 1;
                         if (addend != 0) {
                             int ret;
-                            ret = update_refcount(bs,
+                            ret = update_refcount(req,
                                 (offset & s->cluster_offset_mask) & ~511,
                                 nb_csectors * 512, addend);
                             if (ret < 0) {
@@ -1129,15 +1128,19 @@ fail:
  * Returns 0 if no errors are found, the number of errors in case the image is
  * detected as corrupted, and -errno when an internal error occured.
  */
-int qcow2_check_refcounts(QcowRequest *req, BdrvCheckResult *res)
+int qcow2_check_refcounts(BlockDriverState *bs, BdrvCheckResult *res)
 {
-    BlockDriverState *bs = req->bs;
     BDRVQcowState *s = bs->opaque;
     int64_t size;
     int nb_clusters, refcount1, refcount2, i;
     QCowSnapshot *sn;
     uint16_t *refcount_table;
     int ret;
+
+    QcowRequest req1 = {
+        .bs = bs,
+    };
+    QcowRequest *req = &req1;
 
     size = bdrv_getlength(bs->file);
     nb_clusters = size_to_clusters(s, size);
