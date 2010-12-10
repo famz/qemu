@@ -253,8 +253,6 @@ static int qcow_open(BlockDriverState *bs, int flags)
 
     /* Block queue */
     s->bq = blkqueue_create(bs->file, qcow_blkqueue_error_cb, bs);
-    blkqueue_init_context(&s->initial_bq_context, s->bq);
-    s->bq_context = &s->initial_bq_context;
 
 #ifdef DEBUG_ALLOC
     qcow2_check_refcounts(bs);
@@ -316,12 +314,8 @@ static int qcow_set_key(BlockDriverState *bs, const char *key)
 static int qcow_is_allocated(BlockDriverState *bs, int64_t sector_num,
                              int nb_sectors, int *pnum)
 {
-    BDRVQcowState *s = bs->opaque;
     uint64_t cluster_offset;
     int ret;
-
-    blkqueue_init_context(&s->initial_bq_context, s->bq);
-    s->bq_context = &s->initial_bq_context;
 
     *pnum = nb_sectors;
     /* FIXME We can get errors here, but the bdrv_is_allocated interface can't
@@ -410,8 +404,6 @@ static void qcow_aio_read_cb(void *opaque, int ret)
     BlockDriverState *bs = acb->common.bs;
     BDRVQcowState *s = bs->opaque;
     int index_in_cluster, n1;
-
-    s->bq_context = &acb->bq_context;
 
     acb->hd_aiocb = NULL;
     if (ret < 0)
@@ -613,7 +605,6 @@ static void qcow_aio_write_cb(void *opaque, int ret)
     int index_in_cluster;
     int n_end;
 
-    s->bq_context = &acb->bq_context;
     acb->hd_aiocb = NULL;
 
     if (ret >= 0) {

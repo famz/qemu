@@ -109,8 +109,6 @@ typedef struct BDRVQcowState {
     int64_t free_byte_offset;
 
     BlockQueue *bq;
-    BlockQueueContext *bq_context;
-    BlockQueueContext initial_bq_context;
 
     uint32_t crypt_method; /* current crypt method, 0 if no key yet */
     uint32_t crypt_method_header;
@@ -148,6 +146,11 @@ typedef struct QCowL2Meta
 
     QLIST_ENTRY(QCowL2Meta) next_in_flight;
 } QCowL2Meta;
+
+typedef struct QcowRequest {
+    BlockDriverState*   bs;
+    BlockQueueContext   bq_context;
+} QcowRequest;
 
 static inline int size_to_clusters(BDRVQcowState *s, int64_t size)
 {
