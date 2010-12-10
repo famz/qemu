@@ -180,16 +180,15 @@ int qcow2_backing_read1(BlockDriverState *bs, QEMUIOVector *qiov,
 int qcow2_refcount_init(BlockDriverState *bs);
 void qcow2_refcount_close(BlockDriverState *bs);
 
-int64_t qcow2_alloc_clusters(BlockDriverState *bs, int64_t size);
-int64_t qcow2_alloc_bytes(BlockDriverState *bs, int size);
-void qcow2_free_clusters(BlockDriverState *bs,
-    int64_t offset, int64_t size);
-void qcow2_free_any_clusters(BlockDriverState *bs,
+int64_t qcow2_alloc_clusters(QcowRequest *req, int64_t size);
+int64_t qcow2_alloc_bytes(QcowRequest *req, int size);
+void qcow2_free_clusters(QcowRequest *req, int64_t offset, int64_t size);
+void qcow2_free_any_clusters(QcowRequest *req,
     uint64_t cluster_offset, int nb_clusters);
 
 void qcow2_create_refcount_update(QCowCreateState *s, int64_t offset,
     int64_t size);
-int qcow2_update_snapshot_refcount(BlockDriverState *bs,
+int qcow2_update_snapshot_refcount(QcowRequest *req,
     int64_t l1_table_offset, int l1_size, int addend);
 
 int qcow2_check_refcounts(BlockDriverState *bs, BdrvCheckResult *res);
