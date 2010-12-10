@@ -1142,11 +1142,11 @@ int qcow2_check_refcounts(BlockDriverState *bs, BdrvCheckResult *res)
     };
     QcowRequest *req = &req1;
 
+    blkqueue_init_context(&req->bq_context, s->bq);
+
     size = bdrv_getlength(bs->file);
     nb_clusters = size_to_clusters(s, size);
     refcount_table = qemu_mallocz(nb_clusters * sizeof(uint16_t));
-
-    blkqueue_init_context(&req->bq_context, s->bq);
 
     /* header */
     inc_refcounts(req, res, refcount_table, nb_clusters,
