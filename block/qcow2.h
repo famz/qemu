@@ -194,23 +194,23 @@ int qcow2_update_snapshot_refcount(QcowRequest *req,
 int qcow2_check_refcounts(BlockDriverState *bs, BdrvCheckResult *res);
 
 /* qcow2-cluster.c functions */
-int qcow2_grow_l1_table(BlockDriverState *bs, int min_size, bool exact_size);
-void qcow2_l2_cache_reset(BlockDriverState *bs);
-int qcow2_decompress_cluster(BlockDriverState *bs, uint64_t cluster_offset);
+int qcow2_grow_l1_table(QcowRequest *req, int min_size, bool exact_size);
+void qcow2_l2_cache_reset(QcowRequest *req);
+int qcow2_decompress_cluster(QcowRequest *req, uint64_t cluster_offset);
 void qcow2_encrypt_sectors(BDRVQcowState *s, int64_t sector_num,
                      uint8_t *out_buf, const uint8_t *in_buf,
                      int nb_sectors, int enc,
                      const AES_KEY *key);
 
-int qcow2_get_cluster_offset(BlockDriverState *bs, uint64_t offset,
+int qcow2_get_cluster_offset(QcowRequest *req, uint64_t offset,
     int *num, uint64_t *cluster_offset);
-int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
+int qcow2_alloc_cluster_offset(QcowRequest *req, uint64_t offset,
     int n_start, int n_end, int *num, QCowL2Meta *m);
-uint64_t qcow2_alloc_compressed_cluster_offset(BlockDriverState *bs,
+uint64_t qcow2_alloc_compressed_cluster_offset(QcowRequest *req,
                                          uint64_t offset,
                                          int compressed_size);
 
-int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m);
+int qcow2_alloc_cluster_link_l2(QcowRequest *req, QCowL2Meta *m);
 
 /* qcow2-snapshot.c functions */
 int qcow2_snapshot_create(BlockDriverState *bs, QEMUSnapshotInfo *sn_info);

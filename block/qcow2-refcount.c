@@ -767,7 +767,7 @@ int qcow2_update_snapshot_refcount(QcowRequest *req,
     int64_t old_offset, old_l2_offset;
     int l2_size, i, j, l1_modified, l2_modified, nb_csectors, refcount;
 
-    qcow2_l2_cache_reset(bs);
+    qcow2_l2_cache_reset(req);
     cache_refcount_updates = 1;
 
     l2_table = NULL;
