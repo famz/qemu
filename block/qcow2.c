@@ -1120,11 +1120,13 @@ static int qcow2_truncate(BlockDriverState *bs, int64_t offset)
 
     /* write updated header.size */
     offset = cpu_to_be64(offset);
-    ret = bdrv_pwrite_sync(bs->file, offsetof(QCowHeader, size),
+    ret = blkqueue_pwrite(&req.bq_context, offsetof(QCowHeader, size),
                            &offset, sizeof(uint64_t));
     if (ret < 0) {
         return ret;
     }
+
+    blkqueue_barrier(&req.bq_context);
 
     s->l1_vm_state_index = new_l1_size;
     return 0;
