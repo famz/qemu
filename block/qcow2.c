@@ -248,18 +248,24 @@ static int qcow_open(BlockDriverState *bs, int flags)
             goto fail;
         bs->backing_file[len] = '\0';
     }
-    if (qcow2_read_snapshots(bs) < 0)
-        goto fail;
 
     /* Block queue */
     s->bq = blkqueue_create(bs->file, qcow_blkqueue_error_cb, bs);
+
+    /* Snapshots */
+    if (qcow2_read_snapshots(bs) < 0)
+        goto fail;
 
 #ifdef DEBUG_ALLOC
     qcow2_check_refcounts(bs);
 #endif
     return 0;
 
- fail:
+fail:
+    if (s->bq) {
+        blkqueue_destroy(s->bq);
+    }
+
     qcow2_free_snapshots(bs);
     qcow2_refcount_close(bs);
     qemu_free(s->l1_table);

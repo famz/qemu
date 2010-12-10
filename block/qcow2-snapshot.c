@@ -68,6 +68,7 @@ int qcow2_read_snapshots(BlockDriverState *bs)
     int i, id_str_size, name_size;
     int64_t offset;
     uint32_t extra_data_size;
+    int ret;
 
     QcowRequest req = {
         .bs = bs,
@@ -85,8 +86,10 @@ int qcow2_read_snapshots(BlockDriverState *bs)
     s->snapshots = qemu_mallocz(s->nb_snapshots * sizeof(QCowSnapshot));
     for(i = 0; i < s->nb_snapshots; i++) {
         offset = align_offset(offset, 8);
-        if (blkqueue_pread(&req.bq_context, offset, &h, sizeof(h)) != sizeof(h))
+        ret = blkqueue_pread(&req.bq_context, offset, &h, sizeof(h));
+        if (ret < 0) {
             goto fail;
+        }
         offset += sizeof(h);
         sn = s->snapshots + i;
         sn->l1_table_offset = be64_to_cpu(h.l1_table_offset);
@@ -103,14 +106,18 @@ int qcow2_read_snapshots(BlockDriverState *bs)
         offset += extra_data_size;
 
         sn->id_str = qemu_malloc(id_str_size + 1);
-        if (blkqueue_pread(&req.bq_context, offset, sn->id_str, id_str_size) != id_str_size)
+        ret = blkqueue_pread(&req.bq_context, offset, sn->id_str, id_str_size);
+        if (ret < 0) {
             goto fail;
+        }
         offset += id_str_size;
         sn->id_str[id_str_size] = '\0';
 
         sn->name = qemu_malloc(name_size + 1);
-        if (blkqueue_pread(&req.bq_context, offset, sn->name, name_size) != name_size)
+        ret = blkqueue_pread(&req.bq_context, offset, sn->name, name_size);
+        if (ret < 0) {
             goto fail;
+        }
         offset += name_size;
         sn->name[name_size] = '\0';
     }
@@ -336,6 +343,7 @@ int qcow2_snapshot_goto(BlockDriverState *bs, const char *snapshot_id)
     BDRVQcowState *s = bs->opaque;
     QCowSnapshot *sn;
     int i, snapshot_index, l1_size2;
+    int ret;
 
     QcowRequest req = {
         .bs = bs,
@@ -357,12 +365,18 @@ int qcow2_snapshot_goto(BlockDriverState *bs, const char *snapshot_id)
     s->l1_size = sn->l1_size;
     l1_size2 = s->l1_size * sizeof(uint64_t);
     /* copy the snapshot l1 table to the current l1 table */
-    if (blkqueue_pread(&req.bq_context, sn->l1_table_offset,
-                   s->l1_table, l1_size2) != l1_size2)
+    ret =blkqueue_pread(&req.bq_context, sn->l1_table_offset,
+                   s->l1_table, l1_size2);
+    if (ret < 0) {
         goto fail;
-    if (blkqueue_pwrite(&req.bq_context, s->l1_table_offset,
-                    s->l1_table, l1_size2) < 0)
+    }
+
+    ret = blkqueue_pwrite(&req.bq_context, s->l1_table_offset,
+                    s->l1_table, l1_size2);
+    if (ret < 0) {
         goto fail;
+    }
+
     for(i = 0;i < s->l1_size; i++) {
         be64_to_cpus(&s->l1_table[i]);
     }
@@ -453,6 +467,7 @@ int qcow2_snapshot_load_tmp(BlockDriverState *bs, const char *snapshot_name)
     int i, snapshot_index, l1_size2;
     BDRVQcowState *s = bs->opaque;
     QCowSnapshot *sn;
+    int ret;
 
     QcowRequest req = {
         .bs = bs,
@@ -475,8 +490,9 @@ int qcow2_snapshot_load_tmp(BlockDriverState *bs, const char *snapshot_name)
     s->l1_table_offset = sn->l1_table_offset;
     s->l1_table = qemu_mallocz(align_offset(l1_size2, 512));
 
-    if (blkqueue_pread(&req.bq_context, sn->l1_table_offset,
-                   s->l1_table, l1_size2) != l1_size2) {
+    ret = blkqueue_pread(&req.bq_context, sn->l1_table_offset,
+                   s->l1_table, l1_size2);
+    if (ret < 0) {
         return -1;
     }
 
