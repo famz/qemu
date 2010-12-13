@@ -38,7 +38,6 @@ VMChangeStateEntry *qemu_add_vm_change_state_handler(VMChangeStateHandler *cb,
 void qemu_del_vm_change_state_handler(VMChangeStateEntry *e);
 
 void vm_start(void);
-void vm_stop(int reason);
 
 uint64_t ram_bytes_remaining(void);
 uint64_t ram_bytes_transferred(void);

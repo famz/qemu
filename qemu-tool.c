@@ -111,3 +111,8 @@ int qemu_set_fd_handler2(int fd,
 {
     return 0;
 }
+
+bool vm_stop(int reason)
+{
+    return false;
+}

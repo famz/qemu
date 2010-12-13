@@ -115,6 +115,9 @@ static inline char *realpath(const char *path, char *resolved_path)
 
 #endif /* !defined(NEED_CPU_H) */
 
+/* VM state */
+bool vm_stop(int reason);
+
 /* bottom halves */
 typedef void QEMUBHFunc(void *opaque);
 
