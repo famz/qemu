@@ -2278,11 +2278,6 @@ static void bdrv_aio_pwrite_cb(void *opaque, int ret)
 done:
     qemu_vfree(acb->tmp_buf);
 
-    /*
-     * Need to complete in a BH because in error cases we may not have returned
-     * from the bdrv_aio_pwrite call yet and we must avoid reentrancy.
-     */
-    acb->bh = qemu_bh_new(bdrv_aio_pwrite_done_bh, acb);
     acb->ret = ret;
     qemu_bh_schedule(acb->bh);
 }
@@ -2298,8 +2293,20 @@ BlockDriverAIOCB *bdrv_aio_pwrite(BlockDriverState *bs, int64_t offset,
     acb->buf        = buf;
     acb->bytes      = bytes;
     acb->tmp_buf    = NULL;
+    acb->bh         = qemu_bh_new(bdrv_aio_pwrite_done_bh, acb);
 
-    bdrv_aio_pwrite_cb(acb, 0);
+    /*
+     * Reading past EOF fails with -EINVAL with AIO
+     * TODO Fix this in posix-aio-compat, check linux-aio
+     */
+    if (((offset & (BDRV_SECTOR_SIZE - 1)) || (bytes & (BDRV_SECTOR_SIZE - 1)))
+        && (offset + bytes > bdrv_getlength(bs)))
+    {
+        acb->ret = bdrv_pwrite(bs, offset, buf, bytes);
+        qemu_bh_schedule(acb->bh);
+    } else {
+        bdrv_aio_pwrite_cb(acb, 0);
+    }
 
     return &acb->common;
 }
