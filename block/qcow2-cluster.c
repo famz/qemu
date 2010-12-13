@@ -73,7 +73,8 @@ int qcow2_grow_l1_table(QcowRequest *req, int min_size, bool exact_size)
     BLKDBG_EVENT(bs->file, BLKDBG_L1_GROW_WRITE_TABLE);
     for(i = 0; i < s->l1_size; i++)
         new_l1_table[i] = cpu_to_be64(new_l1_table[i]);
-    ret = blkqueue_pwrite(&req->bq_context, new_l1_table_offset, new_l1_table, new_l1_size2);
+    ret = blkqueue_pwrite(&req->bq_context, new_l1_table_offset, new_l1_table,
+        new_l1_size2);
     blkqueue_barrier(&req->bq_context);
     if (ret < 0)
         goto fail;
@@ -84,7 +85,8 @@ int qcow2_grow_l1_table(QcowRequest *req, int min_size, bool exact_size)
     BLKDBG_EVENT(bs->file, BLKDBG_L1_GROW_ACTIVATE_TABLE);
     cpu_to_be32w((uint32_t*)data, new_l1_size);
     cpu_to_be64w((uint64_t*)(data + 4), new_l1_table_offset);
-    ret = blkqueue_pwrite(&req->bq_context, offsetof(QCowHeader, l1_size), data, sizeof(data));
+    ret = blkqueue_pwrite(&req->bq_context, offsetof(QCowHeader, l1_size),
+        data, sizeof(data));
     blkqueue_barrier(&req->bq_context);
     if (ret < 0) {
         goto fail;
@@ -191,7 +193,8 @@ static int l2_load(QcowRequest *req, uint64_t l2_offset,
     *l2_table = s->l2_cache + (min_index << s->l2_bits);
 
     BLKDBG_EVENT(bs->file, BLKDBG_L2_LOAD);
-    ret = blkqueue_pread(&req->bq_context, l2_offset, *l2_table, s->l2_size * sizeof(uint64_t));
+    ret = blkqueue_pread(&req->bq_context, l2_offset, *l2_table,
+        s->l2_size * sizeof(uint64_t));
     if (ret < 0) {
         qcow2_l2_cache_reset(req);
         return ret;
@@ -222,7 +225,8 @@ static int write_l1_entry(QcowRequest *req, int l1_index)
     }
 
     BLKDBG_EVENT(bs->file, BLKDBG_L1_UPDATE);
-    ret = blkqueue_pwrite(&req->bq_context, s->l1_table_offset + 8 * l1_start_index, buf, sizeof(buf));
+    ret = blkqueue_pwrite(&req->bq_context,
+        s->l1_table_offset + 8 * l1_start_index, buf, sizeof(buf));
     blkqueue_barrier(&req->bq_context);
     if (ret < 0) {
         return ret;
@@ -272,14 +276,16 @@ static int l2_allocate(QcowRequest *req, int l1_index, uint64_t **table)
     } else {
         /* if there was an old l2 table, read it from the disk */
         BLKDBG_EVENT(bs->file, BLKDBG_L2_ALLOC_COW_READ);
-        ret = blkqueue_pread(&req->bq_context, old_l2_offset, l2_table, s->l2_size * sizeof(uint64_t));
+        ret = blkqueue_pread(&req->bq_context, old_l2_offset, l2_table,
+            s->l2_size * sizeof(uint64_t));
         if (ret < 0) {
             goto fail;
         }
     }
     /* write the l2 table to the file */
     BLKDBG_EVENT(bs->file, BLKDBG_L2_ALLOC_WRITE);
-    ret = blkqueue_pwrite(&req->bq_context, l2_offset, l2_table, s->l2_size * sizeof(uint64_t));
+    ret = blkqueue_pwrite(&req->bq_context, l2_offset, l2_table,
+        s->l2_size * sizeof(uint64_t));
     blkqueue_barrier(&req->bq_context);
     if (ret < 0) {
         goto fail;
@@ -401,7 +407,8 @@ static int qcow_read(QcowRequest *req, int64_t sector_num,
             memcpy(buf, s->cluster_cache + index_in_cluster * 512, 512 * n);
         } else {
             BLKDBG_EVENT(bs->file, BLKDBG_READ);
-            ret = blkqueue_pread(&req->bq_context, cluster_offset + index_in_cluster * 512, buf, n * 512);
+            ret = blkqueue_pread(&req->bq_context,
+                cluster_offset + index_in_cluster * 512, buf, n * 512);
             if (ret < 0)
                 return -1;
             if (s->crypt_method) {
@@ -684,7 +691,8 @@ static int write_l2_entries(QcowRequest *req, uint64_t *l2_table,
     int ret;
 
     BLKDBG_EVENT(bs->file, BLKDBG_L2_UPDATE);
-    ret = blkqueue_pwrite(&req->bq_context, l2_offset + start_offset, &l2_table[l2_start_index], len);
+    ret = blkqueue_pwrite(&req->bq_context, l2_offset + start_offset,
+        &l2_table[l2_start_index], len);
     if (ret < 0) {
         return ret;
     }

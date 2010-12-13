@@ -288,7 +288,8 @@ int qcow2_snapshot_create(BlockDriverState *bs, QEMUSnapshotInfo *sn_info)
     sn->date_nsec = sn_info->date_nsec;
     sn->vm_clock_nsec = sn_info->vm_clock_nsec;
 
-    ret = qcow2_update_snapshot_refcount(&req, s->l1_table_offset, s->l1_size, 1);
+    ret = qcow2_update_snapshot_refcount(&req, s->l1_table_offset,
+        s->l1_size, 1);
     if (ret < 0)
         goto fail;
 
@@ -365,7 +366,7 @@ int qcow2_snapshot_goto(BlockDriverState *bs, const char *snapshot_id)
     s->l1_size = sn->l1_size;
     l1_size2 = s->l1_size * sizeof(uint64_t);
     /* copy the snapshot l1 table to the current l1 table */
-    ret =blkqueue_pread(&req.bq_context, sn->l1_table_offset,
+    ret = blkqueue_pread(&req.bq_context, sn->l1_table_offset,
                    s->l1_table, l1_size2);
     if (ret < 0) {
         goto fail;
@@ -409,14 +410,17 @@ int qcow2_snapshot_delete(BlockDriverState *bs, const char *snapshot_id)
         return -ENOENT;
     sn = &s->snapshots[snapshot_index];
 
-    ret = qcow2_update_snapshot_refcount(&req, sn->l1_table_offset, sn->l1_size, -1);
+    ret = qcow2_update_snapshot_refcount(&req, sn->l1_table_offset,
+        sn->l1_size, -1);
     if (ret < 0)
         return ret;
     /* must update the copied flag on the current cluster offsets */
-    ret = qcow2_update_snapshot_refcount(&req, s->l1_table_offset, s->l1_size, 0);
+    ret = qcow2_update_snapshot_refcount(&req, s->l1_table_offset,
+        s->l1_size, 0);
     if (ret < 0)
         return ret;
-    qcow2_free_clusters(&req, sn->l1_table_offset, sn->l1_size * sizeof(uint64_t));
+    qcow2_free_clusters(&req, sn->l1_table_offset,
+        sn->l1_size * sizeof(uint64_t));
 
     qemu_free(sn->id_str);
     qemu_free(sn->name);

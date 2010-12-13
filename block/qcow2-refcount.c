@@ -46,7 +46,7 @@ static int write_refcount_block(QcowRequest *req)
 
     BLKDBG_EVENT(bs->file, BLKDBG_REFBLOCK_UPDATE);
     if (blkqueue_pwrite(&req->bq_context, s->refcount_block_cache_offset,
-            s->refcount_block_cache, size) < 0)
+        s->refcount_block_cache, size) < 0)
     {
         return -EIO;
     }
@@ -101,7 +101,8 @@ static int load_refcount_block(QcowRequest *req,
     }
 
     BLKDBG_EVENT(bs->file, BLKDBG_REFBLOCK_LOAD);
-    ret = blkqueue_pread(&req->bq_context, refcount_block_offset, s->refcount_block_cache, s->cluster_size);
+    ret = blkqueue_pread(&req->bq_context, refcount_block_offset,
+        s->refcount_block_cache, s->cluster_size);
     if (ret < 0) {
         s->refcount_block_cache_offset = 0;
         return ret;
@@ -274,7 +275,8 @@ static int64_t alloc_refcount_block(QcowRequest *req, int64_t cluster_index)
 
     /* Now the new refcount block needs to be written to disk */
     BLKDBG_EVENT(bs->file, BLKDBG_REFBLOCK_ALLOC_WRITE);
-    ret = blkqueue_pwrite(&req->bq_context, new_block, s->refcount_block_cache, s->cluster_size);
+    ret = blkqueue_pwrite(&req->bq_context, new_block, s->refcount_block_cache,
+        s->cluster_size);
     blkqueue_barrier(&req->bq_context);
     if (ret < 0) {
         goto fail_block;
@@ -284,7 +286,9 @@ static int64_t alloc_refcount_block(QcowRequest *req, int64_t cluster_index)
     if (refcount_table_index < s->refcount_table_size) {
         uint64_t data64 = cpu_to_be64(new_block);
         BLKDBG_EVENT(bs->file, BLKDBG_REFBLOCK_ALLOC_HOOKUP);
-        ret = blkqueue_pwrite(&req->bq_context, s->refcount_table_offset + refcount_table_index * sizeof(uint64_t), &data64, sizeof(data64));
+        ret = blkqueue_pwrite(&req->bq_context,
+            s->refcount_table_offset + refcount_table_index * sizeof(uint64_t),
+            &data64, sizeof(data64));
         blkqueue_barrier(&req->bq_context);
         if (ret < 0) {
             goto fail_block;
@@ -363,7 +367,8 @@ static int64_t alloc_refcount_block(QcowRequest *req, int64_t cluster_index)
 
     /* Write refcount blocks to disk */
     BLKDBG_EVENT(bs->file, BLKDBG_REFBLOCK_ALLOC_WRITE_BLOCKS);
-    ret = blkqueue_pwrite(&req->bq_context, meta_offset, new_blocks, blocks_clusters * s->cluster_size);
+    ret = blkqueue_pwrite(&req->bq_context, meta_offset, new_blocks,
+        blocks_clusters * s->cluster_size);
     blkqueue_barrier(&req->bq_context);
     qemu_free(new_blocks);
     if (ret < 0) {
@@ -376,7 +381,8 @@ static int64_t alloc_refcount_block(QcowRequest *req, int64_t cluster_index)
     }
 
     BLKDBG_EVENT(bs->file, BLKDBG_REFBLOCK_ALLOC_WRITE_TABLE);
-    ret = blkqueue_pwrite(&req->bq_context, table_offset, new_table, table_size * sizeof(uint64_t));
+    ret = blkqueue_pwrite(&req->bq_context, table_offset, new_table,
+        table_size * sizeof(uint64_t));
     blkqueue_barrier(&req->bq_context);
     if (ret < 0) {
         goto fail_table;
@@ -391,7 +397,8 @@ static int64_t alloc_refcount_block(QcowRequest *req, int64_t cluster_index)
     cpu_to_be64w((uint64_t*)data, table_offset);
     cpu_to_be32w((uint32_t*)(data + 8), table_clusters);
     BLKDBG_EVENT(bs->file, BLKDBG_REFBLOCK_ALLOC_SWITCH_TABLE);
-    ret = blkqueue_pwrite(&req->bq_context, offsetof(QCowHeader, refcount_table_offset), data, sizeof(data));
+    ret = blkqueue_pwrite(&req->bq_context,
+        offsetof(QCowHeader, refcount_table_offset), data, sizeof(data));
     blkqueue_barrier(&req->bq_context);
     if (ret < 0) {
         goto fail_table;
@@ -408,7 +415,8 @@ static int64_t alloc_refcount_block(QcowRequest *req, int64_t cluster_index)
 
     /* Free old table. Remember, we must not change free_cluster_index */
     uint64_t old_free_cluster_index = s->free_cluster_index;
-    qcow2_free_clusters(req, old_table_offset, old_table_size * sizeof(uint64_t));
+    qcow2_free_clusters(req, old_table_offset,
+        old_table_size * sizeof(uint64_t));
     s->free_cluster_index = old_free_cluster_index;
 
     ret = load_refcount_block(req, new_block);
@@ -449,7 +457,9 @@ static int write_refcount_block_entries(QcowRequest *req,
     size = (last_index - first_index) << REFCOUNT_SHIFT;
 
     BLKDBG_EVENT(bs->file, BLKDBG_REFBLOCK_UPDATE_PART);
-    ret = blkqueue_pwrite(&req->bq_context, refcount_block_offset + (first_index << REFCOUNT_SHIFT), &s->refcount_block_cache[first_index], size);
+    ret = blkqueue_pwrite(&req->bq_context,
+        refcount_block_offset + (first_index << REFCOUNT_SHIFT),
+        &s->refcount_block_cache[first_index], size);
     if (ret < 0) {
         return ret;
     }
@@ -692,6 +702,7 @@ void qcow2_free_clusters(QcowRequest *req,
                           int64_t offset, int64_t size)
 {
     BlockDriverState *bs = req->bs;
+    BDRVQcowState *s = bs->opaque;
     int ret;
 
     BLKDBG_EVENT(bs->file, BLKDBG_CLUSTER_FREE);
@@ -700,6 +711,11 @@ void qcow2_free_clusters(QcowRequest *req,
         fprintf(stderr, "qcow2_free_clusters failed: %s\n", strerror(-ret));
         /* TODO Remember the clusters to free them later and avoid leaking */
     }
+
+    /* TODO The cluster may be reused as a data cluster, and data doesn't go
+     * through block-queue at the moment. As soon as it does, this flush can be
+     * dropped. */
+    blkqueue_flush(s->bq);
 }
 
 /*
@@ -1064,7 +1080,9 @@ static int check_refcounts_l1(QcowRequest *req,
         l1_table = NULL;
     } else {
         l1_table = qemu_malloc(l1_size2);
-        if (blkqueue_pread(&req->bq_context, l1_table_offset, l1_table, l1_size2) < 0) {
+        ret = blkqueue_pread(&req->bq_context, l1_table_offset, l1_table,
+            l1_size2);
+        if (ret < 0) {
             goto fail;
         }
 
