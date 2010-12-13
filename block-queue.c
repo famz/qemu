@@ -51,13 +51,16 @@ typedef struct BlockQueueAIOCB {
 
 typedef struct BlockQueueRequest {
     enum blkqueue_req_type type;
-    BlockQueue* bq;
+    BlockQueue*     bq;
 
-    uint64_t    offset;
-    void*       buf;
-    uint64_t    size;
-    unsigned    section;
-    bool        in_flight;
+    uint64_t        offset;
+    void*           buf;
+    uint64_t        size;
+    unsigned        section;
+    bool            in_flight;
+
+    struct iovec    iov;
+    QEMUIOVector    qiov;
 
     QLIST_HEAD(, BlockQueueAIOCB) acbs;
 
@@ -698,7 +701,33 @@ static int blkqueue_submit_request(BlockQueue *bq)
         case REQ_TYPE_WRITE:
             DPRINTF("  process pwrite: %p [%#lx + %ld]\n",
                 req, req->offset, req->size);
-            acb = bdrv_aio_pwrite(bq->bs, req->offset, req->buf, req->size,
+
+            /*
+             * If we have a write request that doesn't change complete sectors,
+             * we must do a RMW. AIO is not safe for this, so fall back to
+             * bdrv_pwrite.
+             *
+             * There are no AIO requests in flight for the same sector as they
+             * would have been merged with this requests, so we don't have to
+             * take care for this case.
+             */
+            if ((req->offset & (BDRV_SECTOR_SIZE - 1))
+                || (req->size & (BDRV_SECTOR_SIZE - 1)))
+            {
+                int ret;
+
+                ret = bdrv_pwrite(bq->bs, req->offset, req->buf, req->size);
+                blkqueue_process_request_cb(req, ret);
+                return (ret >= 0);
+            }
+
+            /* Otherwise, construct a qiov and submit an AIO request */
+            req->iov.iov_base = req->buf;
+            req->iov.iov_len = req->size;
+            qemu_iovec_init_external(&req->qiov, &req->iov, 1);
+
+            acb = bdrv_aio_writev(bq->bs, req->offset >> BDRV_SECTOR_BITS,
+                &req->qiov, req->size >> BDRV_SECTOR_BITS,
                 blkqueue_process_request_cb, req);
             break;
         case REQ_TYPE_BARRIER:
