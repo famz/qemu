@@ -2106,6 +2106,7 @@ BlockDriverAIOCB *bdrv_aio_writev(BlockDriverState *bs, int64_t sector_num,
     return ret;
 }
 
+
 typedef struct MultiwriteCB {
     int error;
     int num_requests;
