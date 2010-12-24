@@ -339,6 +339,22 @@ static void *aio_thread(void *unused)
         trace_paio_thread(aiocb);
         switch (aiocb->aio_type & QEMU_AIO_TYPE_MASK) {
         case QEMU_AIO_READ:
+            ret = handle_aiocb_rw(aiocb);
+
+            /* For bdrv_pwrite to work, bytes after EOF must be read
+             * successfully (cf. raw_pread_aligned) */
+            if (ret >= 0 && ret < aiocb->aio_nbytes
+                && aiocb->common.bs->growable)
+            {
+                QEMUIOVector qiov;
+
+                qemu_iovec_init_external(&qiov,
+                    aiocb->aio_iov, aiocb->aio_niov);
+
+                qemu_iovec_memset_skip(&qiov, 0, aiocb->aio_nbytes, ret);
+                ret = aiocb->aio_nbytes;
+            }
+            break;
         case QEMU_AIO_WRITE:
             ret = handle_aiocb_rw(aiocb);
             break;
