@@ -45,8 +45,10 @@ int cc_release(struct continuation *cc);
 int cc_swap(struct continuation *from, struct continuation *to);
 
 #define offset_of(type, member) ((unsigned long)(&((type *)0)->member))
+#ifndef container_of
 #define container_of(obj, type, member) \
         (type *)(((char *)obj) - offset_of(type, member))
+#endif
 
 #endif
 /*
