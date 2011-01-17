@@ -15,7 +15,7 @@ oslib-obj-$(CONFIG_POSIX) += oslib-posix.o
 
 block-obj-y = cutils.o cache-utils.o qemu-malloc.o qemu-option.o module.o async.o
 block-obj-y += nbd.o block.o aio.o aes.o qemu-config.o qemu-progress.o qemu-sockets.o
-block-obj-$(CONFIG_POSIX) += posix-aio-compat.o
+block-obj-$(CONFIG_POSIX) += posix-aio-compat.o continuation.o coroutine_ucontext.o
 block-obj-$(CONFIG_LINUX_AIO) += linux-aio.o
 
 block-nested-y += raw.o cow.o qcow.o vdi.o vmdk.o cloop.o dmg.o bochs.o vpc.o vvfat.o
