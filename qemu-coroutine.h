@@ -14,6 +14,8 @@
 #ifndef QEMU_COROUTINE_H
 #define QEMU_COROUTINE_H
 
+#include <stdbool.h>
+
 /**
  * Mark a function that executes in coroutine context
  *
@@ -77,5 +79,10 @@ void * coroutine_fn qemu_coroutine_yield(void *opaque);
  * Get the currently executing coroutine
  */
 Coroutine * coroutine_fn qemu_coroutine_self(void);
+
+/**
+ * Return whether or not currently inside a coroutine
+ */
+bool qemu_in_coroutine(void);
 
 #endif /* QEMU_COROUTINE_H */

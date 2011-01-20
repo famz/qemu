@@ -43,3 +43,8 @@ Coroutine * coroutine_fn qemu_coroutine_self(void)
 {
     return (Coroutine*)coroutine_self();
 }
+
+bool qemu_in_coroutine(void)
+{
+    return !coroutine_is_leader(coroutine_self());
+}
