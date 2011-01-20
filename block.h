@@ -4,6 +4,7 @@
 #include "qemu-aio.h"
 #include "qemu-common.h"
 #include "qemu-option.h"
+#include "qemu-coroutine.h"
 #include "qobject.h"
 
 /* block.c */
@@ -120,6 +121,12 @@ BlockDriverAIOCB *bdrv_aio_writev(BlockDriverState *bs, int64_t sector_num,
 BlockDriverAIOCB *bdrv_aio_flush(BlockDriverState *bs,
 				 BlockDriverCompletionFunc *cb, void *opaque);
 void bdrv_aio_cancel(BlockDriverAIOCB *acb);
+
+/* block I/O for coroutines */
+int coroutine_fn bdrv_co_readv(BlockDriverState *bs, int64_t sector_num,
+                               QEMUIOVector *iov, int nb_sectors);
+int coroutine_fn bdrv_co_writev(BlockDriverState *bs, int64_t sector_num,
+                                QEMUIOVector *iov, int nb_sectors);
 
 typedef struct BlockRequest {
     /* Fields to be filled by multiwrite caller */

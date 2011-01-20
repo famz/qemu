@@ -2739,6 +2739,57 @@ void qemu_aio_release(void *p)
 }
 
 /**************************************************************/
+/* I/O for coroutines */
+
+typedef struct CoroutineIOCompletion {
+    Coroutine *coroutine;
+    int ret;
+} CoroutineIOCompletion;
+
+static void bdrv_co_complete(void *opaque, int ret)
+{
+    CoroutineIOCompletion *co = opaque;
+
+    co->ret = ret;
+    qemu_coroutine_enter(co->coroutine, NULL);
+}
+
+static int coroutine_fn bdrv_co_io(BlockDriverState *bs, int64_t sector_num,
+                                   QEMUIOVector *iov, int nb_sectors,
+                                   int is_write)
+{
+    CoroutineIOCompletion co = {
+        .coroutine = qemu_coroutine_self(),
+    };
+    BlockDriverAIOCB *acb;
+
+    if (is_write) {
+        acb = bdrv_aio_writev(bs, sector_num, iov, nb_sectors,
+                              bdrv_co_complete, &co);
+    } else {
+        acb = bdrv_aio_readv(bs, sector_num, iov, nb_sectors,
+                             bdrv_co_complete, &co);
+    }
+    if (!acb) {
+        return -EIO;
+    }
+    qemu_coroutine_yield(NULL);
+    return co.ret;
+}
+
+int coroutine_fn bdrv_co_readv(BlockDriverState *bs, int64_t sector_num,
+                               QEMUIOVector *iov, int nb_sectors)
+{
+    return bdrv_co_io(bs, sector_num, iov, nb_sectors, 0);
+}
+
+int coroutine_fn bdrv_co_writev(BlockDriverState *bs, int64_t sector_num,
+                                QEMUIOVector *iov, int nb_sectors)
+{
+    return bdrv_co_io(bs, sector_num, iov, nb_sectors, 1);
+}
+
+/**************************************************************/
 /* removable device support */
 
 /**
