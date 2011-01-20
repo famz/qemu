@@ -378,19 +378,20 @@ typedef struct QCowAIOCB {
     uint64_t bytes_done;
     uint64_t cluster_offset;
     uint8_t *cluster_data;
-    BlockDriverAIOCB *hd_aiocb;
     QEMUIOVector hd_qiov;
     QEMUBH *bh;
     QCowL2Meta l2meta;
     QLIST_ENTRY(QCowAIOCB) next_depend;
+    Coroutine *coroutine;
+    int ret; /* return code for user callback */
 } QCowAIOCB;
 
 static void qcow2_aio_cancel(BlockDriverAIOCB *blockacb)
 {
     QCowAIOCB *acb = container_of(blockacb, QCowAIOCB, common);
-    if (acb->hd_aiocb)
-        bdrv_aio_cancel(acb->hd_aiocb);
     qemu_aio_release(acb);
+    /* XXX This function looks broken, we could be in the middle of a request
+     * and releasing the acb is not a good idea */
 }
 
 static AIOPool qcow2_aio_pool = {
@@ -398,13 +399,14 @@ static AIOPool qcow2_aio_pool = {
     .cancel             = qcow2_aio_cancel,
 };
 
-static void qcow2_aio_read_cb(void *opaque, int ret);
-static void qcow2_aio_read_bh(void *opaque)
+static void qcow2_aio_bh(void *opaque)
 {
     QCowAIOCB *acb = opaque;
     qemu_bh_delete(acb->bh);
     acb->bh = NULL;
-    qcow2_aio_read_cb(opaque, 0);
+    acb->common.cb(acb->common.opaque, acb->ret);
+    qemu_iovec_destroy(&acb->hd_qiov);
+    qemu_aio_release(acb);
 }
 
 static int qcow2_schedule_bh(QEMUBHFunc *cb, QCowAIOCB *acb)
@@ -421,14 +423,13 @@ static int qcow2_schedule_bh(QEMUBHFunc *cb, QCowAIOCB *acb)
     return 0;
 }
 
-static void qcow2_aio_read_cb(void *opaque, int ret)
+static int coroutine_fn qcow2_aio_read_cb(void *opaque, int ret)
 {
     QCowAIOCB *acb = opaque;
     BlockDriverState *bs = acb->common.bs;
     BDRVQcowState *s = bs->opaque;
     int index_in_cluster, n1;
 
-    acb->hd_aiocb = NULL;
     if (ret < 0)
         goto done;
 
@@ -486,23 +487,13 @@ static void qcow2_aio_read_cb(void *opaque, int ret)
                 acb->sector_num, acb->cur_nr_sectors);
             if (n1 > 0) {
                 BLKDBG_EVENT(bs->file, BLKDBG_READ_BACKING_AIO);
-                acb->hd_aiocb = bdrv_aio_readv(bs->backing_hd, acb->sector_num,
-                                    &acb->hd_qiov, n1, qcow2_aio_read_cb, acb);
-                if (acb->hd_aiocb == NULL) {
-                    ret = -EIO;
+                ret = bdrv_co_readv(bs->backing_hd, acb->sector_num, &acb->hd_qiov, acb->cur_nr_sectors);
+                if (ret < 0) {
                     goto done;
                 }
-            } else {
-                ret = qcow2_schedule_bh(qcow2_aio_read_bh, acb);
-                if (ret < 0)
-                    goto done;
             }
         } else {
-            /* Note: in this case, no need to wait */
             qemu_iovec_memset(&acb->hd_qiov, 0, 512 * acb->cur_nr_sectors);
-            ret = qcow2_schedule_bh(qcow2_aio_read_bh, acb);
-            if (ret < 0)
-                goto done;
         }
     } else if (acb->cluster_offset & QCOW_OFLAG_COMPRESSED) {
         /* add AIO support for compressed blocks ? */
@@ -514,10 +505,6 @@ static void qcow2_aio_read_cb(void *opaque, int ret)
         qemu_iovec_from_buffer(&acb->hd_qiov,
             s->cluster_cache + index_in_cluster * 512,
             512 * acb->cur_nr_sectors);
-
-        ret = qcow2_schedule_bh(qcow2_aio_read_bh, acb);
-        if (ret < 0)
-            goto done;
     } else {
         if ((acb->cluster_offset & 511) != 0) {
             ret = -EIO;
@@ -542,34 +529,50 @@ static void qcow2_aio_read_cb(void *opaque, int ret)
         }
 
         BLKDBG_EVENT(bs->file, BLKDBG_READ_AIO);
-        acb->hd_aiocb = bdrv_aio_readv(bs->file,
+        ret = bdrv_co_readv(bs->file,
                             (acb->cluster_offset >> 9) + index_in_cluster,
-                            &acb->hd_qiov, acb->cur_nr_sectors,
-                            qcow2_aio_read_cb, acb);
-        if (acb->hd_aiocb == NULL) {
-            ret = -EIO;
+                            &acb->hd_qiov, acb->cur_nr_sectors);
+        if (ret < 0) {
             goto done;
         }
     }
 
-    return;
+    return 1;
 done:
-    acb->common.cb(acb->common.opaque, ret);
-    qemu_iovec_destroy(&acb->hd_qiov);
-    qemu_aio_release(acb);
+    acb->ret = ret;
+    qcow2_schedule_bh(qcow2_aio_bh, acb);
+    return 0;
 }
 
-static QCowAIOCB *qcow2_aio_setup(BlockDriverState *bs, int64_t sector_num,
-                                  QEMUIOVector *qiov, int nb_sectors,
-                                  BlockDriverCompletionFunc *cb,
-                                  void *opaque, int is_write)
+static void * coroutine_fn qcow2_co_read(void *opaque)
+{
+    QCowAIOCB *acb = opaque;
+
+    while (qcow2_aio_read_cb(acb, 0)) {
+    }
+    return NULL;
+}
+
+static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret);
+static void * coroutine_fn qcow2_co_write(void *opaque)
+{
+    QCowAIOCB *acb = opaque;
+
+    while (qcow2_aio_write_cb(acb, 0)) {
+    }
+    return NULL;
+}
+
+static BlockDriverAIOCB *qcow2_aio_setup(BlockDriverState *bs,
+        int64_t sector_num, QEMUIOVector *qiov, int nb_sectors,
+        BlockDriverCompletionFunc *cb, void *opaque, int is_write)
 {
     QCowAIOCB *acb;
+    Coroutine *coroutine;
 
     acb = qemu_aio_get(&qcow2_aio_pool, bs, cb, opaque);
     if (!acb)
         return NULL;
-    acb->hd_aiocb = NULL;
     acb->sector_num = sector_num;
     acb->qiov = qiov;
 
@@ -581,7 +584,12 @@ static QCowAIOCB *qcow2_aio_setup(BlockDriverState *bs, int64_t sector_num,
     acb->cluster_offset = 0;
     acb->l2meta.nb_clusters = 0;
     QLIST_INIT(&acb->l2meta.dependent_requests);
-    return acb;
+
+    coroutine = qemu_coroutine_create(is_write ? qcow2_co_write
+                                               : qcow2_co_read);
+    acb->coroutine = coroutine;
+    qemu_coroutine_enter(coroutine, acb);
+    return &acb->common;
 }
 
 static BlockDriverAIOCB *qcow2_aio_readv(BlockDriverState *bs,
@@ -590,46 +598,54 @@ static BlockDriverAIOCB *qcow2_aio_readv(BlockDriverState *bs,
                                          BlockDriverCompletionFunc *cb,
                                          void *opaque)
 {
-    QCowAIOCB *acb;
-
-    acb = qcow2_aio_setup(bs, sector_num, qiov, nb_sectors, cb, opaque, 0);
-    if (!acb)
-        return NULL;
-
-    qcow2_aio_read_cb(acb, 0);
-    return &acb->common;
+    return qcow2_aio_setup(bs, sector_num, qiov, nb_sectors, cb, opaque, 0);
 }
 
-static void qcow2_aio_write_cb(void *opaque, int ret);
-
-static void run_dependent_requests(QCowL2Meta *m)
+static void qcow2_co_run_dependent_requests(void *opaque)
 {
+    QCowAIOCB *acb = opaque;
     QCowAIOCB *req;
     QCowAIOCB *next;
 
+    qemu_bh_delete(acb->bh);
+    acb->bh = NULL;
+
+    /* Restart all dependent requests */
+    QLIST_FOREACH_SAFE(req, &acb->l2meta.dependent_requests, next_depend, next) {
+        qemu_coroutine_enter(req->coroutine, NULL);
+    }
+
+    /* Reenter the original request */
+    qemu_coroutine_enter(acb->coroutine, NULL);
+}
+
+static void run_dependent_requests(QCowL2Meta *m)
+{
     /* Take the request off the list of running requests */
     if (m->nb_clusters != 0) {
         QLIST_REMOVE(m, next_in_flight);
     }
 
-    /* Restart all dependent requests */
-    QLIST_FOREACH_SAFE(req, &m->dependent_requests, next_depend, next) {
-        qcow2_aio_write_cb(req, 0);
+    if (!QLIST_EMPTY(&m->dependent_requests)) {
+        /* TODO This is a hack to get at the acb, may not be correct if called
+         * with a QCowL2Meta that is not part of a QCowAIOCB.
+         */
+        QCowAIOCB *acb = container_of(m, QCowAIOCB, l2meta);
+        qcow2_schedule_bh(qcow2_co_run_dependent_requests, acb);
+        qemu_coroutine_yield(NULL);
     }
 
     /* Empty the list for the next part of the request */
     QLIST_INIT(&m->dependent_requests);
 }
 
-static void qcow2_aio_write_cb(void *opaque, int ret)
+static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
 {
     QCowAIOCB *acb = opaque;
     BlockDriverState *bs = acb->common.bs;
     BDRVQcowState *s = bs->opaque;
     int index_in_cluster;
     int n_end;
-
-    acb->hd_aiocb = NULL;
 
     if (ret >= 0) {
         ret = qcow2_alloc_cluster_link_l2(bs, &acb->l2meta);
@@ -668,7 +684,8 @@ static void qcow2_aio_write_cb(void *opaque, int ret)
     if (acb->l2meta.nb_clusters == 0 && acb->l2meta.depends_on != NULL) {
         QLIST_INSERT_HEAD(&acb->l2meta.depends_on->dependent_requests,
             acb, next_depend);
-        return;
+        qemu_coroutine_yield(NULL);
+        return 1;
     }
 
     assert((acb->cluster_offset & 511) == 0);
@@ -695,25 +712,22 @@ static void qcow2_aio_write_cb(void *opaque, int ret)
     }
 
     BLKDBG_EVENT(bs->file, BLKDBG_WRITE_AIO);
-    acb->hd_aiocb = bdrv_aio_writev(bs->file,
-                                    (acb->cluster_offset >> 9) + index_in_cluster,
-                                    &acb->hd_qiov, acb->cur_nr_sectors,
-                                    qcow2_aio_write_cb, acb);
-    if (acb->hd_aiocb == NULL) {
-        ret = -EIO;
+    ret = bdrv_co_writev(bs->file,
+                         (acb->cluster_offset >> 9) + index_in_cluster,
+                         &acb->hd_qiov, acb->cur_nr_sectors);
+    if (ret < 0) {
         goto fail;
     }
-
-    return;
+    return 1;
 
 fail:
     if (acb->l2meta.nb_clusters != 0) {
         QLIST_REMOVE(&acb->l2meta, next_in_flight);
     }
 done:
-    acb->common.cb(acb->common.opaque, ret);
-    qemu_iovec_destroy(&acb->hd_qiov);
-    qemu_aio_release(acb);
+    acb->ret = ret;
+    qcow2_schedule_bh(qcow2_aio_bh, acb);
+    return 0;
 }
 
 static BlockDriverAIOCB *qcow2_aio_writev(BlockDriverState *bs,
@@ -723,16 +737,10 @@ static BlockDriverAIOCB *qcow2_aio_writev(BlockDriverState *bs,
                                           void *opaque)
 {
     BDRVQcowState *s = bs->opaque;
-    QCowAIOCB *acb;
 
     s->cluster_cache_offset = -1; /* disable compressed cache */
 
-    acb = qcow2_aio_setup(bs, sector_num, qiov, nb_sectors, cb, opaque, 1);
-    if (!acb)
-        return NULL;
-
-    qcow2_aio_write_cb(acb, 0);
-    return &acb->common;
+    return qcow2_aio_setup(bs, sector_num, qiov, nb_sectors, cb, opaque, 1);
 }
 
 static void qcow2_close(BlockDriverState *bs)
@@ -850,6 +858,7 @@ static int qcow2_change_backing_file(BlockDriverState *bs,
     return qcow2_update_ext_header(bs, backing_file, backing_fmt);
 }
 
+/* TODO did we break this for coroutines? */
 static int preallocate(BlockDriverState *bs)
 {
     uint64_t nb_sectors;
