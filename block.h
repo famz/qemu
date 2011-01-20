@@ -127,6 +127,7 @@ int coroutine_fn bdrv_co_readv(BlockDriverState *bs, int64_t sector_num,
                                QEMUIOVector *iov, int nb_sectors);
 int coroutine_fn bdrv_co_writev(BlockDriverState *bs, int64_t sector_num,
                                 QEMUIOVector *iov, int nb_sectors);
+int coroutine_fn bdrv_co_flush(BlockDriverState *bs);
 
 typedef struct BlockRequest {
     /* Fields to be filled by multiwrite caller */
