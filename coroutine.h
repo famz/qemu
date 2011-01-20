@@ -58,6 +58,8 @@ void *coroutine_swap(struct coroutine *from, struct coroutine *to, void *arg);
 
 struct coroutine *coroutine_self(void);
 
+int coroutine_is_leader(struct coroutine *co);
+
 void *coroutine_yieldto(struct coroutine *to, void *arg);
 
 void *coroutine_yield(void *arg);

@@ -80,6 +80,11 @@ struct coroutine *coroutine_self(void)
 	return current;
 }
 
+int coroutine_is_leader(struct coroutine *co)
+{
+    return co == &leader;
+}
+
 void *coroutine_swap(struct coroutine *from, struct coroutine *to, void *arg)
 {
 	int ret;
