@@ -38,3 +38,8 @@ void * coroutine_fn qemu_coroutine_yield(void *opaque)
 {
     return coroutine_yield(opaque);
 }
+
+Coroutine * coroutine_fn qemu_coroutine_self(void)
+{
+    return (Coroutine*)coroutine_self();
+}

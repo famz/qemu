@@ -73,4 +73,9 @@ void *qemu_coroutine_enter(Coroutine *coroutine, void *opaque);
  */
 void * coroutine_fn qemu_coroutine_yield(void *opaque);
 
+/**
+ * Get the currently executing coroutine
+ */
+Coroutine * coroutine_fn qemu_coroutine_self(void);
+
 #endif /* QEMU_COROUTINE_H */
