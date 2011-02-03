@@ -279,6 +279,9 @@ static int qcow2_open(BlockDriverState *bs, int flags)
 #ifdef DEBUG_ALLOC
     qcow2_check_refcounts(bs);
 #endif
+
+    qemu_co_mutex_init(&s->lock);
+
     return ret;
 
  fail:
@@ -529,9 +532,11 @@ static int coroutine_fn qcow2_aio_read_cb(void *opaque, int ret)
         }
 
         BLKDBG_EVENT(bs->file, BLKDBG_READ_AIO);
+        qemu_co_mutex_unlock(&s->lock);
         ret = bdrv_co_readv(bs->file,
                             (acb->cluster_offset >> 9) + index_in_cluster,
                             &acb->hd_qiov, acb->cur_nr_sectors);
+        qemu_co_mutex_lock(&s->lock);
         if (ret < 0) {
             goto done;
         }
@@ -547,9 +552,14 @@ done:
 static void * coroutine_fn qcow2_co_read(void *opaque)
 {
     QCowAIOCB *acb = opaque;
+    BlockDriverState *bs = acb->common.bs;
+    BDRVQcowState *s = bs->opaque;
 
+    qemu_co_mutex_lock(&s->lock);
     while (qcow2_aio_read_cb(acb, 0)) {
     }
+    qemu_co_mutex_unlock(&s->lock);
+
     return NULL;
 }
 
@@ -557,9 +567,14 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret);
 static void * coroutine_fn qcow2_co_write(void *opaque)
 {
     QCowAIOCB *acb = opaque;
+    BlockDriverState *bs = acb->common.bs;
+    BDRVQcowState *s = bs->opaque;
 
+    qemu_co_mutex_lock(&s->lock);
     while (qcow2_aio_write_cb(acb, 0)) {
     }
+    qemu_co_mutex_unlock(&s->lock);
+
     return NULL;
 }
 
@@ -601,38 +616,23 @@ static BlockDriverAIOCB *qcow2_aio_readv(BlockDriverState *bs,
     return qcow2_aio_setup(bs, sector_num, qiov, nb_sectors, cb, opaque, 0);
 }
 
-static void qcow2_co_run_dependent_requests(void *opaque)
+static void run_dependent_requests(BDRVQcowState *s, QCowL2Meta *m)
 {
-    QCowAIOCB *acb = opaque;
     QCowAIOCB *req;
     QCowAIOCB *next;
 
-    qemu_bh_delete(acb->bh);
-    acb->bh = NULL;
-
-    /* Restart all dependent requests */
-    QLIST_FOREACH_SAFE(req, &acb->l2meta.dependent_requests, next_depend, next) {
-        qemu_coroutine_enter(req->coroutine, NULL);
-    }
-
-    /* Reenter the original request */
-    qemu_coroutine_enter(acb->coroutine, NULL);
-}
-
-static void run_dependent_requests(QCowL2Meta *m)
-{
     /* Take the request off the list of running requests */
     if (m->nb_clusters != 0) {
         QLIST_REMOVE(m, next_in_flight);
     }
 
     if (!QLIST_EMPTY(&m->dependent_requests)) {
-        /* TODO This is a hack to get at the acb, may not be correct if called
-         * with a QCowL2Meta that is not part of a QCowAIOCB.
-         */
-        QCowAIOCB *acb = container_of(m, QCowAIOCB, l2meta);
-        qcow2_schedule_bh(qcow2_co_run_dependent_requests, acb);
-        qemu_coroutine_yield(NULL);
+        /* Restart all dependent requests */
+        qemu_co_mutex_unlock(&s->lock);
+        QLIST_FOREACH_SAFE(req, &m->dependent_requests, next_depend, next) {
+            qemu_coroutine_enter(req->coroutine, NULL);
+        }
+        qemu_co_mutex_lock(&s->lock);
     }
 
     /* Empty the list for the next part of the request */
@@ -651,7 +651,7 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
         ret = qcow2_alloc_cluster_link_l2(bs, &acb->l2meta);
     }
 
-    run_dependent_requests(&acb->l2meta);
+    run_dependent_requests(s, &acb->l2meta);
 
     if (ret < 0)
         goto done;
@@ -684,7 +684,9 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
     if (acb->l2meta.nb_clusters == 0 && acb->l2meta.depends_on != NULL) {
         QLIST_INSERT_HEAD(&acb->l2meta.depends_on->dependent_requests,
             acb, next_depend);
+        qemu_co_mutex_unlock(&s->lock);
         qemu_coroutine_yield(NULL);
+        qemu_co_mutex_lock(&s->lock);
         return 1;
     }
 
@@ -712,9 +714,11 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
     }
 
     BLKDBG_EVENT(bs->file, BLKDBG_WRITE_AIO);
+    qemu_co_mutex_unlock(&s->lock);
     ret = bdrv_co_writev(bs->file,
                          (acb->cluster_offset >> 9) + index_in_cluster,
                          &acb->hd_qiov, acb->cur_nr_sectors);
+    qemu_co_mutex_lock(&s->lock);
     if (ret < 0) {
         goto fail;
     }
@@ -887,7 +891,7 @@ static int preallocate(BlockDriverState *bs)
 
         /* There are no dependent requests, but we need to remove our request
          * from the list of in-flight requests */
-        run_dependent_requests(&meta);
+        run_dependent_requests(bs->opaque, &meta);
 
         /* TODO Preallocate data if requested */
 
