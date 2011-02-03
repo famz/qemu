@@ -16,6 +16,8 @@
 
 #include <stdbool.h>
 
+#include "qemu-queue.h"
+
 /**
  * Mark a function that executes in coroutine context
  *
@@ -84,5 +86,15 @@ Coroutine * coroutine_fn qemu_coroutine_self(void);
  * Return whether or not currently inside a coroutine
  */
 bool qemu_in_coroutine(void);
+
+
+typedef struct CoMutex {
+    bool locked;
+    QTAILQ_HEAD(, Coroutine) queue;
+} CoMutex;
+
+void qemu_co_mutex_init(CoMutex *mutex);
+void qemu_co_mutex_lock(CoMutex *mutex);
+void qemu_co_mutex_unlock(CoMutex *mutex);
 
 #endif /* QEMU_COROUTINE_H */

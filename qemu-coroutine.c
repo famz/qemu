@@ -18,6 +18,7 @@
 
 struct Coroutine {
     struct coroutine co;
+    QTAILQ_ENTRY(Coroutine) mutex_queue_next;
 };
 
 Coroutine *qemu_coroutine_create(CoroutineEntry *entry)
@@ -47,4 +48,39 @@ Coroutine * coroutine_fn qemu_coroutine_self(void)
 bool qemu_in_coroutine(void)
 {
     return !coroutine_is_leader(coroutine_self());
+}
+
+void qemu_co_mutex_init(CoMutex *mutex)
+{
+    memset(mutex, 0, sizeof(*mutex));
+    QTAILQ_INIT(&mutex->queue);
+}
+
+void qemu_co_mutex_lock(CoMutex *mutex)
+{
+    if (mutex->locked) {
+        Coroutine *self = qemu_coroutine_self();
+        QTAILQ_INSERT_TAIL(&mutex->queue, self, mutex_queue_next);
+        qemu_coroutine_yield(NULL);
+        assert(qemu_in_coroutine());
+        assert(mutex->locked == false);
+    }
+
+    mutex->locked = true;
+}
+
+void qemu_co_mutex_unlock(CoMutex *mutex)
+{
+    Coroutine* next;
+
+    assert(mutex->locked == true);
+    assert(qemu_in_coroutine());
+
+    mutex->locked = false;
+    next = QTAILQ_FIRST(&mutex->queue);
+    if (next) {
+        QTAILQ_REMOVE(&mutex->queue, next, mutex_queue_next);
+        qemu_coroutine_enter(next, NULL);
+        assert(qemu_in_coroutine());
+    }
 }

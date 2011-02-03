@@ -85,6 +85,8 @@ struct Qcow2Cache;
 typedef struct Qcow2Cache Qcow2Cache;
 
 typedef struct BDRVQcowState {
+    CoMutex lock;
+
     int cluster_bits;
     int cluster_size;
     int cluster_sectors;
