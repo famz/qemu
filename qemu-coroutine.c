@@ -23,6 +23,7 @@ struct Coroutine {
 
 Coroutine *qemu_coroutine_create(CoroutineEntry *entry)
 {
+    /* FIXME Where is the matching free? */
     Coroutine *coroutine = qemu_mallocz(sizeof(*coroutine));
 
     coroutine->co.entry = entry;
