@@ -42,7 +42,7 @@ int cc_release(struct continuation *cc);
 
 /* you can use an uninitialized struct continuation for from if you do not have
    the current continuation handy. */
-int cc_swap(struct continuation *from, struct continuation *to);
+int cc_swap(struct continuation *from, struct continuation *to, int savectx);
 
 #define offset_of(type, member) ((unsigned long)(&((type *)0)->member))
 #ifndef container_of

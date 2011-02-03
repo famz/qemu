@@ -85,17 +85,18 @@ int coroutine_is_leader(struct coroutine *co)
     return co == &leader;
 }
 
-void *coroutine_swap(struct coroutine *from, struct coroutine *to, void *arg)
+void *coroutine_swap(struct coroutine *from, struct coroutine *to, void *arg, int savectx)
 {
 	int ret;
 	to->data = arg;
 	current = to;
-	ret = cc_swap(&from->cc, &to->cc);
+
+	ret = cc_swap(&from->cc, &to->cc, savectx);
 	if (ret == 0)
 		return from->data;
 	else if (ret == 1) {
+        current = current->caller;
 		coroutine_release(to);
-		current = &leader;
 		to->exited = 1;
 		return to->data;
 	}
@@ -110,7 +111,7 @@ void *coroutine_yieldto(struct coroutine *to, void *arg)
 		abort();
 	}
 	to->caller = coroutine_self();
-	return coroutine_swap(coroutine_self(), to, arg);
+	return coroutine_swap(coroutine_self(), to, arg, 1);
 }
 
 void *coroutine_yield(void *arg)
@@ -121,7 +122,7 @@ void *coroutine_yield(void *arg)
 		abort();
 	}
 	coroutine_self()->caller = NULL;
-	return coroutine_swap(coroutine_self(), to, arg);
+	return coroutine_swap(coroutine_self(), to, arg, 0);
 }
 /*
  * Local variables:

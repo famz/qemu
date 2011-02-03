@@ -66,15 +66,17 @@ int cc_release(struct continuation *cc)
 	return 0;
 }
 
-int cc_swap(struct continuation *from, struct continuation *to)
+int cc_swap(struct continuation *from, struct continuation *to, int savectx)
 {
-	to->exited = 0;
-	if (getcontext(&to->last) == -1)
-		return -1;
-	else if (to->exited == 0)
-		to->exited = 1;
-	else if (to->exited == 1)
-		return 1;
+    if (savectx) {
+        to->exited = 0;
+        if (getcontext(&to->last) == -1)
+            return -1;
+        else if (to->exited == 0)
+            to->exited = 1;
+        else if (to->exited == 1)
+            return 1;
+    }
 
 	return swapcontext(&from->uc, &to->uc);
 }
