@@ -18,6 +18,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
  */
 
+/* XXX Is there a nicer way to disable glibc's stack check for longjmp? */
+#ifdef _FORTIFY_SOURCE
+#undef _FORTIFY_SOURCE
+#endif
+#include <setjmp.h>
+
+#include <stdint.h>
 #include "continuation.h"
 
 /*
@@ -30,6 +37,8 @@ union cc_arg {
 	int i[2];
 };
 
+static ucontext_t caller;
+
 static void continuation_trampoline(int i0, int i1)
 {
 	union cc_arg arg;
@@ -38,7 +47,14 @@ static void continuation_trampoline(int i0, int i1)
 	arg.i[1] = i1;
 	cc = arg.p;
 
+    /* Initialize longjmp environment and switch back to cc_init */
+    if (!setjmp(cc->env)) {
+	    swapcontext(&cc->uc, &caller);
+    }
+
 	cc->entry(cc);
+
+    longjmp(cc->last_env, 1);
 }
 
 int cc_init(struct continuation *cc)
@@ -48,12 +64,14 @@ int cc_init(struct continuation *cc)
 	if (getcontext(&cc->uc) == -1)
 		return -1;
 
-	cc->uc.uc_link = &cc->last;
 	cc->uc.uc_stack.ss_sp = cc->stack;
 	cc->uc.uc_stack.ss_size = cc->stack_size;
 	cc->uc.uc_stack.ss_flags = 0;
 
 	makecontext(&cc->uc, (void *)continuation_trampoline, 2, arg.i[0], arg.i[1]);
+
+    /* Initialize the longjmp environment */
+	swapcontext(&caller, &cc->uc);
 
 	return 0;
 }
@@ -68,17 +86,24 @@ int cc_release(struct continuation *cc)
 
 int cc_swap(struct continuation *from, struct continuation *to, int savectx)
 {
+    int ret;
+
+    /* Handle termination of called coroutine */
     if (savectx) {
-        to->exited = 0;
-        if (getcontext(&to->last) == -1)
-            return -1;
-        else if (to->exited == 0)
-            to->exited = 1;
-        else if (to->exited == 1)
+        ret = setjmp(to->last_env);
+        if (ret) {
             return 1;
+        }
     }
 
-	return swapcontext(&from->uc, &to->uc);
+    /* Handle yield of called coroutine */
+    ret = setjmp(from->env);
+    if (ret) {
+        return 0;
+    }
+
+    /* Switch to called coroutine */
+    longjmp(to->env, 1);
 }
 /*
  * Local variables:
