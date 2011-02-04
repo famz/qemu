@@ -51,6 +51,7 @@ struct coroutine
 };
 
 int coroutine_init(struct coroutine *co);
+int coroutine_reinit(struct coroutine *co);
 
 int coroutine_release(struct coroutine *co);
 

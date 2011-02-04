@@ -22,6 +22,7 @@
 #include <sys/mman.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include "coroutine.h"
 
 int coroutine_release(struct coroutine *co)
@@ -35,13 +36,17 @@ static int _coroutine_release(struct continuation *cc)
 
 	if (co->release) {
 		int ret = co->release(co);
-		if (ret < 0)
+		if (ret < 0) {
 			return ret;
+        } else if (ret > 0) {
+            goto out;
+        }
 	}
+
     munmap(co->cc.stack, co->cc.stack_size);
 
+out:
 	co->caller = NULL;
-
 	return 0;
 }
 
@@ -49,6 +54,15 @@ static void coroutine_trampoline(struct continuation *cc)
 {
 	struct coroutine *co = container_of(cc, struct coroutine, cc);
 	co->data = co->entry(co->data);
+}
+
+int coroutine_reinit(struct coroutine *co)
+{
+	co->cc.entry = coroutine_trampoline;
+	co->cc.release = _coroutine_release;
+	co->exited = 0;
+
+	return cc_init(&co->cc);
 }
 
 int coroutine_init(struct coroutine *co)
@@ -63,11 +77,8 @@ int coroutine_init(struct coroutine *co)
 			    -1, 0);
 	if (co->cc.stack == MAP_FAILED)
 		return -1;
-	co->cc.entry = coroutine_trampoline;
-	co->cc.release = _coroutine_release;
-	co->exited = 0;
 
-	return cc_init(&co->cc);
+    return coroutine_reinit(co);
 }
 
 static __thread struct coroutine leader;

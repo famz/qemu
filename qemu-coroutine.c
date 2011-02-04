@@ -19,15 +19,36 @@
 struct Coroutine {
     struct coroutine co;
     QTAILQ_ENTRY(Coroutine) mutex_queue_next;
+    QLIST_ENTRY(Coroutine) pool_next;
 };
+
+static QLIST_HEAD(, Coroutine) pool;
+
+static int qemu_coroutine_done(struct coroutine *co)
+{
+	Coroutine *coroutine = container_of(co, Coroutine, co);
+
+    QLIST_INSERT_HEAD(&pool, coroutine, pool_next);
+    return 1;
+}
 
 Coroutine *qemu_coroutine_create(CoroutineEntry *entry)
 {
-    /* FIXME Where is the matching free? */
-    Coroutine *coroutine = qemu_mallocz(sizeof(*coroutine));
+    Coroutine *coroutine;
+
+    coroutine = QLIST_FIRST(&pool);
+
+    if (coroutine) {
+        QLIST_REMOVE(coroutine, pool_next);
+        coroutine_reinit(&coroutine->co);
+    } else {
+        coroutine = qemu_mallocz(sizeof(*coroutine));
+        coroutine_init(&coroutine->co);
+    }
 
     coroutine->co.entry = entry;
-    coroutine_init(&coroutine->co);
+    coroutine->co.release = qemu_coroutine_done;
+
     return coroutine;
 }
 
