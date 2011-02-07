@@ -23,6 +23,7 @@
 
 #include <ucontext.h>
 #include <setjmp.h>
+#include <stdbool.h>
 
 struct continuation
 {
@@ -35,6 +36,7 @@ struct continuation
 	ucontext_t uc;
     jmp_buf env;
     jmp_buf last_env;
+    bool initialized;
 };
 
 int cc_init(struct continuation *cc);

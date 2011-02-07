@@ -52,15 +52,25 @@ static void continuation_trampoline(int i0, int i1)
 	    swapcontext(&cc->uc, &caller);
     }
 
-	cc->entry(cc);
-
-    longjmp(cc->last_env, 1);
+    while (true) {
+	    cc->entry(cc);
+        if (!setjmp(cc->env)) {
+            longjmp(cc->last_env, 1);
+        }
+    }
 }
 
 int cc_init(struct continuation *cc)
 {
 	volatile union cc_arg arg;
 	arg.p = cc;
+
+    if (cc->initialized) {
+        return 0;
+    } else {
+        cc->initialized = true;
+    }
+
 	if (getcontext(&cc->uc) == -1)
 		return -1;
 
