@@ -111,20 +111,18 @@ void *coroutine_swap(struct coroutine *from, struct coroutine *to, void *arg, in
 
     /* Handle termination of called coroutine */
     if (savectx) {
-        ret = setjmp(to->cc.last_env);
-        if (ret) {
-            current = current->caller;
-            coroutine_release(to);
-            to->exited = 1;
-            return to->data;
-        }
-        savectx = 0;
+        to->cc.last_env = &from->cc.env;
     }
 
     /* Handle yield of called coroutine */
     ret = setjmp(from->cc.env);
-    if (ret) {
+    if (ret == 1) {
 		return from->data;
+    } else if (ret == 2) {
+        current = current->caller;
+        coroutine_release(to);
+        to->exited = 1;
+        return to->data;
     }
 
     /* Switch to called coroutine */

@@ -35,7 +35,7 @@ struct continuation
 	/* private */
 	ucontext_t uc;
     jmp_buf env;
-    jmp_buf last_env;
+    jmp_buf *last_env;
     bool initialized;
 };
 

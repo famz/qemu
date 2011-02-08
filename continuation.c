@@ -55,7 +55,7 @@ static void continuation_trampoline(int i0, int i1)
     while (true) {
 	    cc->entry(cc);
         if (!setjmp(cc->env)) {
-            longjmp(cc->last_env, 1);
+            longjmp(*cc->last_env, 2);
         }
     }
 }
@@ -100,7 +100,7 @@ int cc_swap(struct continuation *from, struct continuation *to, int savectx)
 
     /* Handle termination of called coroutine */
     if (savectx) {
-        ret = setjmp(to->last_env);
+        ret = setjmp(*to->last_env);
         if (ret) {
             return 1;
         }
