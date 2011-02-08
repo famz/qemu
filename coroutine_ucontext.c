@@ -18,12 +18,19 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
  */
 
+/* XXX Is there a nicer way to disable glibc's stack check for longjmp? */
+#ifdef _FORTIFY_SOURCE
+#undef _FORTIFY_SOURCE
+#endif
+#include <setjmp.h>
+
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "coroutine.h"
+#include "osdep.h"
 
 int coroutine_release(struct coroutine *co)
 {
@@ -102,15 +109,26 @@ void *coroutine_swap(struct coroutine *from, struct coroutine *to, void *arg, in
 	to->data = arg;
 	current = to;
 
-	ret = cc_swap(&from->cc, &to->cc, savectx);
-	if (ret == 0)
+    /* Handle termination of called coroutine */
+    if (savectx) {
+        ret = setjmp(to->cc.last_env);
+        if (ret) {
+            current = current->caller;
+            coroutine_release(to);
+            to->exited = 1;
+            return to->data;
+        }
+        savectx = 0;
+    }
+
+    /* Handle yield of called coroutine */
+    ret = setjmp(from->cc.env);
+    if (ret) {
 		return from->data;
-	else if (ret == 1) {
-        current = current->caller;
-		coroutine_release(to);
-		to->exited = 1;
-		return to->data;
-	}
+    }
+
+    /* Switch to called coroutine */
+    longjmp(to->cc.env, 1);
 
 	return NULL;
 }
