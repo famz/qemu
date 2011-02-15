@@ -405,9 +405,9 @@ static AIOPool qcow2_aio_pool = {
 static void qcow2_aio_bh(void *opaque)
 {
     QCowAIOCB *acb = opaque;
+    acb->common.cb(acb->common.opaque, acb->ret);
     qemu_bh_delete(acb->bh);
     acb->bh = NULL;
-    acb->common.cb(acb->common.opaque, acb->ret);
     qemu_iovec_destroy(&acb->hd_qiov);
     qemu_aio_release(acb);
 }
@@ -682,9 +682,9 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
 
     /* Need to wait for another request? If so, we are done for now. */
     if (acb->l2meta.nb_clusters == 0 && acb->l2meta.depends_on != NULL) {
+        qemu_co_mutex_unlock(&s->lock);
         QLIST_INSERT_HEAD(&acb->l2meta.depends_on->dependent_requests,
             acb, next_depend);
-        qemu_co_mutex_unlock(&s->lock);
         qemu_coroutine_yield(NULL);
         qemu_co_mutex_lock(&s->lock);
         return 1;
