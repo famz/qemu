@@ -473,8 +473,10 @@ static int coroutine_fn qcow2_aio_read_cb(void *opaque, int ret)
             QCOW_MAX_CRYPT_CLUSTERS * s->cluster_sectors);
     }
 
+    qemu_co_mutex_lock(&s->lock);
     ret = qcow2_get_cluster_offset(bs, acb->sector_num << 9,
         &acb->cur_nr_sectors, &acb->cluster_offset);
+    qemu_co_mutex_unlock(&s->lock);
     if (ret < 0) {
         goto done;
     }
@@ -504,7 +506,10 @@ static int coroutine_fn qcow2_aio_read_cb(void *opaque, int ret)
         }
     } else if (acb->cluster_offset & QCOW_OFLAG_COMPRESSED) {
         /* add AIO support for compressed blocks ? */
+        qemu_co_mutex_lock(&s->lock);
         ret = qcow2_decompress_cluster(bs, acb->cluster_offset);
+        qemu_co_mutex_unlock(&s->lock);
+
         if (ret < 0) {
             goto done;
         }
@@ -536,12 +541,10 @@ static int coroutine_fn qcow2_aio_read_cb(void *opaque, int ret)
         }
 
         BLKDBG_EVENT(bs->file, BLKDBG_READ_AIO);
-        qemu_co_mutex_unlock(&s->lock);
         trace_qcow2_read_data(acb, acb->sector_num, acb->cur_nr_sectors);
         ret = bdrv_co_readv(bs->file,
                             (acb->cluster_offset >> 9) + index_in_cluster,
                             &acb->hd_qiov, acb->cur_nr_sectors);
-        qemu_co_mutex_lock(&s->lock);
         if (ret < 0) {
             goto done;
         }
@@ -560,10 +563,8 @@ static void coroutine_fn qcow2_co_read(void *opaque)
     BlockDriverState *bs = acb->common.bs;
     BDRVQcowState *s = bs->opaque;
 
-    qemu_co_mutex_lock(&s->lock);
     while (qcow2_aio_read_cb(acb, 0)) {
     }
-    qemu_co_mutex_unlock(&s->lock);
 }
 
 static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret);
