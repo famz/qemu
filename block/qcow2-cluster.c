@@ -440,7 +440,8 @@ int qcow2_get_cluster_offset(BlockDriverState *bs, uint64_t offset,
     /* load the l2 table in memory */
 
     l2_offset &= ~QCOW_OFLAG_COPIED;
-    ret = l2_load(bs, l2_offset, &l2_table);
+    qemu_co_mutex_lock(&s->lock);
+    ret = qcow2_cache_get(bs, s->l2_table_cache, l2_offset, (void**) &l2_table);
     if (ret < 0) {
         return ret;
     }
@@ -461,6 +462,7 @@ int qcow2_get_cluster_offset(BlockDriverState *bs, uint64_t offset,
     }
 
     qcow2_cache_put(bs, s->l2_table_cache, (void**) &l2_table);
+    qemu_co_mutex_unlock(&s->lock);
 
    nb_available = (c * s->cluster_sectors);
 out:

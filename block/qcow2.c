@@ -473,10 +473,8 @@ static int coroutine_fn qcow2_aio_read_cb(void *opaque, int ret)
             QCOW_MAX_CRYPT_CLUSTERS * s->cluster_sectors);
     }
 
-    qemu_co_mutex_lock(&s->lock);
     ret = qcow2_get_cluster_offset(bs, acb->sector_num << 9,
         &acb->cur_nr_sectors, &acb->cluster_offset);
-    qemu_co_mutex_unlock(&s->lock);
     if (ret < 0) {
         goto done;
     }
@@ -560,8 +558,6 @@ done:
 static void coroutine_fn qcow2_co_read(void *opaque)
 {
     QCowAIOCB *acb = opaque;
-    BlockDriverState *bs = acb->common.bs;
-    BDRVQcowState *s = bs->opaque;
 
     while (qcow2_aio_read_cb(acb, 0)) {
     }
