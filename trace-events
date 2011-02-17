@@ -39,27 +39,27 @@ disable qemu_vmalloc(size_t size, void *ptr) "size %zu ptr %p"
 disable qemu_vfree(void *ptr) "ptr %p"
 
 # hw/virtio.c
-disable virtqueue_fill(void *vq, const void *elem, unsigned int len, unsigned int idx) "vq %p elem %p len %u idx %u"
-disable virtqueue_flush(void *vq, unsigned int count) "vq %p count %u"
-disable virtqueue_pop(void *vq, void *elem, unsigned int in_num, unsigned int out_num) "vq %p elem %p in_num %u out_num %u"
-disable virtio_queue_notify(void *vdev, int n, void *vq) "vdev %p n %d vq %p"
-disable virtio_irq(void *vq) "vq %p"
-disable virtio_notify(void *vdev, void *vq) "vdev %p vq %p"
+virtqueue_fill(void *vq, const void *elem, unsigned int len, unsigned int idx) "vq %p elem %p len %u idx %u"
+virtqueue_flush(void *vq, unsigned int count) "vq %p count %u"
+virtqueue_pop(void *vq, void *elem, unsigned int in_num, unsigned int out_num) "vq %p elem %p in_num %u out_num %u"
+virtio_queue_notify(void *vdev, int n, void *vq) "vdev %p n %d vq %p"
+virtio_irq(void *vq) "vq %p"
+virtio_notify(void *vdev, void *vq) "vdev %p vq %p"
 
 # block.c
-disable multiwrite_cb(void *mcb, int ret) "mcb %p ret %d"
-disable bdrv_aio_multiwrite(void *mcb, int num_callbacks, int num_reqs) "mcb %p num_callbacks %d num_reqs %d"
-disable bdrv_aio_multiwrite_earlyfail(void *mcb) "mcb %p"
-disable bdrv_aio_multiwrite_latefail(void *mcb, int i) "mcb %p i %d"
-disable bdrv_aio_flush(void *bs, void *opaque) "bs %p opaque %p"
-disable bdrv_aio_readv(void *bs, int64_t sector_num, int nb_sectors, void *opaque) "bs %p sector_num %"PRId64" nb_sectors %d opaque %p"
-disable bdrv_aio_writev(void *bs, int64_t sector_num, int nb_sectors, void *opaque) "bs %p sector_num %"PRId64" nb_sectors %d opaque %p"
-disable bdrv_set_locked(void *bs, int locked) "bs %p locked %d"
+multiwrite_cb(void *mcb, int ret) "mcb %p ret %d"
+bdrv_aio_multiwrite(void *mcb, int num_callbacks, int num_reqs) "mcb %p num_callbacks %d num_reqs %d"
+bdrv_aio_multiwrite_earlyfail(void *mcb) "mcb %p"
+bdrv_aio_multiwrite_latefail(void *mcb, int i) "mcb %p i %d"
+bdrv_aio_flush(void *bs, void *opaque) "bs %p opaque %p"
+bdrv_aio_readv(void *bs, int64_t sector_num, int nb_sectors, void *opaque) "bs %p sector_num %"PRId64" nb_sectors %d opaque %p"
+bdrv_aio_writev(void *bs, int64_t sector_num, int nb_sectors, void *opaque) "bs %p sector_num %"PRId64" nb_sectors %d opaque %p"
+bdrv_set_locked(void *bs, int locked) "bs %p locked %d"
 
 # hw/virtio-blk.c
-disable virtio_blk_req_complete(void *req, int status) "req %p status %d"
-disable virtio_blk_rw_complete(void *req, int ret) "req %p ret %d"
-disable virtio_blk_handle_write(void *req, uint64_t sector, size_t nsectors) "req %p sector %"PRIu64" nsectors %zu"
+virtio_blk_req_complete(void *req, int status) "req %p status %d"
+virtio_blk_rw_complete(void *req, int ret) "req %p ret %d"
+virtio_blk_handle_write(void *req, uint64_t sector, size_t nsectors) "req %p sector %"PRIu64" nsectors %zu"
 
 # posix-aio-compat.c
 disable paio_submit(void *acb, void *opaque, int64_t sector_num, int nb_sectors, int type) "acb %p opaque %p sector_num %"PRId64" nb_sectors %d type %d"
@@ -360,3 +360,10 @@ disable milkymist_uart_pulse_irq_tx(void) "Pulse IRQ TX"
 # hw/milkymist-vgafb.c
 disable milkymist_vgafb_memory_read(uint32_t addr, uint32_t value) "addr %08x value %08x"
 disable milkymist_vgafb_memory_write(uint32_t addr, uint32_t value) "addr %08x value %08x"
+
+# block/qcow2.c
+qcow2_co_write_pre_lock(void *bs, void *s, void *acb) "bs %p s %p acb %p"
+qcow2_co_write_post_lock(void *bs, void *s, void *acb) "bs %p s %p acb %p"
+qcow2_co_write_pre_unlock(void *bs, void *s, void *acb) "bs %p s %p acb %p"
+qcow2_co_write_post_unlock(void *bs, void *s, void *acb) "bs %p s %p acb %p"
+qcow2_aio_setup(void *bs, int64_t sector_num, int nb_sectors, void *opaque, int is_write) "bs %p sector_num %"PRIx64" nb_sectors %d opaque %p is_write %d"
