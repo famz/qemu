@@ -29,9 +29,12 @@
 typedef struct Qcow2CachedTable {
     void*   table;
     int64_t offset;
-    bool    dirty;
     int     cache_hits;
     int     ref;
+    bool    dirty;
+    bool    keep_dirty;
+    bool    valid;
+    CoQueue get_queue;
 } Qcow2CachedTable;
 
 struct Qcow2Cache {
@@ -40,6 +43,7 @@ struct Qcow2Cache {
     int                     size;
     bool                    depends_on_flush;
     bool                    writethrough;
+    CoQueue                 alloc_queue;
 };
 
 Qcow2Cache *qcow2_cache_create(BlockDriverState *bs, int num_tables,
@@ -53,9 +57,11 @@ Qcow2Cache *qcow2_cache_create(BlockDriverState *bs, int num_tables,
     c->size = num_tables;
     c->entries = qemu_mallocz(sizeof(*c->entries) * num_tables);
     c->writethrough = writethrough;
+    qemu_co_queue_init(&c->alloc_queue);
 
     for (i = 0; i < c->size; i++) {
         c->entries[i].table = qemu_blockalign(bs, s->cluster_size);
+        qemu_co_queue_init(&c->entries[i].get_queue);
     }
 
     return c;
@@ -119,13 +125,16 @@ static int qcow2_cache_entry_flush(BlockDriverState *bs, Qcow2Cache *c, int i)
         BLKDBG_EVENT(bs->file, BLKDBG_L2_UPDATE);
     }
 
+    c->entries[i].keep_dirty = false;
     ret = bdrv_pwrite(bs->file, c->entries[i].offset, c->entries[i].table,
         s->cluster_size);
     if (ret < 0) {
         return ret;
     }
 
-    c->entries[i].dirty = false;
+    /* We must not reset the dirty bit if during the write the buffer was
+     * marked dirty once more. */
+    c->entries[i].dirty = c->entries[i].keep_dirty;
 
     return 0;
 }
@@ -204,10 +213,9 @@ static int qcow2_cache_find_entry_to_replace(Qcow2Cache *c)
     }
 
     if (min_index == -1) {
-        /* This can't happen in current synchronous code, but leave the check
-         * here as a reminder for whoever starts using AIO with the cache */
-        abort();
+        return -EBUSY;
     }
+
     return min_index;
 }
 
@@ -218,24 +226,42 @@ static int qcow2_cache_do_get(BlockDriverState *bs, Qcow2Cache *c,
     int i;
     int ret;
 
+retry:
     /* Check if the table is already cached */
     for (i = 0; i < c->size; i++) {
         if (c->entries[i].offset == offset) {
+            c->entries[i].ref++;
             goto found;
         }
     }
 
     /* If not, write a table back and replace it */
     i = qcow2_cache_find_entry_to_replace(c);
-    if (i < 0) {
-        return i;
+    if (i == -EBUSY) {
+        qemu_co_queue_wait(&c->alloc_queue);
+        goto retry;
     }
+
+    assert(i >= 0);
+
+    /* Increase the refcount early so that the entry will stay in the cache
+     * even if we need to flush and other coroutines get to run. */
+    c->entries[i].ref++;
 
     ret = qcow2_cache_entry_flush(bs, c, i);
     if (ret < 0) {
         return ret;
     }
 
+    /* The flush may have caused other coroutines to run, so the buffer might
+     * have been used again. In this case, we must retry. */
+    if ((c->entries[i].ref != 1) || c->entries[i].dirty) {
+        c->entries[i].ref--;
+        goto retry;
+    }
+
+    /* Read the table from the disk */
+    c->entries[i].valid = false;
     c->entries[i].offset = 0;
     if (read_from_disk) {
         if (c == s->l2_table_cache) {
@@ -253,10 +279,19 @@ static int qcow2_cache_do_get(BlockDriverState *bs, Qcow2Cache *c,
     c->entries[i].cache_hits = 32;
     c->entries[i].offset = offset;
 
+    /* Run other requests that were waiting for the table to be read */
+    c->entries[i].valid = true;
+    while (qemu_co_queue_next(&c->entries[i].get_queue));
+
     /* And return the right table */
 found:
+    /* If another coroutine is still initialising the content, it's not valid
+     * yet and we need to wait. */
+    while (!c->entries[i].valid) {
+        qemu_co_queue_wait(&c->entries[i].get_queue);
+    }
+
     c->entries[i].cache_hits++;
-    c->entries[i].ref++;
     *table = c->entries[i].table;
     return 0;
 }
@@ -276,6 +311,7 @@ int qcow2_cache_get_empty(BlockDriverState *bs, Qcow2Cache *c, uint64_t offset,
 int qcow2_cache_put(BlockDriverState *bs, Qcow2Cache *c, void **table)
 {
     int i;
+    int ret;
 
     for (i = 0; i < c->size; i++) {
         if (c->entries[i].table == *table) {
@@ -285,16 +321,23 @@ int qcow2_cache_put(BlockDriverState *bs, Qcow2Cache *c, void **table)
     return -ENOENT;
 
 found:
-    c->entries[i].ref--;
     *table = NULL;
 
-    assert(c->entries[i].ref >= 0);
-
     if (c->writethrough) {
-        return qcow2_cache_entry_flush(bs, c, i);
+        ret = qcow2_cache_entry_flush(bs, c, i);
     } else {
-        return 0;
+        ret = 0;
     }
+
+    /* Decrease and check the refcount only when we're completely done and no
+     * other coroutines can interfere any more */
+    c->entries[i].ref--;
+    assert(c->entries[i].ref >= 0);
+    if (c->entries[i].ref == 0) {
+        qemu_co_queue_next(&c->alloc_queue);
+    }
+
+    return 0;
 }
 
 void qcow2_cache_entry_mark_dirty(Qcow2Cache *c, void *table)
@@ -310,5 +353,6 @@ void qcow2_cache_entry_mark_dirty(Qcow2Cache *c, void *table)
 
 found:
     c->entries[i].dirty = true;
+    c->entries[i].keep_dirty = true;
 }
 
