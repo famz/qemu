@@ -406,6 +406,7 @@ static AIOPool qcow2_aio_pool = {
 static void qcow2_aio_bh(void *opaque)
 {
     QCowAIOCB *acb = opaque;
+    trace_qcow2_aio_bh(acb, acb->common.opaque, acb->ret);
     acb->common.cb(acb->common.opaque, acb->ret);
     qemu_bh_delete(acb->bh);
     acb->bh = NULL;
@@ -605,7 +606,7 @@ static BlockDriverAIOCB *qcow2_aio_setup(BlockDriverState *bs,
     coroutine = qemu_coroutine_create(is_write ? qcow2_co_write
                                                : qcow2_co_read);
     acb->coroutine = coroutine;
-    trace_qcow2_aio_setup(bs, sector_num, nb_sectors, opaque, is_write);
+    trace_qcow2_aio_setup(bs, sector_num, nb_sectors, opaque, is_write, coroutine);
     qemu_coroutine_enter(coroutine, acb);
     return &acb->common;
 }
