@@ -18,11 +18,24 @@
 
 struct Coroutine {
     struct coroutine co;
-    QTAILQ_ENTRY(Coroutine) mutex_queue_next;
+    QTAILQ_ENTRY(Coroutine) co_queue_next;
     QLIST_ENTRY(Coroutine) pool_next;
 };
 
 static QLIST_HEAD(, Coroutine) pool;
+static QTAILQ_HEAD(, Coroutine) unlock_bh_queue;
+static QEMUBH* unlock_bh;
+
+static void qemu_co_queue_next_bh(void *opaque)
+{
+    Coroutine* next;
+
+    while ((next = QTAILQ_FIRST(&unlock_bh_queue))) {
+        QTAILQ_REMOVE(&unlock_bh_queue, next, co_queue_next);
+        qemu_coroutine_enter(next, NULL);
+        assert(qemu_in_coroutine());
+    }
+}
 
 static int qemu_coroutine_done(struct coroutine *co)
 {
@@ -35,6 +48,10 @@ static int qemu_coroutine_done(struct coroutine *co)
 Coroutine *qemu_coroutine_create(CoroutineEntry *entry)
 {
     Coroutine *coroutine;
+
+    if (!unlock_bh) {
+        unlock_bh = qemu_bh_new(qemu_co_queue_next_bh, NULL);
+    }
 
     coroutine = QLIST_FIRST(&pool);
 
@@ -72,19 +89,41 @@ bool qemu_in_coroutine(void)
     return !coroutine_is_leader(coroutine_self());
 }
 
+void qemu_co_queue_init(CoQueue *queue)
+{
+    QTAILQ_INIT(&queue->entries);
+}
+
+void qemu_co_queue_wait(CoQueue *queue)
+{
+    Coroutine *self = qemu_coroutine_self();
+    QTAILQ_INSERT_TAIL(&queue->entries, self, co_queue_next);
+    qemu_coroutine_yield(NULL);
+    assert(qemu_in_coroutine());
+}
+
+void qemu_co_queue_next(CoQueue *queue)
+{
+    Coroutine* next;
+
+    next = QTAILQ_FIRST(&mutex->queue);
+    if (next) {
+        QTAILQ_REMOVE(&queue->entries, next, co_queue_next);
+        QTAILQ_INSERT_TAIL(&unlock_bh_queue, next, co_queue_next);
+        qemu_bh_schedule(unlock_bh);
+    }
+}
+
 void qemu_co_mutex_init(CoMutex *mutex)
 {
     memset(mutex, 0, sizeof(*mutex));
-    QTAILQ_INIT(&mutex->queue);
+    qemu_co_queue_init(&mutex->queue);
 }
 
 void qemu_co_mutex_lock(CoMutex *mutex)
 {
     if (mutex->locked) {
-        Coroutine *self = qemu_coroutine_self();
-        QTAILQ_INSERT_TAIL(&mutex->queue, self, mutex_queue_next);
-        qemu_coroutine_yield(NULL);
-        assert(qemu_in_coroutine());
+        qemu_co_queue_wait(&mutex->queue);
         assert(mutex->locked == false);
     }
 
@@ -93,16 +132,9 @@ void qemu_co_mutex_lock(CoMutex *mutex)
 
 void qemu_co_mutex_unlock(CoMutex *mutex)
 {
-    Coroutine* next;
-
     assert(mutex->locked == true);
     assert(qemu_in_coroutine());
 
     mutex->locked = false;
-    next = QTAILQ_FIRST(&mutex->queue);
-    if (next) {
-        QTAILQ_REMOVE(&mutex->queue, next, mutex_queue_next);
-        qemu_coroutine_enter(next, NULL);
-        assert(qemu_in_coroutine());
-    }
+    qemu_co_queue_next(&mutex->queue);
 }

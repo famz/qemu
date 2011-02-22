@@ -87,10 +87,19 @@ Coroutine * coroutine_fn qemu_coroutine_self(void);
  */
 bool qemu_in_coroutine(void);
 
+/* TODO Documentation */
+typedef struct CoQueue {
+    QTAILQ_HEAD(, Coroutine) entries;
+} CoQueue;
+
+void qemu_co_queue_init(CoQueue *queue);
+void qemu_co_queue_wait(CoQueue *queue);
+void qemu_co_queue_next(CoQueue *queue);
+
 
 typedef struct CoMutex {
     bool locked;
-    QTAILQ_HEAD(, Coroutine) queue;
+    CoQueue queue;
 } CoMutex;
 
 void qemu_co_mutex_init(CoMutex *mutex);
