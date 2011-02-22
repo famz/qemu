@@ -571,14 +571,10 @@ static void * coroutine_fn qcow2_co_write(void *opaque)
     BlockDriverState *bs = acb->common.bs;
     BDRVQcowState *s = bs->opaque;
 
-    trace_qcow2_co_write_pre_lock(bs, s, acb);
     qemu_co_mutex_lock(&s->lock);
-    trace_qcow2_co_write_post_lock(bs, s, acb);
     while (qcow2_aio_write_cb(acb, 0)) {
     }
-    trace_qcow2_co_write_pre_unlock(bs, s, acb);
     qemu_co_mutex_unlock(&s->lock);
-    trace_qcow2_co_write_post_unlock(bs, s, acb);
 
     return NULL;
 }
