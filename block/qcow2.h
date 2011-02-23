@@ -146,7 +146,7 @@ typedef struct QCowL2Meta
     int nb_available;
     int nb_clusters;
     struct QCowL2Meta *depends_on;
-    QLIST_HEAD(QCowAioDependencies, QCowAIOCB) dependent_requests;
+    CoQueue dependent_requests;
 
     QLIST_ENTRY(QCowL2Meta) next_in_flight;
 } QCowL2Meta;

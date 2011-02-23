@@ -94,7 +94,8 @@ typedef struct CoQueue {
 
 void qemu_co_queue_init(CoQueue *queue);
 void qemu_co_queue_wait(CoQueue *queue);
-void qemu_co_queue_next(CoQueue *queue);
+bool qemu_co_queue_next(CoQueue *queue);
+bool qemu_co_queue_empty(CoQueue *queue);
 
 
 typedef struct CoMutex {

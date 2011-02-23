@@ -102,16 +102,23 @@ void qemu_co_queue_wait(CoQueue *queue)
     assert(qemu_in_coroutine());
 }
 
-void qemu_co_queue_next(CoQueue *queue)
+bool qemu_co_queue_next(CoQueue *queue)
 {
     Coroutine* next;
 
-    next = QTAILQ_FIRST(&mutex->queue);
+    next = QTAILQ_FIRST(&queue->entries);
     if (next) {
         QTAILQ_REMOVE(&queue->entries, next, co_queue_next);
-        QTAILQ_INSERT_TAIL(&unlock_bh_queue, next, co_queue_next);
-        qemu_bh_schedule(unlock_bh);
+        qemu_coroutine_enter(next, NULL);
+        assert(qemu_in_coroutine());
     }
+
+    return (next != NULL);
+}
+
+bool qemu_co_queue_empty(CoQueue *queue)
+{
+    return (QTAILQ_FIRST(&queue->entries) == NULL);
 }
 
 void qemu_co_mutex_init(CoMutex *mutex)

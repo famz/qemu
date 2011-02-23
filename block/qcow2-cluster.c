@@ -693,6 +693,7 @@ err:
  * For a given offset of the disk image, return cluster offset in qcow2 file.
  * If the offset is not found, allocate a new cluster.
  *
+ * TODO Update documentation
  * If the cluster was already allocated, m->nb_clusters is set to 0,
  * m->depends_on is set to NULL and the other fields in m are meaningless.
  *
@@ -721,6 +722,7 @@ int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
         return ret;
     }
 
+again:
     nb_clusters = size_to_clusters(s, n_end << 9);
 
     nb_clusters = MIN(nb_clusters, s->l2_size - l2_index);
@@ -792,12 +794,12 @@ int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
             }
 
             if (nb_clusters == 0) {
-                /* Set dependency and wait for a callback */
-                m->depends_on = old_alloc;
-                m->nb_clusters = 0;
-                *num = 0;
-                ret = 0;
-                goto fail;
+                /* Wait for the dependency to complete. We need to recheck
+                 * the free/allocated clusters when we continue. */
+                qemu_co_mutex_unlock(&s->lock);
+                qemu_co_queue_wait(&old_alloc->dependent_requests);
+                qemu_co_mutex_lock(&s->lock);
+                goto again;
             }
         }
     }

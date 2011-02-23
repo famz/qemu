@@ -598,7 +598,8 @@ static BlockDriverAIOCB *qcow2_aio_setup(BlockDriverState *bs,
     acb->cur_nr_sectors = 0;
     acb->cluster_offset = 0;
     acb->l2meta.nb_clusters = 0;
-    QLIST_INIT(&acb->l2meta.dependent_requests);
+
+    qemu_co_queue_init(&acb->l2meta.dependent_requests);
 
     coroutine = qemu_coroutine_create(is_write ? qcow2_co_write
                                                : qcow2_co_read);
@@ -618,25 +619,17 @@ static BlockDriverAIOCB *qcow2_aio_readv(BlockDriverState *bs,
 
 static void run_dependent_requests(BDRVQcowState *s, QCowL2Meta *m)
 {
-    QCowAIOCB *req;
-    QCowAIOCB *next;
-
     /* Take the request off the list of running requests */
     if (m->nb_clusters != 0) {
         QLIST_REMOVE(m, next_in_flight);
     }
 
-    if (!QLIST_EMPTY(&m->dependent_requests)) {
+    if (!qemu_co_queue_empty(&m->dependent_requests)) {
         /* Restart all dependent requests */
         qemu_co_mutex_unlock(&s->lock);
-        QLIST_FOREACH_SAFE(req, &m->dependent_requests, next_depend, next) {
-            qemu_coroutine_enter(req->coroutine, NULL);
-        }
+        while(qemu_co_queue_next(&m->dependent_requests));
         qemu_co_mutex_lock(&s->lock);
     }
-
-    /* Empty the list for the next part of the request */
-    QLIST_INIT(&m->dependent_requests);
 }
 
 static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
@@ -679,17 +672,6 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
     }
 
     acb->cluster_offset = acb->l2meta.cluster_offset;
-
-    /* Need to wait for another request? If so, we are done for now. */
-    if (acb->l2meta.nb_clusters == 0 && acb->l2meta.depends_on != NULL) {
-        qemu_co_mutex_unlock(&s->lock);
-        QLIST_INSERT_HEAD(&acb->l2meta.depends_on->dependent_requests,
-            acb, next_depend);
-        qemu_coroutine_yield(NULL);
-        qemu_co_mutex_lock(&s->lock);
-        return 1;
-    }
-
     assert((acb->cluster_offset & 511) == 0);
 
     qemu_iovec_reset(&acb->hd_qiov);
@@ -873,7 +855,7 @@ static int preallocate(BlockDriverState *bs)
 
     nb_sectors = bdrv_getlength(bs) >> 9;
     offset = 0;
-    QLIST_INIT(&meta.dependent_requests);
+    // FIXME QLIST_INIT(&meta.dependent_requests);
     meta.cluster_offset = 0;
 
     while (nb_sectors) {
