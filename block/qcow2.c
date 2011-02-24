@@ -628,10 +628,16 @@ static void run_dependent_requests(BDRVQcowState *s, QCowL2Meta *m)
     }
 
     if (!qemu_co_queue_empty(&m->dependent_requests)) {
+        QCowAIOCB *self = container_of(m, QCowAIOCB, l2meta);
+
+        trace_run_dependent_requests_begin(s, self);
+
         /* Restart all dependent requests */
         qemu_co_mutex_unlock(&s->lock);
         while(qemu_co_queue_next(&m->dependent_requests));
         qemu_co_mutex_lock(&s->lock);
+
+        trace_run_dependent_requests_end(s, self);
     }
 }
 
