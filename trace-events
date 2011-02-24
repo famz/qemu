@@ -368,3 +368,11 @@ qcow2_co_write_pre_unlock(void *bs, void *s, void *acb) "bs %p s %p acb %p"
 qcow2_co_write_post_unlock(void *bs, void *s, void *acb) "bs %p s %p acb %p"
 qcow2_aio_setup(void *bs, int64_t sector_num, int nb_sectors, void *opaque, int is_write) "bs %p sector_num %"PRIx64" nb_sectors %d opaque %p is_write %d"
 qcow2_aio_bh(void *acb, void *opaque, int ret) "acb %p opaque %p ret %d"
+
+# qemu-coroutine.c
+qemu_coroutine_enter(void *from, void *to, void *opaque) "from %p to %p opaque %p"
+qemu_coroutine_yield(void *from, void *to, void *opaque) "from %p to %p opaque %p"
+qemu_co_mutex_lock_entry(void *mutex, void *self) "mutex %p self %p"
+qemu_co_mutex_lock_return(void *mutex, void *self) "mutex %p self %p"
+qemu_co_mutex_unlock_entry(void *mutex, void *self) "mutex %p self %p"
+qemu_co_mutex_unlock_return(void *mutex, void *self) "mutex %p self %p"

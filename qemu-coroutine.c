@@ -13,6 +13,7 @@
 
 #include "coroutine.h"
 
+#include "trace.h"
 #include "qemu-common.h"
 #include "qemu-coroutine.h"
 
@@ -71,11 +72,14 @@ Coroutine *qemu_coroutine_create(CoroutineEntry *entry)
 
 void *qemu_coroutine_enter(Coroutine *coroutine, void *opaque)
 {
+    trace_qemu_coroutine_enter(qemu_coroutine_self(), coroutine, opaque);
     return coroutine_yieldto(&coroutine->co, opaque);
 }
 
 void * coroutine_fn qemu_coroutine_yield(void *opaque)
 {
+    Coroutine *self = qemu_coroutine_self();
+    trace_qemu_coroutine_yield(self, self->co.caller, opaque);
     return coroutine_yield(opaque);
 }
 
@@ -129,19 +133,31 @@ void qemu_co_mutex_init(CoMutex *mutex)
 
 void qemu_co_mutex_lock(CoMutex *mutex)
 {
+    Coroutine *self = qemu_coroutine_self();
+
+    trace_qemu_co_mutex_lock_entry(mutex, self);
+
     if (mutex->locked) {
         qemu_co_queue_wait(&mutex->queue);
         assert(mutex->locked == false);
     }
 
     mutex->locked = true;
+
+    trace_qemu_co_mutex_lock_return(mutex, self);
 }
 
 void qemu_co_mutex_unlock(CoMutex *mutex)
 {
+    Coroutine* self = qemu_coroutine_self();
+
+    trace_qemu_co_mutex_unlock_entry(mutex, self);
+
     assert(mutex->locked == true);
     assert(qemu_in_coroutine());
 
     mutex->locked = false;
     qemu_co_queue_next(&mutex->queue);
+
+    trace_qemu_co_mutex_unlock_return(mutex, self);
 }
