@@ -24,7 +24,8 @@ struct Coroutine {
 };
 
 static QLIST_HEAD(, Coroutine) pool;
-static QTAILQ_HEAD(, Coroutine) unlock_bh_queue;
+static QTAILQ_HEAD(, Coroutine) unlock_bh_queue =
+    QTAILQ_HEAD_INITIALIZER(unlock_bh_queue);
 static QEMUBH* unlock_bh;
 
 static void qemu_co_queue_next_bh(void *opaque)
@@ -34,7 +35,6 @@ static void qemu_co_queue_next_bh(void *opaque)
     while ((next = QTAILQ_FIRST(&unlock_bh_queue))) {
         QTAILQ_REMOVE(&unlock_bh_queue, next, co_queue_next);
         qemu_coroutine_enter(next, NULL);
-        assert(qemu_in_coroutine());
     }
 }
 
@@ -137,9 +137,8 @@ void qemu_co_mutex_lock(CoMutex *mutex)
 
     trace_qemu_co_mutex_lock_entry(mutex, self);
 
-    if (mutex->locked) {
+    while (mutex->locked) {
         qemu_co_queue_wait(&mutex->queue);
-        assert(mutex->locked == false);
     }
 
     mutex->locked = true;
