@@ -64,12 +64,15 @@ static struct AsyncContext *async_context = &(struct AsyncContext) { 0 };
  */
 void async_context_push(void)
 {
+#if 0
     struct AsyncContext *new = qemu_mallocz(sizeof(*new));
     new->parent = async_context;
     new->id = async_context->id + 1;
     async_context = new;
+#endif
 }
 
+#if 0
 /* Run queued AIO completions and destroy Bottom Half */
 static void bh_run_aio_completions(void *opaque)
 {
@@ -78,12 +81,15 @@ static void bh_run_aio_completions(void *opaque)
     qemu_free(bh);
     qemu_aio_process_queue();
 }
+#endif
+
 /*
  * Leave the currently active AsyncContext. All Bottom Halves belonging to the
  * old context are executed before changing the context.
  */
 void async_context_pop(void)
 {
+#if 0
     struct AsyncContext *old = async_context;
     QEMUBH **bh;
 
@@ -102,6 +108,7 @@ void async_context_pop(void)
     bh = qemu_malloc(sizeof(*bh));
     *bh = qemu_bh_new(bh_run_aio_completions, bh);
     qemu_bh_schedule(*bh);
+#endif
 }
 
 /*
