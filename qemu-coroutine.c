@@ -32,6 +32,7 @@ static void qemu_co_queue_next_bh(void *opaque)
 {
     Coroutine* next;
 
+    trace_qemu_co_queue_next_bh();
     while ((next = QTAILQ_FIRST(&unlock_bh_queue))) {
         QTAILQ_REMOVE(&unlock_bh_queue, next, co_queue_next);
         qemu_coroutine_enter(next, NULL);
@@ -42,6 +43,7 @@ static int qemu_coroutine_done(struct coroutine *co)
 {
 	Coroutine *coroutine = container_of(co, Coroutine, co);
 
+    trace_qemu_coroutine_done(co);
     QLIST_INSERT_HEAD(&pool, coroutine, pool_next);
     return 1;
 }
@@ -114,6 +116,7 @@ bool qemu_co_queue_next(CoQueue *queue)
     if (next) {
         QTAILQ_REMOVE(&queue->entries, next, co_queue_next);
         QTAILQ_INSERT_TAIL(&unlock_bh_queue, next, co_queue_next);
+        trace_qemu_co_queue_next(next);
         qemu_bh_schedule(unlock_bh);
     }
 

@@ -393,6 +393,7 @@ typedef struct QCowAIOCB {
 static void qcow2_aio_cancel(BlockDriverAIOCB *blockacb)
 {
     QCowAIOCB *acb = container_of(blockacb, QCowAIOCB, common);
+    trace_qcow2_cancel(acb);
     qemu_aio_release(acb);
     /* XXX This function looks broken, we could be in the middle of a request
      * and releasing the acb is not a good idea */

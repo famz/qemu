@@ -442,10 +442,12 @@ static int posix_aio_process_queue(void *opaque)
             if (ret == ECANCELED) {
                 /* remove the request */
                 *pacb = acb->next;
+                trace_paio_request_cancelled(acb);
                 qemu_aio_release(acb);
                 result = 1;
             } else if (ret != EINPROGRESS) {
                 /* end of aio */
+                trace_paio_request_done(acb, ret);
                 if (ret == 0) {
                     ret = qemu_paio_return(acb);
                     if (ret == acb->aio_nbytes)

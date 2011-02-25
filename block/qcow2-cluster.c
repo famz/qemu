@@ -27,6 +27,7 @@
 #include "qemu-common.h"
 #include "block_int.h"
 #include "block/qcow2.h"
+#include "trace.h"
 
 int qcow2_grow_l1_table(BlockDriverState *bs, int min_size, bool exact_size)
 {
@@ -796,6 +797,7 @@ again:
             if (nb_clusters == 0) {
                 /* Wait for the dependency to complete. We need to recheck
                  * the free/allocated clusters when we continue. */
+                trace_qcow2_wait_for_dependency(m, old_alloc);
                 qemu_co_mutex_unlock(&s->lock);
                 qemu_co_queue_wait(&old_alloc->dependent_requests);
                 qemu_co_mutex_lock(&s->lock);

@@ -62,9 +62,9 @@ virtio_blk_rw_complete(void *req, int ret) "req %p ret %d"
 virtio_blk_handle_write(void *req, uint64_t sector, size_t nsectors) "req %p sector %"PRIu64" nsectors %zu"
 
 # posix-aio-compat.c
-disable paio_submit(void *acb, void *opaque, int64_t sector_num, int nb_sectors, int type) "acb %p opaque %p sector_num %"PRId64" nb_sectors %d type %d"
-disable paio_complete(void *acb, void *opaque, int ret) "acb %p opaque %p ret %d"
-disable paio_cancel(void *acb, void *opaque) "acb %p opaque %p"
+paio_submit(void *acb, void *opaque, int64_t sector_num, int nb_sectors, int type) "acb %p opaque %p sector_num %"PRId64" nb_sectors %d type %d"
+paio_complete(void *acb, void *opaque, int ret) "acb %p opaque %p ret %d"
+paio_cancel(void *acb, void *opaque) "acb %p opaque %p"
 
 # ioport.c
 disable cpu_in(unsigned int addr, unsigned int val) "addr %#x value %u"
@@ -370,11 +370,16 @@ qcow2_aio_setup(void *bs, int64_t sector_num, int nb_sectors, void *opaque, int 
 qcow2_aio_bh(void *acb, void *opaque, int ret) "acb %p opaque %p ret %d"
 run_dependent_requests_begin(void *s, void *acb) "s %p acb %p"
 run_dependent_requests_end(void *s, void *acb) "s %p acb %p"
+qcow2_cancel(void *acb) "acb %p"
+qcow2_wait_for_dependency(void *acb, void *dependency) "acb %p dependency %p"
 
 # qemu-coroutine.c
 qemu_coroutine_enter(void *from, void *to, void *opaque) "from %p to %p opaque %p"
 qemu_coroutine_yield(void *from, void *to, void *opaque) "from %p to %p opaque %p"
+qemu_coroutine_done(void *co) "self %p"
 qemu_co_mutex_lock_entry(void *mutex, void *self) "mutex %p self %p"
 qemu_co_mutex_lock_return(void *mutex, void *self) "mutex %p self %p"
 qemu_co_mutex_unlock_entry(void *mutex, void *self) "mutex %p self %p"
 qemu_co_mutex_unlock_return(void *mutex, void *self) "mutex %p self %p"
+qemu_co_queue_next_bh(void) ""
+qemu_co_queue_next(void *next) "next %p"
