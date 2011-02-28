@@ -24,11 +24,10 @@
 #endif
 #include <setjmp.h>
 
-#include <sys/types.h>
-#include <sys/mman.h>
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "qemu-common.h"
 #include "coroutine.h"
 #include "osdep.h"
 
@@ -50,7 +49,7 @@ static int _coroutine_release(struct continuation *cc)
         }
 	}
 
-    munmap(co->cc.stack, co->cc.stack_size);
+    qemu_free(co->cc.stack);
 
 out:
 	co->caller = NULL;
@@ -78,12 +77,7 @@ int coroutine_init(struct coroutine *co)
 		co->stack_size = 16 << 20;
 
 	co->cc.stack_size = co->stack_size;
-	co->cc.stack = mmap(0, co->stack_size,
-			    PROT_READ | PROT_WRITE,
-			    MAP_PRIVATE | MAP_ANONYMOUS,
-			    -1, 0);
-	if (co->cc.stack == MAP_FAILED)
-		return -1;
+	co->cc.stack = qemu_malloc(co->stack_size);
 
     return coroutine_reinit(co);
 }
