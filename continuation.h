@@ -21,7 +21,10 @@
 #ifndef _CONTINUATION_H_
 #define _CONTINUATION_H_
 
+#ifndef _WIN32
 #include <ucontext.h>
+#endif
+#include <stddef.h>
 #include <setjmp.h>
 #include <stdbool.h>
 
@@ -32,7 +35,9 @@ struct continuation
 	void (*entry)(struct continuation *cc);
 
 	/* private */
+#ifndef _WIN32
 	ucontext_t uc;
+#endif
     jmp_buf env;
     jmp_buf *last_env;
     bool initialized;
