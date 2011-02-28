@@ -30,7 +30,6 @@ struct continuation
 	char *stack;
 	size_t stack_size;
 	void (*entry)(struct continuation *cc);
-	int (*release)(struct continuation *cc);
 
 	/* private */
 	ucontext_t uc;
@@ -40,12 +39,6 @@ struct continuation
 };
 
 int cc_init(struct continuation *cc);
-
-int cc_release(struct continuation *cc);
-
-/* you can use an uninitialized struct continuation for from if you do not have
-   the current continuation handy. */
-int cc_swap(struct continuation *from, struct continuation *to, int savectx);
 
 #define offset_of(type, member) ((unsigned long)(&((type *)0)->member))
 #ifndef container_of

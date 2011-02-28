@@ -31,15 +31,8 @@
 #include "coroutine.h"
 #include "osdep.h"
 
-int coroutine_release(struct coroutine *co)
+static int coroutine_release(struct coroutine *co)
 {
-	return cc_release(&co->cc);
-}
-
-static int _coroutine_release(struct continuation *cc)
-{
-	struct coroutine *co = container_of(cc, struct coroutine, cc);
-
 	if (co->release) {
 		int ret = co->release(co);
 		if (ret < 0) {
@@ -65,7 +58,6 @@ static void coroutine_trampoline(struct continuation *cc)
 int coroutine_reinit(struct coroutine *co)
 {
 	co->cc.entry = coroutine_trampoline;
-	co->cc.release = _coroutine_release;
 	co->exited = 0;
 
 	return cc_init(&co->cc);

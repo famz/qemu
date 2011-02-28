@@ -86,35 +86,6 @@ int cc_init(struct continuation *cc)
 	return 0;
 }
 
-int cc_release(struct continuation *cc)
-{
-	if (cc->release)
-		return cc->release(cc);
-
-	return 0;
-}
-
-int cc_swap(struct continuation *from, struct continuation *to, int savectx)
-{
-    int ret;
-
-    /* Handle termination of called coroutine */
-    if (savectx) {
-        ret = setjmp(*to->last_env);
-        if (ret) {
-            return 1;
-        }
-    }
-
-    /* Handle yield of called coroutine */
-    ret = setjmp(from->env);
-    if (ret) {
-        return 0;
-    }
-
-    /* Switch to called coroutine */
-    longjmp(to->env, 1);
-}
 /*
  * Local variables:
  *  c-indent-level: 8
