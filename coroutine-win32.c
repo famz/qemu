@@ -38,14 +38,9 @@ static void __attribute__((used)) trampoline(struct continuation *cc)
     }
 }
 
-int cc_init(struct continuation *cc)
+int cc_init(Coroutine *co)
 {
-    /* FIXME This belongs in common code */
-    if (cc->initialized) {
-        return 0;
-    } else {
-        cc->initialized = true;
-    }
+    struct continuation *cc = &co->cc;
 
 #ifdef __i386__
     asm volatile(

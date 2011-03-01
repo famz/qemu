@@ -26,7 +26,7 @@
 #include <setjmp.h>
 
 #include <stdint.h>
-#include "continuation.h"
+#include "qemu-coroutine-int.h"
 
 /*
  * va_args to makecontext() must be type 'int', so passing
@@ -61,17 +61,11 @@ static void continuation_trampoline(int i0, int i1)
     }
 }
 
-int cc_init(struct continuation *cc)
+int cc_init(Coroutine *co)
 {
+    struct continuation *cc = &co->cc;
     volatile union cc_arg arg;
     arg.p = cc;
-
-    if (cc->initialized) {
-        return 0;
-    } else {
-        cc->initialized = true;
-    }
-
 
     /* Create a new ucontext for switching to the coroutine stack and setting
      * up a longjmp environment. */

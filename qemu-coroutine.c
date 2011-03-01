@@ -12,50 +12,45 @@
  *
  */
 
-#include "coroutine.h"
-
 #include "trace.h"
 #include "qemu-common.h"
 #include "qemu-coroutine.h"
-
-/* FIXME This is duplicated in qemu-coroutine-lock.c */
-struct Coroutine {
-    struct coroutine co;
-    QTAILQ_ENTRY(Coroutine) co_queue_next;
-    QLIST_ENTRY(Coroutine) pool_next;
-};
+#include "qemu-coroutine-int.h"
 
 static QLIST_HEAD(, Coroutine) pool;
 
-static __thread struct coroutine leader;
-static __thread struct coroutine *current;
+static __thread Coroutine leader;
+static __thread Coroutine *current;
 
-static int qemu_coroutine_done(struct coroutine *co)
+static int qemu_coroutine_done(Coroutine *coroutine)
 {
-    Coroutine *coroutine = container_of(co, Coroutine, co);
-
-    trace_qemu_coroutine_done(co);
+    trace_qemu_coroutine_done(coroutine);
     QLIST_INSERT_HEAD(&pool, coroutine, pool_next);
-
-    co->caller = NULL;
+    coroutine->caller = NULL;
     return 0;
 }
 
 static void coroutine_trampoline(struct continuation *cc)
 {
-    struct coroutine *co = container_of(cc, struct coroutine, cc);
+    Coroutine *co = container_of(cc, Coroutine, cc);
     co->data = co->entry(co->data);
 }
 
-int coroutine_reinit(struct coroutine *co)
+static int coroutine_reinit(Coroutine *co)
 {
     co->cc.entry = coroutine_trampoline;
-    co->exited = 0;
 
-    return cc_init(&co->cc);
+    /* FIXME This belongs in common code */
+    if (co->initialized) {
+        return 0;
+    } else {
+        co->initialized = true;
+    }
+
+    return cc_init(co);
 }
 
-int coroutine_init(struct coroutine *co)
+static int coroutine_init(Coroutine *co)
 {
     co->stack_size = 16 << 20;
     co->cc.stack_size = co->stack_size;
@@ -64,7 +59,26 @@ int coroutine_init(struct coroutine *co)
     return coroutine_reinit(co);
 }
 
-struct coroutine *coroutine_self(void)
+Coroutine *qemu_coroutine_create(CoroutineEntry *entry)
+{
+    Coroutine *coroutine;
+
+    coroutine = QLIST_FIRST(&pool);
+
+    if (coroutine) {
+        QLIST_REMOVE(coroutine, pool_next);
+        coroutine_reinit(coroutine);
+    } else {
+        coroutine = qemu_mallocz(sizeof(*coroutine));
+        coroutine_init(coroutine);
+    }
+
+    coroutine->entry = entry;
+
+    return coroutine;
+}
+
+Coroutine * coroutine_fn qemu_coroutine_self(void)
 {
     if (current == NULL) {
         current = &leader;
@@ -73,7 +87,13 @@ struct coroutine *coroutine_self(void)
     return current;
 }
 
-void *coroutine_swap(struct coroutine *from, struct coroutine *to, void *arg, int savectx)
+bool qemu_in_coroutine(void)
+{
+    return (qemu_coroutine_self() != &leader);
+}
+
+static void *coroutine_swap(Coroutine *from, Coroutine *to, void *arg,
+    bool savectx)
 {
 	int ret;
 	to->data = arg;
@@ -91,7 +111,6 @@ void *coroutine_swap(struct coroutine *from, struct coroutine *to, void *arg, in
     } else if (ret == 2) {
         current = current->caller;
         qemu_coroutine_done(to);
-        to->exited = 1;
         return to->data;
     }
 
@@ -104,60 +123,33 @@ void *coroutine_swap(struct coroutine *from, struct coroutine *to, void *arg, in
 
 void *qemu_coroutine_enter(Coroutine *coroutine, void *opaque)
 {
+    Coroutine *self = qemu_coroutine_self();
+
     trace_qemu_coroutine_enter(qemu_coroutine_self(), coroutine, opaque);
 
-	if (coroutine->co.caller) {
+	if (coroutine->caller) {
 		fprintf(stderr, "Co-routine re-entered recursively\n");
 		abort();
 	}
 
-	coroutine->co.caller = coroutine_self();
-	return coroutine_swap(coroutine_self(), &coroutine->co, opaque, 1);
+	coroutine->caller = self;
+	return coroutine_swap(self, coroutine, opaque, true);
 }
 
 
 void * coroutine_fn qemu_coroutine_yield(void *opaque)
 {
     Coroutine *self = qemu_coroutine_self();
-	struct coroutine *to = self->co.caller;
+	Coroutine *to = self->caller;
 
-    trace_qemu_coroutine_yield(self, self->co.caller, opaque);
+    trace_qemu_coroutine_yield(self, self->caller, opaque);
 
 	if (!to) {
 		fprintf(stderr, "Co-routine is yielding to no one\n");
 		abort();
 	}
 
-	coroutine_self()->caller = NULL;
-	return coroutine_swap(coroutine_self(), to, opaque, 0);
+	self->caller = NULL;
+	return coroutine_swap(self, to, opaque, false);
 }
 
-Coroutine *qemu_coroutine_create(CoroutineEntry *entry)
-{
-    Coroutine *coroutine;
-
-    coroutine = QLIST_FIRST(&pool);
-
-    if (coroutine) {
-        QLIST_REMOVE(coroutine, pool_next);
-        coroutine_reinit(&coroutine->co);
-    } else {
-        coroutine = qemu_mallocz(sizeof(*coroutine));
-        coroutine_init(&coroutine->co);
-    }
-
-    coroutine->co.entry = entry;
-    coroutine->co.release = qemu_coroutine_done;
-
-    return coroutine;
-}
-
-Coroutine * coroutine_fn qemu_coroutine_self(void)
-{
-    return (Coroutine*)coroutine_self();
-}
-
-bool qemu_in_coroutine(void)
-{
-    return (coroutine_self() != &leader);
-}

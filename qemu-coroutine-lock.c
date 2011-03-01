@@ -24,17 +24,9 @@
 
 #include "qemu-common.h"
 #include "qemu-coroutine.h"
+#include "qemu-coroutine-int.h"
 #include "qemu-queue.h"
 #include "trace.h"
-
-#include "coroutine.h"
-
-/* FIXME This is duplicated in qemu-coroutine.c */
-struct Coroutine {
-    struct coroutine co;
-    QTAILQ_ENTRY(Coroutine) co_queue_next;
-    QLIST_ENTRY(Coroutine) pool_next;
-};
 
 static QTAILQ_HEAD(, Coroutine) unlock_bh_queue =
     QTAILQ_HEAD_INITIALIZER(unlock_bh_queue);
