@@ -54,7 +54,7 @@ static void continuation_trampoline(void)
 
 int qemu_coroutine_init_env(Coroutine *co)
 {
-	ucontext_t uc;
+    ucontext_t uc;
 
     /* Create a new ucontext for switching to the coroutine stack and setting
      * up a longjmp environment. */

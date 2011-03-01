@@ -82,9 +82,9 @@ bool qemu_in_coroutine(void)
 static void *coroutine_swap(Coroutine *from, Coroutine *to, void *arg,
     bool savectx)
 {
-	int ret;
-	to->data = arg;
-	current = to;
+    int ret;
+    to->data = arg;
+    current = to;
 
     /* Handle termination of called coroutine */
     if (savectx) {
@@ -94,7 +94,7 @@ static void *coroutine_swap(Coroutine *from, Coroutine *to, void *arg,
     /* Handle yield of called coroutine */
     ret = setjmp(from->env);
     if (ret == 1) {
-		return from->data;
+        return from->data;
     } else if (ret == 2) {
         current = current->caller;
         qemu_coroutine_done(to);
@@ -104,7 +104,7 @@ static void *coroutine_swap(Coroutine *from, Coroutine *to, void *arg,
     /* Switch to called coroutine */
     longjmp(to->env, 1);
 
-	return NULL;
+    return NULL;
 }
 
 
@@ -114,29 +114,29 @@ void *qemu_coroutine_enter(Coroutine *coroutine, void *opaque)
 
     trace_qemu_coroutine_enter(qemu_coroutine_self(), coroutine, opaque);
 
-	if (coroutine->caller) {
-		fprintf(stderr, "Co-routine re-entered recursively\n");
-		abort();
-	}
+    if (coroutine->caller) {
+        fprintf(stderr, "Co-routine re-entered recursively\n");
+        abort();
+    }
 
-	coroutine->caller = self;
-	return coroutine_swap(self, coroutine, opaque, true);
+    coroutine->caller = self;
+    return coroutine_swap(self, coroutine, opaque, true);
 }
 
 
 void * coroutine_fn qemu_coroutine_yield(void *opaque)
 {
     Coroutine *self = qemu_coroutine_self();
-	Coroutine *to = self->caller;
+    Coroutine *to = self->caller;
 
     trace_qemu_coroutine_yield(self, self->caller, opaque);
 
-	if (!to) {
-		fprintf(stderr, "Co-routine is yielding to no one\n");
-		abort();
-	}
+    if (!to) {
+        fprintf(stderr, "Co-routine is yielding to no one\n");
+        abort();
+    }
 
-	self->caller = NULL;
-	return coroutine_swap(self, to, opaque, false);
+    self->caller = NULL;
+    return coroutine_swap(self, to, opaque, false);
 }
 

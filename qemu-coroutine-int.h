@@ -31,14 +31,14 @@
 
 struct Coroutine {
     bool initialized;
-	struct Coroutine *caller;
+    struct Coroutine *caller;
 
-	size_t stack_size;
-	char *stack;
+    size_t stack_size;
+    char *stack;
 
     /* Used to pass arguments/return values for coroutines */
-	void *data;
-	void *(*entry)(void *);
+    void *data;
+    void *(*entry)(void *);
 
     QTAILQ_ENTRY(Coroutine) co_queue_next;
     QLIST_ENTRY(Coroutine) pool_next;
