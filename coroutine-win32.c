@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  */
 
-#include "continuation.h"
+#include "qemu-coroutine-int.h"
 
 static void __attribute__((used)) trampoline(Coroutine *co)
 {
