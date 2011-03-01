@@ -24,24 +24,22 @@
 
 #include "continuation.h"
 
-static void __attribute__((used)) trampoline(struct continuation *cc)
+static void __attribute__((used)) trampoline(Coroutine *co)
 {
-    if (!setjmp(cc->env)) {
+    if (!setjmp(co->env)) {
         return;
     }
 
     while (true) {
-        cc->entry(cc);
-        if (!setjmp(cc->env)) {
-            longjmp(*cc->last_env, 2);
+        co->data = co->entry(co->data);
+        if (!setjmp(co->env)) {
+            longjmp(*co->last_env, 2);
         }
     }
 }
 
-int cc_init(Coroutine *co)
+int qemu_coroutine_init_env(Coroutine *co)
 {
-    struct continuation *cc = &co->cc;
-
 #ifdef __i386__
     asm volatile(
         "mov %%esp, %%ebx;"
@@ -49,7 +47,7 @@ int cc_init(Coroutine *co)
         "pushl %1;"
         "call _trampoline;"
         "mov %%ebx, %%esp;"
-        : : "r" (cc->stack + cc->stack_size), "r" (cc) : "ebx"
+        : : "r" (co->stack + co->stack_size), "r" (co) : "ebx"
     );
 #else
     #error This host architecture is not supported for win32

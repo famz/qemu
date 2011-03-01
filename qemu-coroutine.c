@@ -12,6 +12,12 @@
  *
  */
 
+/* XXX Is there a nicer way to disable glibc's stack check for longjmp? */
+#ifdef _FORTIFY_SOURCE
+#undef _FORTIFY_SOURCE
+#endif
+#include <setjmp.h>
+
 #include "trace.h"
 #include "qemu-common.h"
 #include "qemu-coroutine.h"
@@ -30,33 +36,15 @@ static int qemu_coroutine_done(Coroutine *coroutine)
     return 0;
 }
 
-static void coroutine_trampoline(struct continuation *cc)
-{
-    Coroutine *co = container_of(cc, Coroutine, cc);
-    co->data = co->entry(co->data);
-}
-
-static int coroutine_reinit(Coroutine *co)
-{
-    co->cc.entry = coroutine_trampoline;
-
-    /* FIXME This belongs in common code */
-    if (co->initialized) {
-        return 0;
-    } else {
-        co->initialized = true;
-    }
-
-    return cc_init(co);
-}
-
 static int coroutine_init(Coroutine *co)
 {
-    co->stack_size = 16 << 20;
-    co->cc.stack_size = co->stack_size;
-    co->cc.stack = qemu_malloc(co->stack_size);
+    if (!co->initialized) {
+        co->initialized = true;
+        co->stack_size = 16 << 20;
+        co->stack = qemu_malloc(co->stack_size);
+    }
 
-    return coroutine_reinit(co);
+    return qemu_coroutine_init_env(co);
 }
 
 Coroutine *qemu_coroutine_create(CoroutineEntry *entry)
@@ -67,12 +55,11 @@ Coroutine *qemu_coroutine_create(CoroutineEntry *entry)
 
     if (coroutine) {
         QLIST_REMOVE(coroutine, pool_next);
-        coroutine_reinit(coroutine);
     } else {
         coroutine = qemu_mallocz(sizeof(*coroutine));
-        coroutine_init(coroutine);
     }
 
+    coroutine_init(coroutine);
     coroutine->entry = entry;
 
     return coroutine;
@@ -101,11 +88,11 @@ static void *coroutine_swap(Coroutine *from, Coroutine *to, void *arg,
 
     /* Handle termination of called coroutine */
     if (savectx) {
-        to->cc.last_env = &from->cc.env;
+        to->last_env = &from->env;
     }
 
     /* Handle yield of called coroutine */
-    ret = setjmp(from->cc.env);
+    ret = setjmp(from->env);
     if (ret == 1) {
 		return from->data;
     } else if (ret == 2) {
@@ -115,7 +102,7 @@ static void *coroutine_swap(Coroutine *from, Coroutine *to, void *arg,
     }
 
     /* Switch to called coroutine */
-    longjmp(to->cc.env, 1);
+    longjmp(to->env, 1);
 
 	return NULL;
 }

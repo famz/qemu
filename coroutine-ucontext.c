@@ -28,60 +28,50 @@
 #include <stdint.h>
 #include "qemu-coroutine-int.h"
 
-/*
- * va_args to makecontext() must be type 'int', so passing
- * the pointer we need may require several int args. This
- * union is a quick hack to let us do that
- */
-union cc_arg {
-    void *p;
-    int i[2];
-};
+#ifndef _WIN32
+#include <ucontext.h>
+#endif
 
+static Coroutine* current;
 static ucontext_t caller;
 
-static void continuation_trampoline(int i0, int i1)
+static void continuation_trampoline(void)
 {
-    union cc_arg arg;
-    struct continuation *cc;
-    arg.i[0] = i0;
-    arg.i[1] = i1;
-    cc = arg.p;
+    Coroutine *co = current;
 
     /* Initialize longjmp environment and switch back to cc_init */
-    if (!setjmp(cc->env)) {
-        swapcontext(&cc->uc, &caller);
+    if (!setjmp(co->env)) {
+        return;
     }
 
     while (true) {
-        cc->entry(cc);
-        if (!setjmp(cc->env)) {
-            longjmp(*cc->last_env, 2);
+        co->data = co->entry(co->data);
+        if (!setjmp(co->env)) {
+            longjmp(*co->last_env, 2);
         }
     }
 }
 
-int cc_init(Coroutine *co)
+int qemu_coroutine_init_env(Coroutine *co)
 {
-    struct continuation *cc = &co->cc;
-    volatile union cc_arg arg;
-    arg.p = cc;
+	ucontext_t uc;
 
     /* Create a new ucontext for switching to the coroutine stack and setting
      * up a longjmp environment. */
-    if (getcontext(&cc->uc) == -1) {
+    if (getcontext(&uc) == -1) {
         return -1;
     }
 
-    cc->uc.uc_stack.ss_sp = cc->stack;
-    cc->uc.uc_stack.ss_size = cc->stack_size;
-    cc->uc.uc_stack.ss_flags = 0;
+    uc.uc_link = &caller;
+    uc.uc_stack.ss_sp = co->stack;
+    uc.uc_stack.ss_size = co->stack_size;
+    uc.uc_stack.ss_flags = 0;
 
-    makecontext(&cc->uc, (void *)continuation_trampoline, 2,
-        arg.i[0], arg.i[1]);
+    current = co;
+    makecontext(&uc, (void *)continuation_trampoline, 0);
 
     /* Initialize the longjmp environment */
-    swapcontext(&caller, &cc->uc);
+    swapcontext(&caller, &uc);
 
     return 0;
 }
