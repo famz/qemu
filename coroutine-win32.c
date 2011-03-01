@@ -54,7 +54,7 @@ int cc_init(struct continuation *cc)
         "pushl %1;"
         "call _trampoline;"
         "mov %%ebx, %%esp;"
-        : : "r" (cc->stack), "r" (cc) : "ebx"
+        : : "r" (cc->stack + cc->stack_size), "r" (cc) : "ebx"
     );
 #else
     #error This host architecture is not supported for win32
