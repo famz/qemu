@@ -2800,7 +2800,7 @@ static int coroutine_fn bdrv_co_io(BlockDriverState *bs, int64_t sector_num,
     if (!acb) {
         return -EIO;
     }
-    qemu_coroutine_yield(NULL);
+    qemu_coroutine_yield();
     return co.ret;
 }
 
@@ -2827,7 +2827,7 @@ int coroutine_fn bdrv_co_flush(BlockDriverState *bs)
     if (!acb) {
         return -EIO;
     }
-    qemu_coroutine_yield(NULL);
+    qemu_coroutine_yield();
     return co.ret;
 }
 

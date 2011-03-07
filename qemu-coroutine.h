@@ -42,10 +42,10 @@ typedef struct Coroutine Coroutine;
  * When the coroutine is entered for the first time, opaque is passed in as an
  * argument.
  *
- * When this function returns, the coroutine is destroyed automatically and the
- * return value is passed back to the caller who last entered the coroutine.
+ * When this function returns, the coroutine is destroyed automatically and
+ * execution continues in the caller who last entered the coroutine.
  */
-typedef void * coroutine_fn CoroutineEntry(void *opaque);
+typedef void coroutine_fn CoroutineEntry(void *opaque);
 
 /**
  * Create a new coroutine
@@ -60,22 +60,16 @@ Coroutine *qemu_coroutine_create(CoroutineEntry *entry);
  * The opaque argument is made available to the coroutine either as the entry
  * function argument if this is the first time a new coroutine is entered, or
  * as the return value from qemu_coroutine_yield().
- *
- * The return value from this function is either an opaque value yielded by the
- * coroutine or the coroutine entry function return value when the coroutine
- * terminates.
  */
-void *qemu_coroutine_enter(Coroutine *coroutine, void *opaque);
+void qemu_coroutine_enter(Coroutine *coroutine, void *opaque);
 
 /**
  * Transfer control back to a coroutine's caller
  *
- * The opaque argument is returned from the calling qemu_coroutine_enter().
- *
  * The return value is the argument passed back in from the next
  * qemu_coroutine_enter().
  */
-void * coroutine_fn qemu_coroutine_yield(void *opaque);
+void * coroutine_fn qemu_coroutine_yield(void);
 
 /**
  * Get the currently executing coroutine

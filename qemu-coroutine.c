@@ -108,7 +108,7 @@ static void *coroutine_swap(Coroutine *from, Coroutine *to, void *arg,
 }
 
 
-void *qemu_coroutine_enter(Coroutine *coroutine, void *opaque)
+void qemu_coroutine_enter(Coroutine *coroutine, void *opaque)
 {
     Coroutine *self = qemu_coroutine_self();
 
@@ -120,16 +120,16 @@ void *qemu_coroutine_enter(Coroutine *coroutine, void *opaque)
     }
 
     coroutine->caller = self;
-    return coroutine_swap(self, coroutine, opaque, true);
+    coroutine_swap(self, coroutine, opaque, true);
 }
 
 
-void * coroutine_fn qemu_coroutine_yield(void *opaque)
+void * coroutine_fn qemu_coroutine_yield(void)
 {
     Coroutine *self = qemu_coroutine_self();
     Coroutine *to = self->caller;
 
-    trace_qemu_coroutine_yield(self, self->caller, opaque);
+    trace_qemu_coroutine_yield(self, self->caller);
 
     if (!to) {
         fprintf(stderr, "Co-routine is yielding to no one\n");
@@ -137,6 +137,6 @@ void * coroutine_fn qemu_coroutine_yield(void *opaque)
     }
 
     self->caller = NULL;
-    return coroutine_swap(self, to, opaque, false);
+    return coroutine_swap(self, to, NULL, false);
 }
 

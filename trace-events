@@ -375,7 +375,7 @@ qcow2_wait_for_dependency(void *acb, void *dependency) "acb %p dependency %p"
 
 # qemu-coroutine.c
 qemu_coroutine_enter(void *from, void *to, void *opaque) "from %p to %p opaque %p"
-qemu_coroutine_yield(void *from, void *to, void *opaque) "from %p to %p opaque %p"
+qemu_coroutine_yield(void *from, void *to) "from %p to %p"
 qemu_coroutine_done(void *co) "self %p"
 qemu_co_mutex_lock_entry(void *mutex, void *self) "mutex %p self %p"
 qemu_co_mutex_lock_return(void *mutex, void *self) "mutex %p self %p"

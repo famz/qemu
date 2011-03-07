@@ -56,7 +56,7 @@ void qemu_co_queue_wait(CoQueue *queue)
 {
     Coroutine *self = qemu_coroutine_self();
     QTAILQ_INSERT_TAIL(&queue->entries, self, co_queue_next);
-    qemu_coroutine_yield(NULL);
+    qemu_coroutine_yield();
     assert(qemu_in_coroutine());
 }
 

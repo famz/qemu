@@ -38,7 +38,7 @@ struct Coroutine {
 
     /* Used to pass arguments/return values for coroutines */
     void *data;
-    void *(*entry)(void *);
+    CoroutineEntry *entry;
 
     QTAILQ_ENTRY(Coroutine) co_queue_next;
     QLIST_ENTRY(Coroutine) pool_next;

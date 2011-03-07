@@ -45,7 +45,7 @@ static void continuation_trampoline(void)
     }
 
     while (true) {
-        co->data = co->entry(co->data);
+        co->entry(co->data);
         if (!setjmp(co->env)) {
             longjmp(*co->last_env, 2);
         }

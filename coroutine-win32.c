@@ -31,7 +31,7 @@ static void __attribute__((used)) trampoline(Coroutine *co)
     }
 
     while (true) {
-        co->data = co->entry(co->data);
+        co->entry(co->data);
         if (!setjmp(co->env)) {
             longjmp(*co->last_env, 2);
         }

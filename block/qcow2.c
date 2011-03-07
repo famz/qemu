@@ -552,7 +552,7 @@ done:
     return 0;
 }
 
-static void * coroutine_fn qcow2_co_read(void *opaque)
+static void coroutine_fn qcow2_co_read(void *opaque)
 {
     QCowAIOCB *acb = opaque;
     BlockDriverState *bs = acb->common.bs;
@@ -562,12 +562,10 @@ static void * coroutine_fn qcow2_co_read(void *opaque)
     while (qcow2_aio_read_cb(acb, 0)) {
     }
     qemu_co_mutex_unlock(&s->lock);
-
-    return NULL;
 }
 
 static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret);
-static void * coroutine_fn qcow2_co_write(void *opaque)
+static void coroutine_fn qcow2_co_write(void *opaque)
 {
     QCowAIOCB *acb = opaque;
     BlockDriverState *bs = acb->common.bs;
@@ -577,8 +575,6 @@ static void * coroutine_fn qcow2_co_write(void *opaque)
     while (qcow2_aio_write_cb(acb, 0)) {
     }
     qemu_co_mutex_unlock(&s->lock);
-
-    return NULL;
 }
 
 static BlockDriverAIOCB *qcow2_aio_setup(BlockDriverState *bs,
