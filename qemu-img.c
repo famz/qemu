@@ -1531,6 +1531,85 @@ out:
     return 0;
 }
 
+
+#define BENCH_NUM_PARALLEL 16
+#define BENCH_REQ_SIZE 0x10000
+//#define BENCH_NUM_REQUESTS 3000000
+#define BENCH_NUM_REQUESTS 5000
+
+typedef struct BenchAIOCB {
+    uint64_t offset;
+    QEMUIOVector qiov;
+} BenchAIOCB;
+
+static struct {
+    BlockDriverState *bs;
+    int running;
+    int done;
+    BenchAIOCB req[BENCH_NUM_PARALLEL];
+} acb;
+
+static void bench_cb(void *opaque, int ret)
+{
+    BenchAIOCB *req = opaque;
+    BlockDriverAIOCB *bacb;
+
+    acb.running--;
+    acb.done++;
+
+    if (acb.done >= BENCH_NUM_REQUESTS) {
+        return;
+    }
+
+    acb.running++;
+    req->offset += BENCH_REQ_SIZE * BENCH_NUM_PARALLEL;
+
+//    bacb = bdrv_aio_writev(acb.bs, req->offset / BDRV_SECTOR_SIZE, &req->qiov,
+    bacb = bdrv_aio_readv(acb.bs, req->offset / BDRV_SECTOR_SIZE, &req->qiov,
+        BENCH_REQ_SIZE / BDRV_SECTOR_SIZE, bench_cb, req);
+    if (bacb == NULL) {
+        fprintf(stderr, "Fail: %lx\n", req->offset);
+        assert(0);
+    }
+}
+
+static int img_bench(int argc, char **argv)
+{
+    const char *filename;
+    int i;
+
+    if (argc != 2) {
+        help();
+        return 1;
+    }
+
+    filename = argv[1];
+    acb.bs = bdrv_new_open(filename, NULL,
+        BDRV_O_FLAGS | BDRV_O_RDWR | BDRV_O_NOCACHE);
+    if (!acb.bs) {
+        return 1;
+    }
+
+    for (i = 0; i < BENCH_NUM_PARALLEL; i++) {
+        void* buf = qemu_malloc(BENCH_REQ_SIZE);
+
+        qemu_iovec_init(&acb.req[i].qiov, 1);
+        qemu_iovec_add(&acb.req[i].qiov, buf, BENCH_REQ_SIZE);
+
+        // TODO Don't read everything from the same place
+        acb.req[i].offset =  i * BENCH_REQ_SIZE;
+        bench_cb(&acb.req[i], 0);
+    }
+
+    while (acb.done < BENCH_NUM_REQUESTS) {
+        qemu_aio_wait();
+    }
+    qemu_aio_flush();
+
+    bdrv_delete(acb.bs);
+    return 0;
+}
+
 static const img_cmd_t img_cmds[] = {
 #define DEF(option, callback, arg_string)        \
     { option, callback },

@@ -9,6 +9,11 @@ STEXI
 @table @option
 ETEXI
 
+DEF("bench", img_bench, "bench filename")
+STEXI
+@item bench @var{filename}
+ETEXI
+
 DEF("check", img_check,
     "check [-f fmt] filename")
 STEXI
