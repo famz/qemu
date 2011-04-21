@@ -27,6 +27,7 @@
 #include "osdep.h"
 #include "sysemu.h"
 #include "block_int.h"
+#include "simpletrace.h"
 #include <stdio.h>
 
 #ifdef _WIN32
@@ -1625,6 +1626,10 @@ int main(int argc, char **argv)
     const char *cmdname;
 
     error_set_progname(argv[0]);
+
+    if (!st_init("trace-qemu-img")) {
+        fprintf(stderr, "warning: unable to initialize simple trace backend\n");
+    }
 
     bdrv_init();
     if (argc < 2)
