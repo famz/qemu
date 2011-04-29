@@ -55,6 +55,8 @@ bdrv_aio_flush(void *bs, void *opaque) "bs %p opaque %p"
 bdrv_aio_readv(void *bs, int64_t sector_num, int nb_sectors, void *opaque) "bs %p sector_num %"PRId64" nb_sectors %d opaque %p"
 bdrv_aio_writev(void *bs, int64_t sector_num, int nb_sectors, void *opaque) "bs %p sector_num %"PRId64" nb_sectors %d opaque %p"
 bdrv_set_locked(void *bs, int locked) "bs %p locked %d"
+bdrv_read_start(int64_t sector_num, int nb_sectors) "sector %" PRIx64 " nb %d"
+bdrv_read_end(void) ""
 
 # hw/virtio-blk.c
 virtio_blk_req_complete(void *req, int status) "req %p status %d"
@@ -63,8 +65,14 @@ virtio_blk_handle_write(void *req, uint64_t sector, size_t nsectors) "req %p sec
 
 # posix-aio-compat.c
 paio_submit(void *acb, void *opaque, int64_t sector_num, int nb_sectors, int type) "acb %p opaque %p sector_num %"PRId64" nb_sectors %d type %d"
+paio_submit_threads(int cur_thread, int max_threads) "threads: cur %d, max %d"
 paio_complete(void *acb, void *opaque, int ret) "acb %p opaque %p ret %d"
 paio_cancel(void *acb, void *opaque) "acb %p opaque %p"
+paio_thread(void *acb) "acb %p"
+paio_thread_done(void *acb) "acb %p"
+paio_spawn_thread(void) ""
+paio_thread_started(void) ""
+paio_thread_exit(void) ""
 
 # ioport.c
 disable cpu_in(unsigned int addr, unsigned int val) "addr %#x value %u"

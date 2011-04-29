@@ -143,7 +143,8 @@ if __name__ == '__main__':
             delta_ns = timestamp - self.last_timestamp
             self.last_timestamp = timestamp
 
-            fields = [event[0], '%0.3f' % (delta_ns / 1000.0)]
+            fields = ['[%8.3f]' % (delta_ns / 1000.0), event[0]]
+#            fields = [event[0], '%0.3f' % (delta_ns / 1000.0)]
             for i in xrange(1, len(event)):
                 fields.append('%s=0x%x' % (event[i], rec[i + 1]))
             print ' '.join(fields)

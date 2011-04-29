@@ -308,6 +308,7 @@ static void *aio_thread(void *unused)
 
     pid = getpid();
 
+    trace_paio_thread_started();
     while (1) {
         struct qemu_paiocb *aiocb;
         ssize_t ret = 0;
@@ -334,6 +335,7 @@ static void *aio_thread(void *unused)
         idle_threads--;
         mutex_unlock(&lock);
 
+        trace_paio_thread(aiocb);
         switch (aiocb->aio_type & QEMU_AIO_TYPE_MASK) {
         case QEMU_AIO_READ:
         case QEMU_AIO_WRITE:
@@ -350,6 +352,7 @@ static void *aio_thread(void *unused)
             ret = -EINVAL;
             break;
         }
+        trace_paio_thread_done(aiocb);
 
         mutex_lock(&lock);
         aiocb->ret = ret;
@@ -359,6 +362,7 @@ static void *aio_thread(void *unused)
         if (kill(pid, aiocb->ev_signo)) die("kill failed");
     }
 
+    trace_paio_thread_exit();
     idle_threads--;
     cur_threads--;
     mutex_unlock(&lock);
@@ -377,6 +381,7 @@ static void spawn_thread(void)
     if (sigfillset(&set)) die("sigfillset");
     if (sigprocmask(SIG_SETMASK, &set, &oldset)) die("sigprocmask");
 
+    trace_paio_spawn_thread();
     thread_create(&thread_id, &attr, aio_thread, NULL);
 
     if (sigprocmask(SIG_SETMASK, &oldset, NULL)) die("sigprocmask restore");
@@ -387,7 +392,7 @@ static void qemu_paio_submit(struct qemu_paiocb *aiocb)
     aiocb->ret = -EINPROGRESS;
     aiocb->active = 0;
     mutex_lock(&lock);
-    if (idle_threads == 0 && cur_threads < max_threads)
+    if (/*idle_threads == 0 &&*/ cur_threads < max_threads)
         spawn_thread();
     QTAILQ_INSERT_TAIL(&request_list, aiocb, node);
     mutex_unlock(&lock);
@@ -591,6 +596,7 @@ BlockDriverAIOCB *paio_submit(BlockDriverState *bs, int fd,
     posix_aio_state->first_aio = acb;
 
     trace_paio_submit(acb, opaque, sector_num, nb_sectors, type);
+    trace_paio_submit_threads(cur_threads, max_threads);
     qemu_paio_submit(acb);
     return &acb->common;
 }

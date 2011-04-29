@@ -932,7 +932,7 @@ int bdrv_read(BlockDriverState *bs, int64_t sector_num,
 {
     BlockDriver *drv = bs->drv;
 
-    if (qemu_in_coroutine()) {
+    if (1 && qemu_in_coroutine()) {
         QEMUIOVector qiov;
         struct iovec iov = {
             .iov_base = buf,
@@ -940,7 +940,10 @@ int bdrv_read(BlockDriverState *bs, int64_t sector_num,
         };
 
         qemu_iovec_init_external(&qiov, &iov, 1);
-        return bdrv_co_readv(bs, sector_num, &qiov, nb_sectors);
+        trace_bdrv_read_start(sector_num, nb_sectors);
+        int ret = bdrv_co_readv(bs, sector_num, &qiov, nb_sectors);
+        trace_bdrv_read_end();
+        return ret;
     }
 
     if (!drv)
@@ -948,7 +951,11 @@ int bdrv_read(BlockDriverState *bs, int64_t sector_num,
     if (bdrv_check_request(bs, sector_num, nb_sectors))
         return -EIO;
 
-    return drv->bdrv_read(bs, sector_num, buf, nb_sectors);
+    trace_bdrv_read_start(sector_num, nb_sectors);
+    int ret = drv->bdrv_read(bs, sector_num, buf, nb_sectors);
+    trace_bdrv_read_end();
+
+    return ret;
 }
 
 static void set_dirty_bitmap(BlockDriverState *bs, int64_t sector_num,
@@ -2787,6 +2794,7 @@ static int coroutine_fn bdrv_co_io(BlockDriverState *bs, int64_t sector_num,
 {
     CoroutineIOCompletion co = {
         .coroutine = qemu_coroutine_self(),
+        .ret = -EINPROGRESS,
     };
     BlockDriverAIOCB *acb;
 
@@ -2801,6 +2809,7 @@ static int coroutine_fn bdrv_co_io(BlockDriverState *bs, int64_t sector_num,
         return -EIO;
     }
     qemu_coroutine_yield();
+
     return co.ret;
 }
 

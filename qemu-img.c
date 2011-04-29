@@ -1550,6 +1550,7 @@ out:
 typedef struct BenchAIOCB {
     uint64_t offset;
     QEMUIOVector qiov;
+    int done;
 } BenchAIOCB;
 
 static struct {
@@ -1559,13 +1560,20 @@ static struct {
     BenchAIOCB req[BENCH_NUM_PARALLEL];
 } acb;
 
+static uint64_t bench_cur_offset = 0;
+
 static void bench_cb(void *opaque, int ret)
 {
     BenchAIOCB *req = opaque;
     BlockDriverAIOCB *bacb;
 
+    if (ret < 0) {
+        abort();
+    }
+
     acb.running--;
     acb.done++;
+    req->done++;
 
     if (acb.done >= BENCH_NUM_REQUESTS) {
         return;
@@ -1573,6 +1581,7 @@ static void bench_cb(void *opaque, int ret)
 
     acb.running++;
     req->offset += BENCH_REQ_SIZE * BENCH_NUM_PARALLEL;
+//    req->offset = (bench_cur_offset += BENCH_REQ_SIZE);
 
 //    bacb = bdrv_aio_writev(acb.bs, req->offset / BDRV_SECTOR_SIZE, &req->qiov,
     bacb = bdrv_aio_readv(acb.bs, req->offset / BDRV_SECTOR_SIZE, &req->qiov,
@@ -1607,7 +1616,8 @@ static int img_bench(int argc, char **argv)
         qemu_iovec_add(&acb.req[i].qiov, buf, BENCH_REQ_SIZE);
 
         // TODO Don't read everything from the same place
-        acb.req[i].offset =  i * BENCH_REQ_SIZE;
+        acb.req[i].done   =  0;
+        acb.req[i].offset =  (bench_cur_offset += BENCH_REQ_SIZE);
         bench_cb(&acb.req[i], 0);
     }
 
@@ -1615,6 +1625,11 @@ static int img_bench(int argc, char **argv)
         qemu_aio_wait();
     }
     qemu_aio_flush();
+
+    for (i = 0; i < BENCH_NUM_PARALLEL; i++) {
+        fprintf(stderr, "ACB %d: %d requests, offset %" PRIx64 "\n",
+            i, acb.req[i].done, acb.req[i].offset);
+    }
 
     bdrv_delete(acb.bs);
     return 0;
