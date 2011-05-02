@@ -487,6 +487,7 @@ static int coroutine_fn qcow2_aio_read_cb(void *opaque, int ret)
 
     if (!acb->cluster_offset) {
 
+        trace_qcow2_read_sparse(acb, acb->sector_num, acb->cur_nr_sectors);
         if (bs->backing_hd) {
             /* read from the base image */
             n1 = qcow2_backing_read1(bs->backing_hd, &acb->hd_qiov,
@@ -536,6 +537,7 @@ static int coroutine_fn qcow2_aio_read_cb(void *opaque, int ret)
 
         BLKDBG_EVENT(bs->file, BLKDBG_READ_AIO);
         qemu_co_mutex_unlock(&s->lock);
+        trace_qcow2_read_data(acb, acb->sector_num, acb->cur_nr_sectors);
         ret = bdrv_co_readv(bs->file,
                             (acb->cluster_offset >> 9) + index_in_cluster,
                             &acb->hd_qiov, acb->cur_nr_sectors);

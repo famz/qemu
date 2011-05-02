@@ -58,6 +58,8 @@ bdrv_set_locked(void *bs, int locked) "bs %p locked %d"
 bdrv_read_start(int64_t sector_num, int nb_sectors) "sector %" PRIx64 " nb %d"
 bdrv_read_end(void) ""
 
+bdrv_co_io(int is_write, void *acb) "is_write %d acb %p"
+
 # hw/virtio-blk.c
 virtio_blk_req_complete(void *req, int status) "req %p status %d"
 virtio_blk_rw_complete(void *req, int ret) "req %p ret %d"
@@ -381,6 +383,9 @@ run_dependent_requests_end(void *s, void *acb) "s %p acb %p"
 qcow2_cancel(void *acb) "acb %p"
 qcow2_wait_for_dependency(void *acb, void *dependency) "acb %p dependency %p"
 
+qcow2_read_data(void *acb, int64_t cluster_offset, int nb_sectors); "acb %p sector %" PRIx64 " nb_sectors %d"
+qcow2_read_sparse(void *acb, int64_t cluster_offset, int nb_sectors); "acb %p sector %" PRIx64 " nb_sectors %d"
+
 # qemu-coroutine.c
 qemu_coroutine_enter(void *from, void *to, void *opaque) "from %p to %p opaque %p"
 qemu_coroutine_yield(void *from, void *to) "from %p to %p"
@@ -391,3 +396,6 @@ qemu_co_mutex_unlock_entry(void *mutex, void *self) "mutex %p self %p"
 qemu_co_mutex_unlock_return(void *mutex, void *self) "mutex %p self %p"
 qemu_co_queue_next_bh(void) ""
 qemu_co_queue_next(void *next) "next %p"
+
+# qemu-img.c
+qemu_img_bench_cb(int acb) "acb %d"

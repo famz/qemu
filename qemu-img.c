@@ -28,6 +28,7 @@
 #include "sysemu.h"
 #include "block_int.h"
 #include "simpletrace.h"
+#include "trace.h"
 #include <stdio.h>
 
 #ifdef _WIN32
@@ -1570,6 +1571,8 @@ static void bench_cb(void *opaque, int ret)
     if (ret < 0) {
         abort();
     }
+
+    trace_qemu_img_bench_cb(req - acb.req);
 
     acb.running--;
     acb.done++;

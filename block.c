@@ -2805,6 +2805,8 @@ static int coroutine_fn bdrv_co_io(BlockDriverState *bs, int64_t sector_num,
         acb = bdrv_aio_readv(bs, sector_num, iov, nb_sectors,
                              bdrv_co_complete, &co);
     }
+
+    trace_bdrv_co_io(is_write, acb);
     if (!acb) {
         return -EIO;
     }

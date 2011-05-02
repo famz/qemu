@@ -135,15 +135,18 @@ if __name__ == '__main__':
     class Formatter(Analyzer):
         def __init__(self):
             self.last_timestamp = None
+            self.first_timestamp = None
 
         def catchall(self, event, rec):
             timestamp = rec[1]
             if self.last_timestamp is None:
                 self.last_timestamp = timestamp
+                self.first_timestamp = timestamp
             delta_ns = timestamp - self.last_timestamp
+            absolute_ms = (timestamp - self.first_timestamp) / 1000000.0
             self.last_timestamp = timestamp
 
-            fields = ['[%8.3f]' % (delta_ns / 1000.0), event[0]]
+            fields = ['[%8.3f | %8.3f]' % (absolute_ms, delta_ns / 1000.0), event[0]]
 #            fields = [event[0], '%0.3f' % (delta_ns / 1000.0)]
             for i in xrange(1, len(event)):
                 fields.append('%s=0x%x' % (event[i], rec[i + 1]))
