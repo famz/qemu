@@ -619,7 +619,9 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
     start_sect = (m->offset & ~(s->cluster_size - 1)) >> 9;
     if (m->n_start) {
         cow = true;
+        qemu_co_mutex_lock(&s->lock);
         ret = copy_sectors(bs, start_sect, cluster_offset, 0, m->n_start);
+        qemu_co_mutex_unlock(&s->lock);
         if (ret < 0)
             goto err;
     }
@@ -627,8 +629,10 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
     if (m->nb_available & (s->cluster_sectors - 1)) {
         uint64_t end = m->nb_available & ~(uint64_t)(s->cluster_sectors - 1);
         cow = true;
+        qemu_co_mutex_lock(&s->lock);
         ret = copy_sectors(bs, start_sect + end, cluster_offset + (end << 9),
                 m->nb_available - end, s->cluster_sectors);
+        qemu_co_mutex_unlock(&s->lock);
         if (ret < 0)
             goto err;
     }
@@ -645,7 +649,9 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
     }
 
     qcow2_cache_set_dependency(bs, s->l2_table_cache, s->refcount_block_cache);
+    qemu_co_mutex_lock(&s->lock);
     ret = get_cluster_table(bs, m->offset, &l2_table, &l2_offset, &l2_index);
+    qemu_co_mutex_unlock(&s->lock);
     if (ret < 0) {
         goto err;
     }
@@ -676,10 +682,12 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
      * Also flush bs->file to get the right order for L2 and refcount update.
      */
     if (j != 0) {
+        qemu_co_mutex_lock(&s->lock);
         for (i = 0; i < j; i++) {
             qcow2_free_any_clusters(bs,
                 be64_to_cpu(old_cluster[i]) & ~QCOW_OFLAG_COPIED, 1);
         }
+        qemu_co_mutex_unlock(&s->lock);
     }
 
     ret = 0;

@@ -640,9 +640,7 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
     int n_end;
 
     if (ret >= 0) {
-        qemu_co_mutex_lock(&s->lock);
         ret = qcow2_alloc_cluster_link_l2(bs, &acb->l2meta);
-        qemu_co_mutex_unlock(&s->lock);
     }
 
     run_dependent_requests(s, &acb->l2meta);
