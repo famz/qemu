@@ -567,13 +567,9 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret);
 static void coroutine_fn qcow2_co_write(void *opaque)
 {
     QCowAIOCB *acb = opaque;
-    BlockDriverState *bs = acb->common.bs;
-    BDRVQcowState *s = bs->opaque;
 
-    qemu_co_mutex_lock(&s->lock);
     while (qcow2_aio_write_cb(acb, 0)) {
     }
-    qemu_co_mutex_unlock(&s->lock);
 }
 
 static BlockDriverAIOCB *qcow2_aio_setup(BlockDriverState *bs,
@@ -629,9 +625,7 @@ static void run_dependent_requests(BDRVQcowState *s, QCowL2Meta *m)
         trace_run_dependent_requests_begin(s, self);
 
         /* Restart all dependent requests */
-        qemu_co_mutex_unlock(&s->lock);
         while(qemu_co_queue_next(&m->dependent_requests));
-        qemu_co_mutex_lock(&s->lock);
 
         trace_run_dependent_requests_end(s, self);
     }
@@ -646,7 +640,9 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
     int n_end;
 
     if (ret >= 0) {
+        qemu_co_mutex_lock(&s->lock);
         ret = qcow2_alloc_cluster_link_l2(bs, &acb->l2meta);
+        qemu_co_mutex_unlock(&s->lock);
     }
 
     run_dependent_requests(s, &acb->l2meta);
@@ -670,8 +666,11 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
         n_end > QCOW_MAX_CRYPT_CLUSTERS * s->cluster_sectors)
         n_end = QCOW_MAX_CRYPT_CLUSTERS * s->cluster_sectors;
 
+    qemu_co_mutex_lock(&s->lock);
     ret = qcow2_alloc_cluster_offset(bs, acb->sector_num << 9,
         index_in_cluster, n_end, &acb->cur_nr_sectors, &acb->l2meta);
+    qemu_co_mutex_unlock(&s->lock);
+
     if (ret < 0) {
         goto done;
     }
@@ -701,11 +700,9 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
     }
 
     BLKDBG_EVENT(bs->file, BLKDBG_WRITE_AIO);
-    qemu_co_mutex_unlock(&s->lock);
     ret = bdrv_co_writev(bs->file,
                          (acb->cluster_offset >> 9) + index_in_cluster,
                          &acb->hd_qiov, acb->cur_nr_sectors);
-    qemu_co_mutex_lock(&s->lock);
     if (ret < 0) {
         goto fail;
     }
