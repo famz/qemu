@@ -682,12 +682,10 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
      * Also flush bs->file to get the right order for L2 and refcount update.
      */
     if (j != 0) {
-        qemu_co_mutex_lock(&s->lock);
         for (i = 0; i < j; i++) {
             qcow2_free_any_clusters(bs,
                 be64_to_cpu(old_cluster[i]) & ~QCOW_OFLAG_COPIED, 1);
         }
-        qemu_co_mutex_unlock(&s->lock);
     }
 
     ret = 0;

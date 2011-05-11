@@ -198,6 +198,7 @@ static int alloc_refcount_block(BlockDriverState *bs,
      *   refcount block into the cache
      */
 
+    qemu_co_mutex_lock(&s->lock);
     *refcount_block = NULL;
 
     /* We write to the refcount table, so we might depend on L2 tables */
@@ -206,6 +207,7 @@ static int alloc_refcount_block(BlockDriverState *bs,
     /* Allocate the refcount block itself and mark it as used */
     int64_t new_block = alloc_clusters_noref(bs, s->cluster_size);
     if (new_block < 0) {
+        qemu_co_mutex_unlock(&s->lock);
         return new_block;
     }
 
@@ -270,6 +272,7 @@ static int alloc_refcount_block(BlockDriverState *bs,
         }
 
         s->refcount_table[refcount_table_index] = new_block;
+        qemu_co_mutex_unlock(&s->lock);
         return 0;
     }
 
@@ -381,6 +384,8 @@ static int alloc_refcount_block(BlockDriverState *bs,
         goto fail_table;
     }
 
+    qemu_co_mutex_unlock(&s->lock);
+
     /* And switch it in memory */
     uint64_t old_table_offset = s->refcount_table_offset;
     uint64_t old_table_size = s->refcount_table_size;
@@ -408,6 +413,7 @@ fail_block:
     if (*refcount_block != NULL) {
         qcow2_cache_put(bs, s->refcount_block_cache, (void**) refcount_block);
     }
+    qemu_co_mutex_unlock(&s->lock);
     return ret;
 }
 
