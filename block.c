@@ -233,13 +233,43 @@ BlockDriver *bdrv_find_whitelisted_format(const char *format_name)
     return drv && bdrv_is_whitelisted(drv) ? drv : NULL;
 }
 
+
+struct bdrv_create_args {
+    BlockDriver *drv;
+    const char *filename;
+    QEMUOptionParameter *options;
+    int ret;
+};
+
+static coroutine_fn void bdrv_co_create(void *opaque)
+{
+    struct bdrv_create_args *args = opaque;
+
+    args->ret = args->drv->bdrv_create(args->filename, args->options);
+}
+
 int bdrv_create(BlockDriver *drv, const char* filename,
     QEMUOptionParameter *options)
 {
+    Coroutine *co;
+    struct bdrv_create_args args = {
+        .drv        = drv,
+        .filename   = filename,
+        .options    = options,
+        .ret        = -EINPROGRESS,
+    };
+
     if (!drv->bdrv_create)
         return -ENOTSUP;
 
-    return drv->bdrv_create(filename, options);
+    co = qemu_coroutine_create(bdrv_co_create);
+    qemu_coroutine_enter(co, &args);
+
+    while (args.ret == -EINPROGRESS) {
+        qemu_aio_wait();
+    }
+
+    return args.ret;
 }
 
 int bdrv_create_file(const char* filename, QEMUOptionParameter *options)
