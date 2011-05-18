@@ -724,7 +724,9 @@ int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
     unsigned int nb_clusters, i = 0;
     QCowL2Meta *old_alloc;
 
+    qemu_co_mutex_lock(&s->lock);
     ret = get_cluster_table(bs, offset, &l2_table, &l2_offset, &l2_index);
+    qemu_co_mutex_unlock(&s->lock);
     if (ret < 0) {
         return ret;
     }
@@ -804,9 +806,7 @@ again:
                 /* Wait for the dependency to complete. We need to recheck
                  * the free/allocated clusters when we continue. */
                 trace_qcow2_wait_for_dependency(m, old_alloc);
-                qemu_co_mutex_unlock(&s->lock);
                 qemu_co_queue_wait(&old_alloc->dependent_requests);
-                qemu_co_mutex_lock(&s->lock);
                 goto again;
             }
         }
@@ -820,7 +820,10 @@ again:
 
     /* allocate a new cluster */
 
+    qemu_co_mutex_lock(&s->lock);
     cluster_offset = qcow2_alloc_clusters(bs, nb_clusters * s->cluster_size);
+    qemu_co_mutex_unlock(&s->lock);
+
     if (cluster_offset < 0) {
         QLIST_REMOVE(m, next_in_flight);
         ret = cluster_offset;

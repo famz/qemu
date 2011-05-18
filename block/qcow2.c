@@ -664,10 +664,8 @@ static int coroutine_fn qcow2_aio_write_cb(void *opaque, int ret)
         n_end > QCOW_MAX_CRYPT_CLUSTERS * s->cluster_sectors)
         n_end = QCOW_MAX_CRYPT_CLUSTERS * s->cluster_sectors;
 
-    qemu_co_mutex_lock(&s->lock);
     ret = qcow2_alloc_cluster_offset(bs, acb->sector_num << 9,
         index_in_cluster, n_end, &acb->cur_nr_sectors, &acb->l2meta);
-    qemu_co_mutex_unlock(&s->lock);
 
     if (ret < 0) {
         goto done;
