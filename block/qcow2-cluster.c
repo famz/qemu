@@ -104,27 +104,6 @@ int qcow2_grow_l1_table(BlockDriverState *bs, int min_size, bool exact_size)
 }
 
 /*
- * l2_load
- *
- * Loads a L2 table into memory. If the table is in the cache, the cache
- * is used; otherwise the L2 table is loaded from the image file.
- *
- * Returns a pointer to the L2 table on success, or NULL if the read from
- * the image file failed.
- */
-
-static int l2_load(BlockDriverState *bs, uint64_t l2_offset,
-    uint64_t **l2_table)
-{
-    BDRVQcowState *s = bs->opaque;
-    int ret;
-
-    ret = qcow2_cache_get(bs, s->l2_table_cache, l2_offset, (void**) l2_table);
-
-    return ret;
-}
-
-/*
  * Writes one sector of the L1 table to the disk (can't update single entries
  * and we really don't want bdrv_pread to perform a read-modify-write)
  */
@@ -495,29 +474,45 @@ static int get_cluster_table(BlockDriverState *bs, uint64_t offset,
     uint64_t *l2_table = NULL;
     int ret;
 
-    /* seek the the l2 offset in the l1 table */
+    /* Grow the L1 table if necessary */
 
     l1_index = offset >> (s->l2_bits + s->cluster_bits);
     if (l1_index >= s->l1_size) {
+        qemu_co_mutex_lock(&s->lock);
         ret = qcow2_grow_l1_table(bs, l1_index + 1, false);
+        qemu_co_mutex_unlock(&s->lock);
+
         if (ret < 0) {
             return ret;
         }
     }
+
+    /*
+     * Load the l2 table of the given l2 offset
+     *
+     * There is no mechanism to deal with concurrent L2 table allocations or
+     * additional write requests to a L2 that is currently being allocated,
+     * so as long as one coroutine is allocating a new L2, we must wait here.
+     */
+    qemu_co_mutex_lock(&s->lock);
     l2_offset = s->l1_table[l1_index];
 
-    /* seek the l2 table of the given l2 offset */
-
     if (l2_offset & QCOW_OFLAG_COPIED) {
+
+        qemu_co_mutex_unlock(&s->lock);
+
         /* load the l2 table in memory */
         l2_offset &= ~QCOW_OFLAG_COPIED;
-        ret = l2_load(bs, l2_offset, &l2_table);
+        ret = qcow2_cache_get(bs, s->l2_table_cache,
+                              l2_offset, (void**) &l2_table);
         if (ret < 0) {
             return ret;
         }
     } else {
         /* First allocate a new L2 table (and do COW if needed) */
         ret = l2_allocate(bs, l1_index, &l2_table);
+        qemu_co_mutex_unlock(&s->lock);
+
         if (ret < 0) {
             return ret;
         }
@@ -649,9 +644,7 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
     }
 
     qcow2_cache_set_dependency(bs, s->l2_table_cache, s->refcount_block_cache);
-    qemu_co_mutex_lock(&s->lock);
     ret = get_cluster_table(bs, m->offset, &l2_table, &l2_offset, &l2_index);
-    qemu_co_mutex_unlock(&s->lock);
     if (ret < 0) {
         goto err;
     }
@@ -724,9 +717,7 @@ int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
     unsigned int nb_clusters, i = 0;
     QCowL2Meta *old_alloc;
 
-    qemu_co_mutex_lock(&s->lock);
     ret = get_cluster_table(bs, offset, &l2_table, &l2_offset, &l2_index);
-    qemu_co_mutex_unlock(&s->lock);
     if (ret < 0) {
         return ret;
     }
