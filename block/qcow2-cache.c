@@ -33,7 +33,7 @@ typedef struct Qcow2CachedTable {
     int     ref;
     bool    dirty;
     bool    keep_dirty;
-    bool    valid;
+    int     read_status;
     CoQueue get_queue;
 } Qcow2CachedTable;
 
@@ -250,6 +250,7 @@ retry:
 
     ret = qcow2_cache_entry_flush(bs, c, i);
     if (ret < 0) {
+        c->entries[i].ref--;
         return ret;
     }
 
@@ -261,7 +262,7 @@ retry:
     }
 
     /* Read the table from the disk */
-    c->entries[i].valid = false;
+    c->entries[i].read_status = -EINPROGRESS;
     c->entries[i].offset = 0;
     if (read_from_disk) {
         if (c == s->l2_table_cache) {
@@ -270,6 +271,8 @@ retry:
 
         ret = bdrv_pread(bs->file, offset, c->entries[i].table, s->cluster_size);
         if (ret < 0) {
+            c->entries[i].read_status = ret;
+            while (qemu_co_queue_next(&c->entries[i].get_queue));
             return ret;
         }
     }
@@ -280,15 +283,20 @@ retry:
     c->entries[i].offset = offset;
 
     /* Run other requests that were waiting for the table to be read */
-    c->entries[i].valid = true;
+    c->entries[i].read_status = 0;
     while (qemu_co_queue_next(&c->entries[i].get_queue));
 
     /* And return the right table */
 found:
     /* If another coroutine is still initialising the content, it's not valid
      * yet and we need to wait. */
-    while (!c->entries[i].valid) {
+    while (c->entries[i].read_status == -EINPROGRESS) {
         qemu_co_queue_wait(&c->entries[i].get_queue);
+    }
+
+    if (c->entries[i].read_status < 0) {
+        c->entries[i].ref--;
+        return c->entries[i].read_status;
     }
 
     c->entries[i].cache_hits++;
