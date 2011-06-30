@@ -1830,17 +1830,8 @@ int bdrv_discard(BlockDriverState *bs, int64_t sector_num, int nb_sectors)
  *
  * 'nb_sectors' is the max value 'pnum' should be set to.
  */
-
-struct BdrvIsAllocated {
-    BlockDriverState *bs;
-    int64_t sector_num;
-    int nb_sectors;
-    int *pnum;
-
-    int ret;
-};
-
-static void coroutine_fn bdrv_co_is_allocated(void *opaque)
+int bdrv_is_allocated(BlockDriverState *bs, int64_t sector_num, int nb_sectors,
+	int *pnum)
 {
     int64_t n;
     if (!bs->drv->bdrv_is_allocated) {
@@ -1854,27 +1845,6 @@ static void coroutine_fn bdrv_co_is_allocated(void *opaque)
     }
     return bs->drv->bdrv_is_allocated(bs, sector_num, nb_sectors, pnum);
 }
-
-int bdrv_is_allocated(BlockDriverState *bs, int64_t sector_num, int nb_sectors,
-	int *pnum)
-{
-    struct BdrvIsAllocated args = {
-        bs, sector_num, nb_sectors, pnum, -EINPROGRESS
-    };
-
-    if (qemu_in_coroutine()) {
-        bdrv_co_is_allocated(&args);
-    } else {
-        Coroutine *co = qemu_coroutine_create(bdrv_co_is_allocated);
-        qemu_coroutine_enter(co, args);
-        while (args.ret == -EINPROGRESS) {
-            qemu_aio_wait();
-        }
-    }
-
-    return args.ret;
-}
-
 
 void bdrv_mon_event(const BlockDriverState *bdrv,
                     BlockMonEventAction action, int is_read)
