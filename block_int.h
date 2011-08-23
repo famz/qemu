@@ -43,6 +43,9 @@
 #define BLOCK_OPT_PREALLOC      "preallocation"
 #define BLOCK_OPT_SUBFMT        "subformat"
 
+#define BLOCK_CRYPT_NONE    0
+#define BLOCK_CRYPT_AES     1
+
 typedef struct AIOPool {
     void (*cancel)(BlockDriverAIOCB *acb);
     int aiocb_size;
@@ -146,6 +149,79 @@ struct BlockDriver {
      */
     int (*bdrv_has_zero_init)(BlockDriverState *bs);
 
+    /* In-place image conversion */
+
+    /**
+     * Opens an image conversion target.
+     *
+     * @param bs          Basic Initialization done by
+     *                    bdrv_open_conversion_target() Still need to set format
+     *                    specific data.
+     * @param usr_options Creation options.
+     * @param drv_options Conversion Options
+     * @return            Returns non-zero on failure.
+     */
+    int (*bdrv_open_conversion_target)(BlockDriverState *bs,
+        BlockConversionOptions *drv_options, QEMUOptionParameter *usr_options,
+        bool force);
+
+    /**
+     * Gets a mapping from an offset in the image to an offset within a file
+     *
+     * All offsets are in bytes.
+     *
+     * @param guest_offset          The starting offset of the mapping
+     * @param host_offset[out]      The starting file offset of the mapping.
+     *                              A value of -1 is invalid and means the
+     *                              cluster is unallocated (contiguous_bytes is
+     *                              still valid)
+     * @param contiguous_bytes[out] The number of bytes for which this mapping
+     *                              is contiguous. If 0, there are no more
+     *                              mapppings in the image
+     * @return                      Returns 0 on error;
+     */
+
+    int (*bdrv_get_mapping)(BlockDriverState *bs, uint64_t guest_offset,
+        uint64_t *host_offset, uint64_t *contiguous_bytes);
+
+    /**
+     * Sets a mapping in the image file.
+     *
+     * @param bs               Usually opened with bdrv_open_conversion_target
+     * @param guest_offset     The starting guest offset of the mapping
+     *                         (in bytes).
+     * @param host_offset      The starting image offset of the mapping
+     *                         (in bytes).
+     * @param contiguous_bytes The number of bytes for which this mapping exists
+     * @return                 Returns non-zero on error. Will return -EINVAL if
+     *                         guest_offset, host_offset, or contiguous_bytes
+     *                         not cluster aligned
+     */
+    int (*bdrv_map)(BlockDriverState *bs, uint64_t guest_offset,
+        uint64_t host_offset, uint64_t contiguous_bytes);
+
+    /**
+     * Copies out the header of a conversion target
+     *
+     * Saves the current header for the image in a temporary file and overwrites
+     * it with the header for the new format (at the moment the header is
+     * assumed to be 1 sector)
+     * @param bs        Usualy opened with bdrv_open_conversion_target()
+     * @param filename  The name of the file to copy the header into
+     * @return          Returns non-zero on failure
+     */
+    int (*bdrv_copy_header) (BlockDriverState *bs, char* filename);
+
+    /**
+     * Asks the block driver what options should be used to create a conversion
+     * target.
+     *
+     * @param options[out] Block conversion options
+     */
+    int (*bdrv_get_conversion_options)(BlockDriverState *bs,
+         BlockConversionOptions *options);
+
+
     QLIST_ENTRY(BlockDriver) list;
 };
 
@@ -224,5 +300,12 @@ void qemu_aio_release(void *p);
 #ifdef _WIN32
 int is_windows_drive(const char *filename);
 #endif
+
+struct BlockConversionOptions {
+    int encryption_type;
+    uint64_t image_size;
+    uint64_t cluster_size;
+    int nb_snapshots;
+};
 
 #endif /* BLOCK_INT_H */

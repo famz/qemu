@@ -61,6 +61,7 @@ typedef struct BlockDevOps {
 #define BDRV_O_NATIVE_AIO  0x0080 /* use native AIO instead of the thread pool */
 #define BDRV_O_NO_BACKING  0x0100 /* don't open the backing file */
 #define BDRV_O_NO_FLUSH    0x0200 /* disable flushing on this disk */
+#define BDRV_O_CONVERSION  0x0400 /* open as conversion target */
 
 #define BDRV_O_CACHE_MASK  (BDRV_O_NOCACHE | BDRV_O_CACHE_WB | BDRV_O_NO_FLUSH)
 
@@ -300,6 +301,8 @@ typedef struct BlockAcctCookie {
 void bdrv_acct_start(BlockDriverState *bs, BlockAcctCookie *cookie,
         int64_t bytes, enum BlockAcctType type);
 void bdrv_acct_done(BlockDriverState *bs, BlockAcctCookie *cookie);
+
+typedef struct BlockConversionOptions BlockConversionOptions;
 
 typedef enum {
     BLKDBG_L1_UPDATE,
