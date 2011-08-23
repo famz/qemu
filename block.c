@@ -469,14 +469,17 @@ int bdrv_parse_cache_flags(const char *mode, int *flags)
  * Common part for opening disk images and files
  */
 static int bdrv_open_common(BlockDriverState *bs, const char *filename,
-    int flags, BlockDriver *drv)
+    int flags, BlockDriver *drv, BlockConversionOptions *drv_options,
+    QEMUOptionParameter *usr_options, bool force)
 {
     int ret, open_flags;
 
     assert(drv != NULL);
 
-    bs->file = NULL;
-    bs->total_sectors = 0;
+    if (~flags & BDRV_O_CONVERSION) {
+        bs->file = NULL;
+        bs->total_sectors = 0;
+    }
     bs->encrypted = 0;
     bs->valid_key = 0;
     bs->open_flags = flags;
@@ -508,7 +511,10 @@ static int bdrv_open_common(BlockDriverState *bs, const char *filename,
     }
 
     /* Open the image, either directly or using a protocol */
-    if (drv->bdrv_file_open) {
+    if (flags & BDRV_O_CONVERSION) {
+        ret = drv->bdrv_open_conversion_target(bs, drv_options, usr_options,
+                                               force);
+    } else if (drv->bdrv_file_open) {
         ret = drv->bdrv_file_open(bs, filename, open_flags);
     } else {
         ret = bdrv_file_open(&bs->file, filename, open_flags);
@@ -561,7 +567,7 @@ int bdrv_file_open(BlockDriverState **pbs, const char *filename, int flags)
     }
 
     bs = bdrv_new("");
-    ret = bdrv_open_common(bs, filename, flags, drv);
+    ret = bdrv_open_common(bs, filename, flags, drv, NULL, NULL, false);
     if (ret < 0) {
         bdrv_delete(bs);
         return ret;
@@ -645,7 +651,7 @@ int bdrv_open(BlockDriverState *bs, const char *filename, int flags,
     }
 
     /* Open the image */
-    ret = bdrv_open_common(bs, filename, flags, drv);
+    ret = bdrv_open_common(bs, filename, flags, drv, NULL, NULL, false);
     if (ret < 0) {
         goto unlink_and_fail;
     }
