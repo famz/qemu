@@ -315,6 +315,8 @@ int bdrv_get_mapping(BlockDriverState *bs, uint64_t guest_offset,
                      uint64_t *host_offset, uint64_t *contiguous_bytes);
 int bdrv_map(BlockDriverState *bs, uint64_t guest_offset,
              uint64_t host_offset, uint64_t contiguous_bytes);
+int bdrv_copy_header(BlockDriverState *bs, char *filename);
+
 typedef enum {
     BLKDBG_L1_UPDATE,
 

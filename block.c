@@ -3418,3 +3418,44 @@ int bdrv_map(BlockDriverState *bs, uint64_t guest_offset,
     return drv->bdrv_map(bs, guest_offset, host_offset,
         contiguous_bytes);
 }
+
+/**
+ * Copies out the header of a conversion target
+ *
+ * Saves the current header for the image in a temporary file and overwrites
+ * it with the header for the new format (at the moment the header is
+ * assumed to be 1 sector)
+ *
+ * A filename can be specified by using filename. On entry if
+ * filename = NULL , or filename points to an empty string, a random file
+ * name will be generated.
+ *
+ * If a random filename was generated it will be returned to the user by
+ * copying it to the location pointed at by filename. Filename must already
+ * be allocated to a size of at least PATH_MAX
+ *
+ * @param bs                Usualy opened with bdrv_open_conversion_target()
+ * @param filename[in,out]  On entry is the optional filename to be used. On
+ *                          exit it will be the filename used (assuming
+ *                          filename != NULL at entry)
+ * @return                  Returns non-zero on failure
+ */
+int bdrv_copy_header(BlockDriverState *bs, char *filename)
+{
+    BlockDriver *drv = bs->drv;
+    char tmp_filename[PATH_MAX] = "";
+
+    if (!drv) {
+        return -ENOMEDIUM;
+    }
+    if (!drv->bdrv_copy_header) {
+        return -ENOTSUP;
+    }
+    if (!filename) {
+        filename = tmp_filename;
+    }
+    if (!filename[0]) {
+        get_tmp_filename(filename, PATH_MAX);
+    }
+    return drv->bdrv_copy_header(bs, filename);
+}
