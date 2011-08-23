@@ -3404,3 +3404,17 @@ int bdrv_get_mapping(BlockDriverState *bs, uint64_t guest_offset,
     return drv->bdrv_get_mapping(bs, guest_offset, host_offset,
         contiguous_bytes);
 }
+
+int bdrv_map(BlockDriverState *bs, uint64_t guest_offset,
+             uint64_t host_offset, uint64_t contiguous_bytes)
+{
+    BlockDriver *drv = bs->drv;
+    if (!drv) {
+        return -ENOMEDIUM;
+    }
+    if (!drv->bdrv_map) {
+        return -ENOTSUP;
+    }
+    return drv->bdrv_map(bs, guest_offset, host_offset,
+        contiguous_bytes);
+}

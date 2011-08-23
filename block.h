@@ -313,6 +313,8 @@ int bdrv_open_conversion_target(BlockDriverState **bs, BlockDriverState *file,
                                 bool force);
 int bdrv_get_mapping(BlockDriverState *bs, uint64_t guest_offset,
                      uint64_t *host_offset, uint64_t *contiguous_bytes);
+int bdrv_map(BlockDriverState *bs, uint64_t guest_offset,
+             uint64_t host_offset, uint64_t contiguous_bytes);
 typedef enum {
     BLKDBG_L1_UPDATE,
 
