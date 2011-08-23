@@ -304,6 +304,8 @@ void bdrv_acct_done(BlockDriverState *bs, BlockAcctCookie *cookie);
 
 typedef struct BlockConversionOptions BlockConversionOptions;
 
+int bdrv_get_conversion_options(BlockDriverState *bs,
+                                BlockConversionOptions *options);
 typedef enum {
     BLKDBG_L1_UPDATE,
 

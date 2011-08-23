@@ -3350,3 +3350,16 @@ out:
 
     return ret;
 }
+
+int bdrv_get_conversion_options(BlockDriverState *bs,
+                                BlockConversionOptions *options)
+{
+    if (!bs->drv) {
+        return -ENOENT;
+    }
+
+    if (!bs->drv->bdrv_get_conversion_options) {
+        return -ENOTSUP;
+    }
+    return bs->drv->bdrv_get_conversion_options(bs, options);
+}
