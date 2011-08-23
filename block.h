@@ -306,6 +306,11 @@ typedef struct BlockConversionOptions BlockConversionOptions;
 
 int bdrv_get_conversion_options(BlockDriverState *bs,
                                 BlockConversionOptions *options);
+int bdrv_open_conversion_target(BlockDriverState **bs, BlockDriverState *file,
+                                BlockConversionOptions *drv_options,
+                                QEMUOptionParameter *usr_options,
+                                const char *target_fmt,
+                                bool force);
 typedef enum {
     BLKDBG_L1_UPDATE,
 

@@ -3351,6 +3351,32 @@ out:
     return ret;
 }
 
+int bdrv_open_conversion_target(BlockDriverState **bs, BlockDriverState *file,
+                                BlockConversionOptions *drv_options,
+                                QEMUOptionParameter *usr_options,
+                                const char *target_fmt,
+                                bool force)
+{
+    BlockDriver *drv;
+    BlockDriverState *bss;
+    *bs = NULL;
+
+    drv = bdrv_find_format(target_fmt);
+    if (!drv) {
+        return -ENOENT;
+    }
+
+    if (!drv->bdrv_open_conversion_target) {
+        return -ENOTSUP;
+    }
+
+    *bs = bdrv_new("");
+    bss = *bs;
+    bss->file = file;
+    return bdrv_open_common(bss, file->filename, BDRV_O_CONVERSION, drv,
+                            drv_options, usr_options, force);
+}
+
 int bdrv_get_conversion_options(BlockDriverState *bs,
                                 BlockConversionOptions *options)
 {
