@@ -1540,6 +1540,52 @@ static int bdrv_qed_get_mapping(BlockDriverState *bs, uint64_t guest_offset,
     return 0;
 }
 
+static int bdrv_qed_map(BlockDriverState *bs, uint64_t guest_offset,
+                        uint64_t host_offset, uint64_t contiguous_bytes)
+{
+    BDRVQEDState* s = bs->opaque;
+    if(guest_offset != qed_start_of_cluster(s, guest_offset)){
+        return -EINVAL;
+    }
+
+    if(contiguous_bytes % s->header.cluster_size != 0){
+        return -EINVAL;
+    }
+
+    while(contiguous_bytes > 0){
+        uint64_t l1_index, l2_index, first_l2;
+        int ret;
+        QEDRequest req = {.l2_table = NULL};
+
+
+        l1_index = qed_l1_index(s, guest_offset);
+        l2_index = qed_l2_index(s, guest_offset);
+        first_l2 = l2_index;
+        if(!s->l1_table->offsets[l1_index]){
+            CachedL2Table * table = qed_new_l2_table(s);
+            s->l1_table->offsets[l1_index] = table->offset;
+            qed_write_l1_table_sync(s, l1_index, 1);
+            qed_commit_l2_cache_entry(&s->l2_cache, table);
+        }
+
+        ret = qed_read_l2_table_sync(s, &req, s->l1_table->offsets[l1_index]);
+        if(ret){
+            return ret;
+        }
+
+        for(;l2_index < s->table_nelems && contiguous_bytes > 0; l2_index++){
+            req.l2_table->table->offsets[l2_index] = host_offset;
+            host_offset += s->header.cluster_size;
+            contiguous_bytes -= s->header.cluster_size;
+        }
+
+        ret = qed_write_l2_table_sync(s, &req, 0, s->table_nelems, true);
+        qed_unref_l2_cache_entry(req.l2_table);
+
+    }
+    return 0;
+}
+
 static QEMUOptionParameter qed_create_options[] = {
     {
         .name = BLOCK_OPT_SIZE,
@@ -1589,6 +1635,7 @@ static BlockDriver bdrv_qed = {
     .bdrv_get_conversion_options = bdrv_qed_get_conversion_options,
     .bdrv_open_conversion_target = bdrv_qed_open_conversion_target,
     .bdrv_get_mapping         = bdrv_qed_get_mapping,
+    .bdrv_map                 = bdrv_qed_map,
 };
 
 static void bdrv_qed_init(void)
