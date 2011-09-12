@@ -1512,6 +1512,34 @@ static int bdrv_qed_open_conversion_target(BlockDriverState *bs,
     return 0;
 }
 
+static int bdrv_qed_get_mapping(BlockDriverState *bs, uint64_t guest_offset,
+                                uint64_t *host_offset,
+                                uint64_t *contiguous_bytes)
+{
+    BDRVQEDState *s = bs->opaque;
+    size_t l2_size = s->header.cluster_size * s->table_nelems;
+    uint64_t pos = guest_offset;
+    uint64_t offset;
+    size_t len = 0;
+    QEDRequest req = {.l2_table = NULL};
+    int ret;
+
+    if (pos >= s->header.image_size) {
+        *contiguous_bytes = 0;
+        return 0;
+    }
+
+    ret = qed_find_cluster_sync(s, &req, guest_offset, l2_size, &offset, &len);
+    qed_unref_l2_cache_entry(req.l2_table);
+
+    *host_offset = offset;
+    *contiguous_bytes = len;
+    if (ret != QED_CLUSTER_FOUND) {
+        return 1;
+    }
+    return 0;
+}
+
 static QEMUOptionParameter qed_create_options[] = {
     {
         .name = BLOCK_OPT_SIZE,
@@ -1560,6 +1588,7 @@ static BlockDriver bdrv_qed = {
     .bdrv_check               = bdrv_qed_check,
     .bdrv_get_conversion_options = bdrv_qed_get_conversion_options,
     .bdrv_open_conversion_target = bdrv_qed_open_conversion_target,
+    .bdrv_get_mapping         = bdrv_qed_get_mapping,
 };
 
 static void bdrv_qed_init(void)
