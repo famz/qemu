@@ -1586,6 +1586,20 @@ static int bdrv_qed_map(BlockDriverState *bs, uint64_t guest_offset,
     return 0;
 }
 
+static int bdrv_qed_copy_header(BlockDriverState *bs, char* filename)
+{
+    BlockDriverState *backup;
+    uint8_t buffer[512];
+    bdrv_create_file(filename, NULL);
+    bdrv_file_open(&backup, filename, BDRV_O_RDWR);
+    bdrv_read(bs->file, 0, buffer, 1); /*TODO: check return code*/
+    bdrv_write(backup, 0, buffer, 1); /*TODO: check return code*/
+    bdrv_close(backup);
+
+    qed_write_header_sync(bs->opaque);
+    return 0;
+}
+
 static QEMUOptionParameter qed_create_options[] = {
     {
         .name = BLOCK_OPT_SIZE,
@@ -1636,6 +1650,7 @@ static BlockDriver bdrv_qed = {
     .bdrv_open_conversion_target = bdrv_qed_open_conversion_target,
     .bdrv_get_mapping         = bdrv_qed_get_mapping,
     .bdrv_map                 = bdrv_qed_map,
+    .bdrv_copy_header            = bdrv_qed_copy_header,
 };
 
 static void bdrv_qed_init(void)
