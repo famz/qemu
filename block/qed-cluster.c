@@ -163,3 +163,36 @@ void qed_find_cluster(BDRVQEDState *s, QEDRequest *request, uint64_t pos,
     qed_read_l2_table(s, request, l2_offset,
                       qed_find_cluster_cb, find_cluster_cb);
 }
+
+typedef struct {
+    int ret;
+    uint64_t *offset;
+    size_t *len;
+} QEDFindClusterSyncCB;
+
+static void qed_find_cluster_sync_cb(void *opaque, int ret, uint64_t offset,
+                              size_t len)
+{
+    QEDFindClusterSyncCB *find_cluster_sync_cb = opaque;
+    *find_cluster_sync_cb->offset = offset;
+    *find_cluster_sync_cb->len = len;
+    find_cluster_sync_cb->ret = ret;
+}
+
+int qed_find_cluster_sync(BDRVQEDState *s, QEDRequest *request, uint64_t pos,
+                          size_t len, uint64_t *offset,
+                          size_t *contiguous_bytes)
+{
+    QEDFindClusterSyncCB find_cluster_cb;
+    find_cluster_cb.ret = -EINPROGRESS;
+    find_cluster_cb.offset = offset;
+    find_cluster_cb.len = contiguous_bytes;
+
+    qed_find_cluster(s, request, pos, len, &qed_find_cluster_sync_cb,
+                     &find_cluster_cb);
+    while (find_cluster_cb.ret == -EINPROGRESS) {
+        qemu_aio_wait();
+    }
+
+    return find_cluster_cb.ret;
+}

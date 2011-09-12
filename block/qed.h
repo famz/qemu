@@ -239,6 +239,10 @@ int qed_write_l2_table_sync(BDRVQEDState *s, QEDRequest *request,
 void qed_find_cluster(BDRVQEDState *s, QEDRequest *request, uint64_t pos,
                       size_t len, QEDFindClusterFunc *cb, void *opaque);
 
+int qed_find_cluster_sync(BDRVQEDState *s, QEDRequest *request, uint64_t pos,
+                          size_t len, uint64_t *offset,
+                          size_t *contiguous_bytes);
+
 /**
  * Consistency check
  */
