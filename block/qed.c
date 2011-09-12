@@ -1456,6 +1456,62 @@ static int bdrv_qed_get_conversion_options(BlockDriverState *bs,
     return 0;
 }
 
+static int bdrv_qed_open_conversion_target(BlockDriverState *bs,
+                                           BlockConversionOptions *drv_options,
+                                           QEMUOptionParameter *usr_options,
+                                           bool force)
+{
+    BDRVQEDState *s = bs->opaque;
+    s->bs = bs;
+    if (drv_options->encryption_type != BLOCK_CRYPT_NONE) {
+        error_report("Encryption not supported");
+        return -ENOTSUP;
+    }
+    if(drv_options->nb_snapshots && !force) {
+        error_report("Snapshots are not supported");
+        return -ENOTSUP;
+    }
+    s->header.magic = QED_MAGIC;
+    s->header.table_size = QED_DEFAULT_TABLE_SIZE;
+    if(qed_is_cluster_size_valid(drv_options->cluster_size)) {
+        s->header.cluster_size = drv_options->cluster_size;
+    } else {
+        error_report("Invalid cluster size");
+        return -EINVAL;
+    }
+    if(qed_is_image_size_valid(drv_options->image_size, s->header.cluster_size,
+                               s->header.table_size)) {
+        s->header.image_size = drv_options->image_size;
+    } else {
+        error_report("Invalid image size");
+        return -EINVAL;
+    }
+    s->file_size = qed_Start_of_cluster(s, bs->file->total_sectors +
+                                        drv_options->cluster_size -1);
+    s->l1_table = qed_alloc_table(s);
+    s->header.l1_table_offset = qed_alloc_clusters(s, s->header.table_size);
+    QSIMPLEQ_INIT(&s->allocating_write_reqs);
+
+
+    if (!qed_check_table_offset(s, s->header.l1_table_offset)) {
+        error_report("Invalid L1 table offset");
+        return -EINVAL;
+    }
+
+    s->table_nelems = (s->header.cluster_size * s->header.table_size) /
+                      sizeof(uint64_t);
+    s->l2_shift = ffs(s->header.cluster_size) - 1;
+    s->l2_mask = s->table_nelems - 1;
+    s->l1_shift = s->l2_shift + ffs(s->table_nelems) - 1;
+
+    qed_init_l2_cache(&s->l2_cache);
+
+    s->need_check_timer = qemu_new_timer_ns(vm_clock,
+                                            qed_need_check_timer_cb, s);
+    qed_write_l1_table_sync(s, 0, s->table_nelems);
+    return 0;
+}
+
 static QEMUOptionParameter qed_create_options[] = {
     {
         .name = BLOCK_OPT_SIZE,
@@ -1503,6 +1559,7 @@ static BlockDriver bdrv_qed = {
     .bdrv_change_backing_file = bdrv_qed_change_backing_file,
     .bdrv_check               = bdrv_qed_check,
     .bdrv_get_conversion_options = bdrv_qed_get_conversion_options,
+    .bdrv_open_conversion_target = bdrv_qed_open_conversion_target,
 };
 
 static void bdrv_qed_init(void)
