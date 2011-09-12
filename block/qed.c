@@ -1444,6 +1444,18 @@ static int bdrv_qed_check(BlockDriverState *bs, BdrvCheckResult *result)
     return qed_check(s, result, false);
 }
 
+static int bdrv_qed_get_conversion_options(BlockDriverState *bs,
+                                           BlockConversionOptions *options)
+{
+    BDRVQEDState* s = bs->opaque;
+
+    options->encryption_type = 0;
+    options->cluster_size = s->header.cluster_size;
+    options->image_size = s->header.image_size;
+    options->nb_snapshots = 0;
+    return 0;
+}
+
 static QEMUOptionParameter qed_create_options[] = {
     {
         .name = BLOCK_OPT_SIZE,
@@ -1490,6 +1502,7 @@ static BlockDriver bdrv_qed = {
     .bdrv_get_info            = bdrv_qed_get_info,
     .bdrv_change_backing_file = bdrv_qed_change_backing_file,
     .bdrv_check               = bdrv_qed_check,
+    .bdrv_get_conversion_options = bdrv_qed_get_conversion_options,
 };
 
 static void bdrv_qed_init(void)
