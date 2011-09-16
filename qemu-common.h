@@ -18,6 +18,7 @@ typedef struct DeviceState DeviceState;
 
 struct Monitor;
 typedef struct Monitor Monitor;
+typedef struct QEMUSGList QEMUSGList;
 
 /* we put basic includes here to avoid repeating them in device drivers */
 #include <stdlib.h>
