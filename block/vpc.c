@@ -120,6 +120,8 @@ typedef struct BDRVVPCState {
     uint32_t block_size;
     uint32_t bitmap_size;
 
+    CoMutex lock;
+
 #ifdef CACHE
     uint8_t *pageentry_u8;
     uint32_t *pageentry_u32;
@@ -225,6 +227,8 @@ static int vpc_open(BlockDriverState *bs, int flags)
     s->pageentry_u16 = s->pageentry_u8;
     s->last_pagetable = -1;
 #endif
+
+    qemu_co_mutex_init(&s->lock);
 
     return 0;
  fail:
@@ -373,13 +377,18 @@ fail:
     return -1;
 }
 
-static int vpc_read(BlockDriverState *bs, int64_t sector_num,
-                    uint8_t *buf, int nb_sectors)
+static int vpc_co_readv(BlockDriverState *bs, int64_t sector_num,
+                        int nb_sectors, QEMUIOVector *qiov)
 {
     BDRVVPCState *s = bs->opaque;
     int ret;
     int64_t offset;
     int64_t sectors, sectors_per_block;
+    int64_t bytes_done = 0;
+    QEMUIOVector hd_qiov;
+
+    qemu_iovec_init(&hd_qiov, qiov->niov);
+    qemu_co_mutex_lock(&s->lock);
 
     while (nb_sectors > 0) {
         offset = get_sector_offset(bs, sector_num, 0);
@@ -390,30 +399,43 @@ static int vpc_read(BlockDriverState *bs, int64_t sector_num,
             sectors = nb_sectors;
         }
 
+        qemu_iovec_reset(&hd_qiov);
+        qemu_iovec_copy(&hd_qiov, qiov, bytes_done,
+            sectors * BDRV_SECTOR_SIZE);
+
         if (offset == -1) {
-            memset(buf, 0, sectors * BDRV_SECTOR_SIZE);
+            qemu_iovec_memset(&hd_qiov, 0, sectors * BDRV_SECTOR_SIZE);
         } else {
-            ret = bdrv_pread(bs->file, offset, buf,
-                sectors * BDRV_SECTOR_SIZE);
-            if (ret != sectors * BDRV_SECTOR_SIZE) {
-                return -1;
+            ret = bdrv_co_readv(bs->file, offset, sectors, &hd_qiov);
+            if (ret < 0) {
+                goto fail;
             }
         }
 
         nb_sectors -= sectors;
         sector_num += sectors;
-        buf += sectors * BDRV_SECTOR_SIZE;
+        bytes_done += sectors * BDRV_SECTOR_SIZE;
     }
-    return 0;
+
+    ret = 0;
+fail:
+    qemu_co_mutex_unlock(&s->lock);
+    qemu_iovec_destroy(&hd_qiov);
+    return ret;
 }
 
-static int vpc_write(BlockDriverState *bs, int64_t sector_num,
-    const uint8_t *buf, int nb_sectors)
+static int vpc_co_writev(BlockDriverState *bs, int64_t sector_num,
+                         int nb_sectors, QEMUIOVector *qiov)
 {
     BDRVVPCState *s = bs->opaque;
     int64_t offset;
     int64_t sectors, sectors_per_block;
     int ret;
+    int64_t bytes_done = 0;
+    QEMUIOVector hd_qiov;
+
+    qemu_iovec_init(&hd_qiov, qiov->niov);
+    qemu_co_mutex_lock(&s->lock);
 
     while (nb_sectors > 0) {
         offset = get_sector_offset(bs, sector_num, 1);
@@ -426,24 +448,35 @@ static int vpc_write(BlockDriverState *bs, int64_t sector_num,
 
         if (offset == -1) {
             offset = alloc_block(bs, sector_num);
-            if (offset < 0)
-                return -1;
+            if (offset < 0) {
+                ret = -EIO;
+                goto fail;
+            }
         }
 
-        ret = bdrv_pwrite(bs->file, offset, buf, sectors * BDRV_SECTOR_SIZE);
-        if (ret != sectors * BDRV_SECTOR_SIZE) {
-            return -1;
+        qemu_iovec_reset(&hd_qiov);
+        qemu_iovec_copy(&hd_qiov, qiov, bytes_done,
+            sectors * BDRV_SECTOR_SIZE);
+
+
+        ret = bdrv_co_writev(bs->file, offset, sectors, &hd_qiov);
+        if (ret < 0) {
+            goto fail;
         }
 
         nb_sectors -= sectors;
         sector_num += sectors;
-        buf += sectors * BDRV_SECTOR_SIZE;
+        bytes_done += sectors * BDRV_SECTOR_SIZE;
     }
 
-    return 0;
+    ret = 0;
+fail:
+    qemu_co_mutex_unlock(&s->lock);
+    qemu_iovec_destroy(&hd_qiov);
+    return ret;
 }
 
-static int vpc_flush(BlockDriverState *bs)
+static int vpc_co_flush(BlockDriverState *bs)
 {
     return bdrv_flush(bs->file);
 }
@@ -639,9 +672,9 @@ static BlockDriver bdrv_vpc = {
     .instance_size  = sizeof(BDRVVPCState),
     .bdrv_probe     = vpc_probe,
     .bdrv_open      = vpc_open,
-    .bdrv_read      = vpc_read,
-    .bdrv_write     = vpc_write,
-    .bdrv_flush     = vpc_flush,
+    .bdrv_co_readv  = vpc_co_readv,
+    .bdrv_co_writev = vpc_co_writev,
+    .bdrv_co_flush  = vpc_co_flush,
     .bdrv_close     = vpc_close,
     .bdrv_create    = vpc_create,
 
