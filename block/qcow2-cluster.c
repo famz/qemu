@@ -413,6 +413,40 @@ out:
     return ret;
 }
 
+static bool overlaps_allocation(BlockDriverState *bs, uint64_t start,
+    int *num, uint64_t *cluster_offset)
+{
+    BDRVQcowState *s = bs->opaque;
+    QCowL2Meta *m;
+    uint64_t end = start + (*num << BDRV_SECTOR_BITS);
+
+    QLIST_FOREACH(m, &s->cluster_allocs, next_in_flight) {
+
+        uint64_t old_start = l2meta_req_start(m);
+        uint64_t old_end = l2meta_req_end(m);
+
+        /* If the write hasn't completed yet and the allocating request can't
+         * have completed yet therefore, we're free to read the old data. */
+        if (!m->is_written) {
+            continue;
+        }
+
+        if (start >= old_start && start < old_end) {
+            /* Start of the new request overlaps: Read from the newly allocated
+             * cluster even if it isn't in the L2 table yet. */
+            *num = MIN(*num, (old_end - start) >> BDRV_SECTOR_BITS);
+            *cluster_offset = m->alloc_offset
+                + ((start - old_start) & ~(s->cluster_size - 1));
+            return true;
+        } else if (start < old_start && end > old_start) {
+            /* Overlap somewhere after the start. Shorten this request so that
+             * no overlap occurs. */
+            *num = MIN(*num, (old_start - start) >> BDRV_SECTOR_BITS);
+        }
+    }
+
+    return false;
+}
 
 /*
  * get_cluster_offset
@@ -438,6 +472,11 @@ int qcow2_get_cluster_offset(BlockDriverState *bs, uint64_t offset,
     unsigned int index_in_cluster, nb_clusters;
     uint64_t nb_available, nb_needed;
     int ret;
+
+    /* Check overlap with not yet completed allocations */
+    if (overlaps_allocation(bs, offset, num, cluster_offset)) {
+        return QCOW2_CLUSTER_NORMAL;
+    }
 
     index_in_cluster = (offset >> 9) & (s->cluster_sectors - 1);
     nb_needed = *num + index_in_cluster;

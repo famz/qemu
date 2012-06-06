@@ -271,6 +271,14 @@ typedef struct QCowL2Meta
     int nb_clusters;
 
     /**
+     * true if the guest data (but not necessarily the related COW) has been
+     * written to disk, so that read requests can (and after having completed
+     * this request actually _must_) read the new data instead of reading the
+     * old data that the L2 table still refers to.
+     */
+    bool is_written;
+
+    /**
      * Requests that overlap with this allocation and wait to be restarted
      * when the allocating request has completed.
      */
@@ -400,6 +408,17 @@ static inline int qcow2_get_cluster_type(uint64_t l2_entry)
 static inline bool qcow2_need_accurate_refcounts(BDRVQcowState *s)
 {
     return !(s->incompatible_features & QCOW2_INCOMPAT_DIRTY);
+}
+
+static inline uint64_t l2meta_req_start(QCowL2Meta *m)
+{
+    return (m->offset + m->cow_start.offset)
+        + (m->cow_start.nb_sectors << BDRV_SECTOR_BITS);
+}
+
+static inline uint64_t l2meta_req_end(QCowL2Meta *m)
+{
+    return m->offset + (m->nb_available << BDRV_SECTOR_BITS);
 }
 
 static inline uint64_t l2meta_cow_start(QCowL2Meta *m)
