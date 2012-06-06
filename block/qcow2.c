@@ -825,6 +825,8 @@ static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
         }
 
         if (l2meta != NULL) {
+            l2meta->is_written = true;
+
             ret = qcow2_alloc_cluster_link_l2(bs, l2meta);
             if (ret < 0) {
                 goto fail;
