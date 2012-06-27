@@ -168,6 +168,9 @@ struct BlockDriver {
      */
     int coroutine_fn (*bdrv_co_flush_to_os)(BlockDriverState *bs);
 
+    /** Returns true if the block device is still busy */
+    bool (*bdrv_drain)(BlockDriverState *bs);
+
     const char *protocol_name;
     int (*bdrv_truncate)(BlockDriverState *bs, int64_t offset);
 

@@ -196,6 +196,14 @@ typedef struct BDRVQcowState {
 
     CoMutex lock;
 
+    /*
+     * Only to be aquired while s->lock is not held.
+     *
+     * Readers: All l2meta coroutines that are in flight
+     * Writers: Anyone who requires l2meta to be flushed
+     */
+    CoRwlock l2meta_flush;
+
     uint32_t crypt_method; /* current crypt method, 0 if no key yet */
     uint32_t crypt_method_header;
     AES_KEY aes_encrypt_key;

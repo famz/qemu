@@ -1709,6 +1709,13 @@ void bdrv_close_all(void)
 /* Check if any requests are in-flight (including throttled requests) */
 static bool bdrv_requests_pending(BlockDriverState *bs)
 {
+    /* If there is a drain callback, call it first to make progress */
+    if (bs->drv && bs->drv->bdrv_drain) {
+        if (bs->drv->bdrv_drain(bs)) {
+            return true;
+        }
+    }
+
     if (!QLIST_EMPTY(&bs->tracked_requests)) {
         return true;
     }

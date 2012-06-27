@@ -655,6 +655,7 @@ static int qcow2_open(BlockDriverState *bs, QDict *options, int flags,
 
     /* Initialise locks */
     qemu_co_mutex_init(&s->lock);
+    qemu_co_rwlock_init(&s->l2meta_flush);
 
     /* Repair image if dirty */
     if (!(flags & BDRV_O_CHECK) && !bs->read_only &&
@@ -993,6 +994,70 @@ fail:
     return ret;
 }
 
+typedef struct ProcessL2Meta {
+    BlockDriverState *bs;
+    QCowL2Meta *m;
+} ProcessL2Meta;
+
+/**
+ * Processes the second part of a request that wrote to newly allocated
+ * clusters (most importantly, doing COW and updating the L2).
+ *
+ * Make sure that s->l2meta_flush is held as a reader when when entering the
+ * coroutine.
+ */
+static void coroutine_fn process_l2meta(void *opaque)
+{
+    ProcessL2Meta *p = opaque;
+    QCowL2Meta *m = p->m;
+    BlockDriverState *bs = p->bs;
+    BDRVQcowState *s = bs->opaque;
+    int ret;
+
+    assert(s->l2meta_flush.reader > 0);
+    qemu_co_mutex_lock(&s->lock);
+
+    ret = qcow2_alloc_cluster_link_l2(bs, m);
+    if (ret < 0) {
+        /* FIXME */
+    }
+
+    qemu_co_mutex_unlock(&s->lock);
+
+    /* Take the request off the list of running requests */
+    if (m->nb_clusters != 0) {
+        QLIST_REMOVE(m, next_in_flight);
+    }
+
+    /* Meanwhile some new dependencies could have accumulated */
+    qemu_co_queue_restart_all(&m->dependent_requests);
+
+    g_free(m);
+
+    qemu_co_rwlock_unlock(&s->l2meta_flush);
+}
+
+static bool qcow2_drain(BlockDriverState *bs)
+{
+    BDRVQcowState *s = bs->opaque;
+
+    return !QLIST_EMPTY(&s->cluster_allocs);
+}
+
+static inline coroutine_fn void stop_l2meta(BlockDriverState *bs)
+{
+    BDRVQcowState *s = bs->opaque;
+
+    qemu_co_rwlock_wrlock(&s->l2meta_flush);
+}
+
+static inline coroutine_fn void resume_l2meta(BlockDriverState *bs)
+{
+    BDRVQcowState *s = bs->opaque;
+
+    qemu_co_rwlock_unlock(&s->l2meta_flush);
+}
+
 static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
                            int64_t sector_num,
                            int remaining_sectors,
@@ -1079,26 +1144,37 @@ static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
             goto fail;
         }
 
-        while (l2meta != NULL) {
-            QCowL2Meta *next;
+        if (l2meta != NULL) {
+            qemu_co_mutex_unlock(&s->lock);
 
-            l2meta->is_written = true;
+            while (l2meta != NULL) {
+                Coroutine *co;
+                QCowL2Meta *next;
 
-            ret = qcow2_alloc_cluster_link_l2(bs, l2meta);
-            if (ret < 0) {
-                goto fail;
+                ProcessL2Meta p = {
+                    .bs = bs,
+                    .m  = l2meta,
+                };
+
+                /*
+                 * Must take l2meta_flush already here instead of in the
+                 * coroutine; otherwise it would be possible that a concurrent
+                 * flush would claim that this request is written to the disk
+                 * when the metadata isn't written yet in fact.
+                 */
+                qemu_co_rwlock_rdlock(&s->l2meta_flush);
+                l2meta->is_written = true;
+
+                /* l2meta might already be freed after the coroutine has run */
+                next = l2meta->next;
+
+                co = qemu_coroutine_create(process_l2meta);
+                qemu_coroutine_enter(co, &p);
+
+                l2meta = next;
             }
 
-            /* Take the request off the list of running requests */
-            if (l2meta->nb_clusters != 0) {
-                QLIST_REMOVE(l2meta, next_in_flight);
-            }
-
-            qemu_co_queue_restart_all(&l2meta->dependent_requests);
-
-            next = l2meta->next;
-            g_free(l2meta);
-            l2meta = next;
+            qemu_co_mutex_lock(&s->lock);
         }
 
         remaining_sectors -= cur_nr_sectors;
@@ -1134,6 +1210,11 @@ fail:
 static void qcow2_close(BlockDriverState *bs)
 {
     BDRVQcowState *s = bs->opaque;
+
+    while (qcow2_drain(bs)) {
+        qemu_aio_wait();
+    }
+
     g_free(s->l1_table);
     /* else pre-write overlap checks in cache_destroy may crash */
     s->l1_table = NULL;
@@ -1703,10 +1784,12 @@ static coroutine_fn int qcow2_co_write_zeroes(BlockDriverState *bs,
     }
 
     /* Whatever is left can use real zero clusters */
+    stop_l2meta(bs);
     qemu_co_mutex_lock(&s->lock);
     ret = qcow2_zero_clusters(bs, sector_num << BDRV_SECTOR_BITS,
         nb_sectors);
     qemu_co_mutex_unlock(&s->lock);
+    resume_l2meta(bs);
 
     return ret;
 }
@@ -1717,10 +1800,13 @@ static coroutine_fn int qcow2_co_discard(BlockDriverState *bs,
     int ret;
     BDRVQcowState *s = bs->opaque;
 
+    stop_l2meta(bs);
     qemu_co_mutex_lock(&s->lock);
     ret = qcow2_discard_clusters(bs, sector_num << BDRV_SECTOR_BITS,
         nb_sectors, QCOW2_DISCARD_REQUEST);
     qemu_co_mutex_unlock(&s->lock);
+    resume_l2meta(bs);
+
     return ret;
 }
 
@@ -1866,23 +1952,27 @@ static coroutine_fn int qcow2_co_flush_to_os(BlockDriverState *bs)
     BDRVQcowState *s = bs->opaque;
     int ret;
 
+    stop_l2meta(bs);
     qemu_co_mutex_lock(&s->lock);
+
     ret = qcow2_cache_flush(bs, s->l2_table_cache);
     if (ret < 0) {
-        qemu_co_mutex_unlock(&s->lock);
-        return ret;
+        goto fail;
     }
 
     if (qcow2_need_accurate_refcounts(s)) {
         ret = qcow2_cache_flush(bs, s->refcount_block_cache);
         if (ret < 0) {
-            qemu_co_mutex_unlock(&s->lock);
-            return ret;
+            goto fail;
         }
     }
-    qemu_co_mutex_unlock(&s->lock);
 
-    return 0;
+    ret = 0;
+fail:
+    qemu_co_mutex_unlock(&s->lock);
+    resume_l2meta(bs);
+
+    return ret;
 }
 
 static int qcow2_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
@@ -2238,6 +2328,7 @@ static BlockDriver bdrv_qcow2 = {
     .bdrv_co_readv          = qcow2_co_readv,
     .bdrv_co_writev         = qcow2_co_writev,
     .bdrv_co_flush_to_os    = qcow2_co_flush_to_os,
+    .bdrv_drain             = qcow2_drain,
 
     .bdrv_co_write_zeroes   = qcow2_co_write_zeroes,
     .bdrv_co_discard        = qcow2_co_discard,
