@@ -1225,7 +1225,12 @@ void bdrv_drain_all(void)
                 qemu_co_queue_restart_all(&bs->throttled_reqs);
                 busy = true;
             }
+
+            if (bs->drv && bs->drv->bdrv_drain) {
+                busy |= bs->drv->bdrv_drain(bs);
+            }
         }
+
     } while (busy);
 
     /* If requests are still pending there is a bug somewhere */
