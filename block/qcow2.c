@@ -767,6 +767,13 @@ static void coroutine_fn process_l2meta(void *opaque)
     int ret;
 
     assert(s->l2meta_flush.reader > 0);
+
+    if (!s->in_l2meta_flush) {
+        m->sleeping = true;
+        co_sleep_ns(rt_clock, 1000000);
+        m->sleeping = false;
+    }
+
     qemu_co_mutex_lock(&s->lock);
 
     ret = qcow2_alloc_cluster_link_l2(bs, m);
@@ -792,6 +799,18 @@ static void coroutine_fn process_l2meta(void *opaque)
 static bool qcow2_drain(BlockDriverState *bs)
 {
     BDRVQcowState *s = bs->opaque;
+    QCowL2Meta *m;
+
+    s->in_l2meta_flush = true;
+again:
+    QLIST_FOREACH(m, &s->cluster_allocs, next_in_flight) {
+        if (m->sleeping) {
+            qemu_coroutine_enter(m->co, NULL);
+            /* next_in_flight link could have become invalid */
+            goto again;
+        }
+    }
+    s->in_l2meta_flush = false;
 
     return !QLIST_EMPTY(&s->cluster_allocs);
 }
@@ -800,6 +819,9 @@ static inline coroutine_fn void stop_l2meta(BlockDriverState *bs)
 {
     BDRVQcowState *s = bs->opaque;
 
+    /* Kick the requests once if they are sleepeing and then just wait until
+     * they complete and we get the lock */
+    qcow2_drain(bs);
     qemu_co_rwlock_wrlock(&s->l2meta_flush);
 }
 
@@ -890,7 +912,6 @@ static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
         }
 
         if (l2meta != NULL) {
-            Coroutine *co;
             ProcessL2Meta p = {
                 .bs = bs,
                 .m  = l2meta,
@@ -906,8 +927,8 @@ static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
             qemu_co_rwlock_rdlock(&s->l2meta_flush);
 
             l2meta->is_written = true;
-            co = qemu_coroutine_create(process_l2meta);
-            qemu_coroutine_enter(co, &p);
+            l2meta->co = qemu_coroutine_create(process_l2meta);
+            qemu_coroutine_enter(l2meta->co, &p);
 
             l2meta = NULL;
             qemu_co_mutex_lock(&s->lock);

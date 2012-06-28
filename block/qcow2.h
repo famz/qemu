@@ -169,6 +169,7 @@ typedef struct BDRVQcowState {
      * Writers: Anyone who requires l2meta to be flushed
      */
     CoRwlock l2meta_flush;
+    bool in_l2meta_flush;
 
     uint32_t crypt_method; /* current crypt method, 0 if no key yet */
     uint32_t crypt_method_header;
@@ -243,6 +244,15 @@ typedef struct QCowL2Meta
      * old data that the L2 table still refers to.
      */
     bool is_written;
+
+    /**
+     * true if the request is sleeping in the COW delay and the coroutine may
+     * be reentered in order to cancel the timer.
+     */
+    bool sleeping;
+
+    /** Coroutine that handles delayed COW and updates L2 entry */
+    Coroutine *co;
 
     /**
      * Requests that overlap with this allocation and wait to be restarted
