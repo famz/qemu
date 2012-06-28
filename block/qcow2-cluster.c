@@ -825,29 +825,29 @@ static void kick_l2meta(QCowL2Meta *m)
  * request has completed and updated the L2 table accordingly.
  */
 static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
-    unsigned int *nb_clusters)
+    uint64_t bytes, unsigned int *nb_clusters)
 {
     BDRVQcowState *s = bs->opaque;
     QCowL2Meta *old_alloc;
 
     QLIST_FOREACH(old_alloc, &s->cluster_allocs, next_in_flight) {
 
-        uint64_t start = guest_offset >> s->cluster_bits;
-        uint64_t end = start + *nb_clusters;
-        uint64_t old_start = old_alloc->offset >> s->cluster_bits;
-        uint64_t old_end = old_start + old_alloc->nb_clusters;
+        uint64_t start = guest_offset;
+        uint64_t end = start + bytes;
+        uint64_t old_start = l2meta_cow_start(old_alloc);
+        uint64_t old_end = l2meta_cow_end(old_alloc);
 
-        if (end < old_start || start > old_end) {
+        if (end <= old_start || start >= old_end) {
             /* No intersection */
         } else {
             if (start < old_start) {
                 /* Stop at the start of a running allocation */
-                *nb_clusters = old_start - start;
+                bytes = old_start - start;
             } else {
-                *nb_clusters = 0;
+                bytes = 0;
             }
 
-            if (*nb_clusters == 0) {
+            if (bytes == 0) {
                 /* Wait for the dependency to complete. We need to recheck
                  * the free/allocated clusters when we continue. */
                 qemu_co_mutex_unlock(&s->lock);
@@ -858,6 +858,9 @@ static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
             }
         }
     }
+
+    *nb_clusters = size_to_clusters(s, guest_offset + bytes)
+                 - (guest_offset >> s->cluster_bits);
 
     if (!*nb_clusters) {
         abort();
@@ -952,6 +955,7 @@ again:
     l2_index = offset_to_l2_index(s, offset);
     nb_clusters = MIN(size_to_clusters(s, n_end << BDRV_SECTOR_BITS),
                       s->l2_size - l2_index);
+    n_end = MIN(n_end, nb_clusters * s->cluster_sectors);
 
     /*
      * Now start gathering as many contiguous clusters as possible:
@@ -976,7 +980,9 @@ again:
      * 3. If the request still hasn't completed, allocate new clusters,
      *    considering any cluster_offset of steps 1c or 2.
      */
-    ret = handle_dependencies(bs, offset, &nb_clusters);
+    ret = handle_dependencies(bs, offset,
+                              (n_end - n_start) * BDRV_SECTOR_SIZE,
+                              &nb_clusters);
     if (ret == -EAGAIN) {
         goto again;
     } else if (ret < 0) {

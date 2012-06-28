@@ -343,6 +343,17 @@ static inline uint64_t l2meta_req_end(QCowL2Meta *m)
     return m->offset + (m->nb_available << BDRV_SECTOR_BITS);
 }
 
+static inline uint64_t l2meta_cow_start(QCowL2Meta *m)
+{
+    return m->offset + m->cow_start.offset;
+}
+
+static inline uint64_t l2meta_cow_end(QCowL2Meta *m)
+{
+    return m->offset + m->cow_end.offset
+        + (m->cow_end.nb_sectors << BDRV_SECTOR_BITS);
+}
+
 // FIXME Need qcow2_ prefix to global functions
 
 /* qcow2.c functions */
