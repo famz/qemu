@@ -840,6 +840,50 @@ out:
     return i;
 }
 
+struct KickL2Meta {
+    QEMUBH *bh;
+    QCowL2Meta *m;
+};
+
+static void kick_l2meta_bh(void *opaque)
+{
+    struct KickL2Meta *k = opaque;
+    QCowL2Meta *m = k->m;
+
+    m->kick_l2meta = NULL;
+    qemu_bh_delete(k->bh);
+    g_free(k);
+
+    if (m->sleeping) {
+        qemu_coroutine_enter(m->co, NULL);
+    }
+}
+
+static void kick_l2meta(QCowL2Meta *m)
+{
+    struct KickL2Meta *k;
+
+    if (m->kick_l2meta) {
+        return;
+    }
+
+    k = g_malloc(sizeof(*k));
+    k->bh = qemu_bh_new(kick_l2meta_bh, k);
+    k->m = m;
+
+    m->kick_l2meta = k;
+
+    qemu_bh_schedule(k->bh);
+}
+
+void qcow2_delete_kick_l2meta_bh(struct KickL2Meta *k)
+{
+    if (k) {
+        qemu_bh_delete(k->bh);
+        g_free(k);
+    }
+}
+
 /*
  * Check if there already is an AIO write request in flight which allocates
  * the same cluster. In this case we need to wait until the previous
@@ -891,6 +935,7 @@ static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
                 /* Wait for the dependency to complete. We need to recheck
                  * the free/allocated clusters when we continue. */
                 qemu_co_mutex_unlock(&s->lock);
+                kick_l2meta(old_alloc);
                 qemu_co_queue_wait(&old_alloc->dependent_requests);
                 qemu_co_mutex_lock(&s->lock);
                 return -EAGAIN;

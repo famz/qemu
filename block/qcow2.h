@@ -203,6 +203,7 @@ typedef struct BDRVQcowState {
      * Writers: Anyone who requires l2meta to be flushed
      */
     CoRwlock l2meta_flush;
+    bool in_l2meta_flush;
 
     uint32_t crypt_method; /* current crypt method, 0 if no key yet */
     uint32_t crypt_method_header;
@@ -245,6 +246,7 @@ typedef struct QCowCreateState {
 } QCowCreateState;
 
 struct QCowAIOCB;
+struct KickL2Meta;
 
 typedef struct Qcow2COWRegion {
     /**
@@ -287,6 +289,15 @@ typedef struct QCowL2Meta
     bool is_written;
 
     /**
+     * true if the request is sleeping in the COW delay and the coroutine may
+     * be reentered in order to cancel the timer.
+     */
+    bool sleeping;
+
+    /** Coroutine that handles delayed COW and updates L2 entry */
+    Coroutine *co;
+
+    /**
      * Requests that overlap with this allocation and wait to be restarted
      * when the allocating request has completed.
      */
@@ -306,6 +317,12 @@ typedef struct QCowL2Meta
 
     /** Pointer to next L2Meta of the same write request */
     struct QCowL2Meta *next;
+
+    /**
+     * qcow2_delete_kick_l2meta_bh() must be called with this parameter before
+     * the QCowL2Meta is freed in order to avoid use after free.
+     */
+    struct KickL2Meta *kick_l2meta;
 
     QLIST_ENTRY(QCowL2Meta) next_in_flight;
 } QCowL2Meta;
@@ -506,6 +523,8 @@ int qcow2_discard_clusters(BlockDriverState *bs, uint64_t offset,
 int qcow2_zero_clusters(BlockDriverState *bs, uint64_t offset, int nb_sectors);
 
 int qcow2_expand_zero_clusters(BlockDriverState *bs);
+
+void qcow2_delete_kick_l2meta_bh(struct KickL2Meta *k);
 
 /* qcow2-snapshot.c functions */
 int qcow2_snapshot_create(BlockDriverState *bs, QEMUSnapshotInfo *sn_info);

@@ -1015,6 +1015,13 @@ static void coroutine_fn process_l2meta(void *opaque)
     int ret;
 
     assert(s->l2meta_flush.reader > 0);
+
+    if (!s->in_l2meta_flush) {
+        m->sleeping = true;
+        co_sleep_ns(QEMU_CLOCK_REALTIME, 1000000);
+        m->sleeping = false;
+    }
+
     qemu_co_mutex_lock(&s->lock);
 
     ret = qcow2_alloc_cluster_link_l2(bs, m);
@@ -1032,6 +1039,7 @@ static void coroutine_fn process_l2meta(void *opaque)
     /* Meanwhile some new dependencies could have accumulated */
     qemu_co_queue_restart_all(&m->dependent_requests);
 
+    qcow2_delete_kick_l2meta_bh(m->kick_l2meta);
     g_free(m);
 
     qemu_co_rwlock_unlock(&s->l2meta_flush);
@@ -1040,6 +1048,18 @@ static void coroutine_fn process_l2meta(void *opaque)
 static bool qcow2_drain(BlockDriverState *bs)
 {
     BDRVQcowState *s = bs->opaque;
+    QCowL2Meta *m;
+
+    s->in_l2meta_flush = true;
+again:
+    QLIST_FOREACH(m, &s->cluster_allocs, next_in_flight) {
+        if (m->sleeping) {
+            qemu_coroutine_enter(m->co, NULL);
+            /* next_in_flight link could have become invalid */
+            goto again;
+        }
+    }
+    s->in_l2meta_flush = false;
 
     return !QLIST_EMPTY(&s->cluster_allocs);
 }
@@ -1048,6 +1068,9 @@ static inline coroutine_fn void stop_l2meta(BlockDriverState *bs)
 {
     BDRVQcowState *s = bs->opaque;
 
+    /* Kick the requests once if they are sleeping and then just wait until
+     * they complete and we get the lock */
+    qcow2_drain(bs);
     qemu_co_rwlock_wrlock(&s->l2meta_flush);
 }
 
@@ -1148,7 +1171,6 @@ static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
             qemu_co_mutex_unlock(&s->lock);
 
             while (l2meta != NULL) {
-                Coroutine *co;
                 QCowL2Meta *next;
 
                 ProcessL2Meta p = {
@@ -1168,8 +1190,8 @@ static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
                 /* l2meta might already be freed after the coroutine has run */
                 next = l2meta->next;
 
-                co = qemu_coroutine_create(process_l2meta);
-                qemu_coroutine_enter(co, &p);
+                l2meta->co = qemu_coroutine_create(process_l2meta);
+                qemu_coroutine_enter(l2meta->co, &p);
 
                 l2meta = next;
             }
