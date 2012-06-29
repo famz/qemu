@@ -659,6 +659,8 @@ static int perform_cow(BlockDriverState *bs, QCowL2Meta *m, Qcow2COWRegion *r)
     BDRVQcowState *s = bs->opaque;
     int ret;
 
+    r->final = true;
+
     if (r->nb_sectors == 0) {
         return 0;
     }
@@ -689,6 +691,7 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
     int i, j = 0, l2_index, ret;
     uint64_t *old_cluster, *l2_table;
     uint64_t cluster_offset = m->alloc_offset;
+    bool has_wr_lock = false;
 
     trace_qcow2_cluster_link_l2(qemu_coroutine_self(), m->nb_clusters);
     assert(m->nb_clusters > 0);
@@ -707,6 +710,16 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
     }
 
     /* Update L2 table. */
+    qemu_co_mutex_unlock(&s->lock);
+    qemu_co_rwlock_wrlock(&m->l2_writeback_lock);
+    has_wr_lock = true;
+    qemu_co_mutex_lock(&s->lock);
+
+    if (m->no_l2_update) {
+        ret = 0;
+        goto err;
+    }
+
     if (s->compatible_features & QCOW2_COMPAT_LAZY_REFCOUNTS) {
         qcow2_mark_dirty(bs);
     }
@@ -753,6 +766,9 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
 
     ret = 0;
 err:
+    if (has_wr_lock) {
+        qemu_co_rwlock_unlock(&m->l2_writeback_lock);
+    }
     g_free(old_cluster);
     return ret;
  }
@@ -825,7 +841,8 @@ static void kick_l2meta(QCowL2Meta *m)
  * request has completed and updated the L2 table accordingly.
  */
 static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
-    uint64_t bytes, unsigned int *nb_clusters)
+    uint64_t *host_offset, uint64_t bytes, unsigned int *nb_clusters,
+    QCowL2Meta **m)
 {
     BDRVQcowState *s = bs->opaque;
     QCowL2Meta *old_alloc;
@@ -840,22 +857,96 @@ static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
         if (end <= old_start || start >= old_end) {
             /* No intersection */
         } else {
+            uint64_t new_bytes;
+            uint64_t old_cow_end;
+
+           /*
+            * Shorten the request to stop at the start of a running
+            * allocation.
+            */
             if (start < old_start) {
-                /* Stop at the start of a running allocation */
-                bytes = old_start - start;
+                new_bytes = old_start - start;
             } else {
-                bytes = 0;
+                new_bytes = 0;
             }
 
-            if (bytes == 0) {
-                /* Wait for the dependency to complete. We need to recheck
-                 * the free/allocated clusters when we continue. */
-                qemu_co_mutex_unlock(&s->lock);
-                kick_l2meta(old_alloc);
-                qemu_co_queue_wait(&old_alloc->dependent_requests);
-                qemu_co_mutex_lock(&s->lock);
-                return -EAGAIN;
+            if (new_bytes > 0) {
+                bytes = new_bytes;
+                continue;
             }
+
+            /*
+             * Check if we're just overwriting some COW of the old allocation
+             * that is safe to be replaced by the data of this request.
+             */
+            old_cow_end = old_alloc->offset + old_alloc->cow_end.offset;
+
+            if ((old_end & (s->cluster_size - 1)) == 0
+                && start >= old_cow_end
+                && !old_alloc->cow_end.final)
+            {
+                uint64_t subcluster_offset;
+                int nb_sectors;
+
+                *nb_clusters = 1;
+                subcluster_offset = offset_into_cluster(s, guest_offset);
+                nb_sectors = (subcluster_offset + bytes) >> BDRV_SECTOR_BITS;
+
+                /* Move forward cluster by cluster when overwriting COW areas,
+                 * or we'd have to deal with multiple overlapping requests and
+                 * things would become complicated. */
+                nb_sectors = MIN(s->cluster_sectors, nb_sectors);
+
+                /* Shorten the COW area at the end of the old request */
+                old_alloc->cow_end.nb_sectors =
+                    (guest_offset - old_cow_end) >> BDRV_SECTOR_BITS;
+
+                /* The new data region starts in the same cluster where the COW
+                 * region at the end of the old request starts. */
+                *host_offset = start_of_cluster(s,
+                    old_alloc->alloc_offset + old_alloc->cow_end.offset);
+
+                /* Create new l2meta that doesn't actually allocate new L2
+                 * entries, but describes the new data area so that reads
+                 * access the right cluster */
+                *m = g_malloc0(sizeof(**m));
+                **m = (QCowL2Meta) {
+                    .parent         = old_alloc,
+                    .alloc_offset   = *host_offset,
+                    .offset         = guest_offset & ~(s->cluster_size - 1),
+                    .nb_clusters    = 1,
+                    .nb_available   = nb_sectors,
+                    .no_l2_update   = true,
+
+                    .cow_start = {
+                        .offset     = subcluster_offset,
+                        .nb_sectors = 0,
+                    },
+                    .cow_end = {
+                        .offset     = nb_sectors << BDRV_SECTOR_BITS,
+                        .nb_sectors = s->cluster_sectors - nb_sectors,
+                    },
+                };
+                qemu_co_queue_init(&(*m)->dependent_requests);
+                qemu_co_rwlock_init(&(*m)->l2_writeback_lock);
+                QLIST_INSERT_HEAD(&s->cluster_allocs, *m, next_in_flight);
+
+                /* Ensure that the L2 isn't written before COW has completed */
+                assert(!old_alloc->l2_writeback_lock.writer);
+                qemu_co_rwlock_rdlock(&old_alloc->l2_writeback_lock);
+
+                return 0;
+            }
+
+            /* Wait for the dependency to complete. We need to recheck
+             * the free/allocated clusters when we continue. */
+            qemu_co_mutex_unlock(&s->lock);
+            if (old_alloc->sleeping) {
+                kick_l2meta(old_alloc);
+            }
+            qemu_co_queue_wait(&old_alloc->dependent_requests);
+            qemu_co_mutex_lock(&s->lock);
+            return -EAGAIN;
         }
     }
 
@@ -942,7 +1033,7 @@ int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
     int l2_index, ret, sectors;
     uint64_t *l2_table;
     unsigned int nb_clusters, keep_clusters;
-    uint64_t cluster_offset;
+    uint64_t cluster_offset = 0;
 
     trace_qcow2_alloc_clusters_offset(qemu_coroutine_self(), offset,
                                       n_start, n_end);
@@ -969,7 +1060,7 @@ again:
      *         contiguous clusters (the situation could have changed while we
      *         were sleeping)
      *
-     *      c) TODO: Request starts in the same cluster as the in-flight
+     *      c) Request starts in the same cluster as the in-flight
      *         allocation ends. Shorten the COW of the in-fight allocation, set
      *         cluster_offset to write to the same cluster and set up the right
      *         synchronisation between the in-flight request and the new one.
@@ -980,13 +1071,17 @@ again:
      * 3. If the request still hasn't completed, allocate new clusters,
      *    considering any cluster_offset of steps 1c or 2.
      */
-    ret = handle_dependencies(bs, offset,
+    ret = handle_dependencies(bs, offset, &cluster_offset,
                               (n_end - n_start) * BDRV_SECTOR_SIZE,
-                              &nb_clusters);
+                              &nb_clusters, m);
     if (ret == -EAGAIN) {
         goto again;
     } else if (ret < 0) {
         return ret;
+    } else if (*m) {
+        keep_clusters = 1;
+        nb_clusters = 0;
+        goto done;
     }
 
     /* Find L2 entry for the first involved cluster */
@@ -1105,11 +1200,13 @@ again:
                 },
             };
             qemu_co_queue_init(&(*m)->dependent_requests);
+            qemu_co_rwlock_init(&(*m)->l2_writeback_lock);
             QLIST_INSERT_HEAD(&s->cluster_allocs, *m, next_in_flight);
         }
     }
 
     /* Some cleanup work */
+done:
     sectors = (keep_clusters + nb_clusters) << (s->cluster_bits - 9);
     if (sectors > n_end) {
         sectors = n_end;

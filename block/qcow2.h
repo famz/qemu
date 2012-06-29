@@ -216,6 +216,12 @@ typedef struct Qcow2COWRegion {
 
     /** Number of sectors to copy */
     int         nb_sectors;
+
+    /**
+     * Becomes true when offset and nb_sectors cannot be modified any more
+     * because the COW is already being processed.
+     */
+    bool        final;
 } Qcow2COWRegion;
 
 /**
@@ -254,6 +260,12 @@ typedef struct QCowL2Meta
     bool sleeping;
     bool error;
 
+    /**
+     * true indicates that this is not an actual cluster allocation, but reuses
+     * the allocation of an earlier request, so don't update the L2 table.
+     */
+    bool no_l2_update;
+
     /** Coroutine that handles delayed COW and updates L2 entry */
     Coroutine *co;
 
@@ -275,6 +287,31 @@ typedef struct QCowL2Meta
      */
     Qcow2COWRegion cow_end;
 
+    /**
+     * The L2 table must only be updated when all COWs to the same sector have
+     * completed. A request that shortens part of the COW, takes a reader lock
+     * until its data and COW is written.
+     */
+    CoRwlock l2_writeback_lock;
+
+    /**
+     * QCowL2Metas can form a tree. The root of this tree is a request that
+     * actually allocated the host cluster in the image file. Children are
+     * requests that overwrite (part of) a COW region of their parents, so that
+     * the COW of their parent was cancelled.
+     *
+     * Important rules to bear in mind:
+     *
+     * - The parent must not write its L2 entry before all children have
+     *   written both their guest data and COW regions. If it did, the image on
+     *   disk would yet have incomplete COW and data would be corrupted.
+     *
+     * - The chilren must stay in s->cluster_allocs until the parent has
+     *   written the L2 entry, so that read requests correctly return the new
+     *   data even though the L2 table is not updated yet.
+     */
+    struct QCowL2Meta *parent;
+
     QLIST_ENTRY(QCowL2Meta) next_in_flight;
 } QCowL2Meta;
 
@@ -290,6 +327,16 @@ enum {
 #define L2E_COMPRESSED_OFFSET_SIZE_MASK 0x3fffffffffffffffULL
 
 #define REFT_OFFSET_MASK 0xffffffffffffff00ULL
+
+static inline int64_t start_of_cluster(BDRVQcowState *s, int64_t offset)
+{
+    return offset & ~(s->cluster_size - 1);
+}
+
+static inline int64_t offset_into_cluster(BDRVQcowState *s, int64_t offset)
+{
+    return offset & (s->cluster_size - 1);
+}
 
 static inline int size_to_clusters(BDRVQcowState *s, int64_t size)
 {
