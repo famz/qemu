@@ -703,6 +703,8 @@ static int perform_cow(BlockDriverState *bs, QCowL2Meta *m, Qcow2COWRegion *r)
     BDRVQcowState *s = bs->opaque;
     int ret;
 
+    r->final = true;
+
     if (r->nb_sectors == 0) {
         return 0;
     }
@@ -751,6 +753,14 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
     }
 
     /* Update L2 table. */
+    if (m->no_l2_update) {
+        goto done;
+    }
+
+    qemu_co_mutex_unlock(&s->lock);
+    qemu_co_rwlock_wrlock(&m->l2_writeback_lock);
+    qemu_co_mutex_lock(&s->lock);
+
     if (s->use_lazy_refcounts) {
         qcow2_mark_dirty(bs);
     }
@@ -761,7 +771,7 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
 
     ret = get_cluster_table(bs, m->offset, &l2_table, &l2_index);
     if (ret < 0) {
-        goto err;
+        goto err_l2_writeback_locked;
     }
     qcow2_cache_entry_mark_dirty(s->l2_table_cache, l2_table);
 
@@ -783,7 +793,7 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
 
     ret = qcow2_cache_put(bs, s->l2_table_cache, (void**) &l2_table);
     if (ret < 0) {
-        goto err;
+        goto err_l2_writeback_locked;
     }
 
     /*
@@ -800,7 +810,12 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
         }
     }
 
-    ret = 0;
+done:
+    g_free(old_cluster);
+    return 0;
+
+err_l2_writeback_locked:
+    qemu_co_rwlock_unlock(&m->l2_writeback_lock);
 err:
     g_free(old_cluster);
     return ret;
@@ -894,16 +909,23 @@ void qcow2_delete_kick_l2meta_bh(struct KickL2Meta *k)
  *           bytes from guest_offset that can be read before the next
  *           dependency must be processed (or the request is complete)
  *
+ *   1       if we're reusing an in-flight cluster allocation. *cur_bytes
+ *           indicates the number of bytes from guest_offset that can be
+ *           used for writing to this cluster.
+ *
  *   -EAGAIN if we had to wait for another request, previously gathered
  *           information on cluster allocation may be invalid now. The caller
  *           must start over anyway, so consider *cur_bytes undefined.
  */
 static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
-    uint64_t *cur_bytes, QCowL2Meta **m)
+    uint64_t *host_offset, uint64_t *cur_bytes, QCowL2Meta **m)
 {
     BDRVQcowState *s = bs->opaque;
     QCowL2Meta *old_alloc;
     uint64_t bytes = *cur_bytes;
+
+    trace_qcow2_handle_dep(qemu_coroutine_self(), guest_offset, *host_offset,
+                           *cur_bytes);
 
     QLIST_FOREACH(old_alloc, &s->cluster_allocs, next_in_flight) {
 
@@ -915,31 +937,113 @@ static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
         if (end <= old_start || start >= old_end) {
             /* No intersection */
         } else {
+            uint64_t new_bytes;
+            uint64_t old_cow_end;
+
+           /*
+            * Shorten the request to stop at the start of a running
+            * allocation.
+            */
             if (start < old_start) {
-                /* Stop at the start of a running allocation */
-                bytes = old_start - start;
+                new_bytes = old_start - start;
             } else {
-                bytes = 0;
+                new_bytes = 0;
+            }
+
+            if (new_bytes > 0) {
+                bytes = new_bytes;
+                continue;
             }
 
             /* Stop if already an l2meta exists. After yielding, it wouldn't
              * be valid any more, so we'd have to clean up the old L2Metas
-             * and deal with requests depending on them before starting to
-             * gather new ones. Not worth the trouble. */
-            if (bytes == 0 && *m) {
+             * and deal with locks held by it (l2_writeback_lock) and requests
+             * depending on them before starting to gather new ones. Not worth
+             * the trouble. */
+            if (*m) {
                 *cur_bytes = 0;
                 return 0;
             }
 
-            if (bytes == 0) {
-                /* Wait for the dependency to complete. We need to recheck
-                 * the free/allocated clusters when we continue. */
-                qemu_co_mutex_unlock(&s->lock);
-                kick_l2meta(old_alloc);
-                qemu_co_queue_wait(&old_alloc->dependent_requests);
-                qemu_co_mutex_lock(&s->lock);
-                return -EAGAIN;
+            /*
+             * Check if we're just overwriting some COW of the old allocation
+             * that is safe to be replaced by the data of this request.
+             */
+            old_cow_end = old_alloc->offset + old_alloc->cow_end.offset;
+
+            if ((old_end & (s->cluster_size - 1)) == 0
+                && start >= old_cow_end
+                && !old_alloc->cow_end.final
+                && !*host_offset)
+            {
+                uint64_t subcluster_offset;
+                int nb_sectors;
+
+                trace_qcow2_overwrite_cow(qemu_coroutine_self(), start, end,
+                                          old_start, old_end);
+
+                subcluster_offset = offset_into_cluster(s, guest_offset);
+                nb_sectors = (subcluster_offset + bytes) >> BDRV_SECTOR_BITS;
+
+                /* Move forward cluster by cluster when overwriting COW areas,
+                 * or we'd have to deal with multiple overlapping requests and
+                 * things would become complicated. */
+                nb_sectors = MIN(s->cluster_sectors, nb_sectors);
+
+                /* Shorten the COW area at the end of the old request */
+                old_alloc->cow_end.nb_sectors =
+                    (guest_offset - old_cow_end) >> BDRV_SECTOR_BITS;
+
+                /* The new data region starts in the same cluster where the COW
+                 * region at the end of the old request starts. */
+                *host_offset = start_of_cluster(s,
+                    old_alloc->alloc_offset + old_alloc->cow_end.offset)
+                    + subcluster_offset;
+
+                /* Create new l2meta that doesn't actually allocate new L2
+                 * entries, but describes the new data area so that reads
+                 * access the right cluster */
+                *m = g_malloc0(sizeof(**m));
+                **m = (QCowL2Meta) {
+                    .parent         = old_alloc,
+                    .alloc_offset   = start_of_cluster(s, *host_offset),
+                    .offset         = guest_offset & ~(s->cluster_size - 1),
+                    .nb_clusters    = 1,
+                    .nb_available   = nb_sectors,
+                    .no_l2_update   = true,
+
+                    .cow_start = {
+                        .offset     = subcluster_offset,
+                        .nb_sectors = 0,
+                    },
+                    .cow_end = {
+                        .offset     = nb_sectors << BDRV_SECTOR_BITS,
+                        .nb_sectors = s->cluster_sectors - nb_sectors,
+                    },
+                };
+                qemu_co_queue_init(&(*m)->dependent_requests);
+                qemu_co_rwlock_init(&(*m)->l2_writeback_lock);
+                QLIST_INSERT_HEAD(&s->cluster_allocs, *m, next_in_flight);
+
+                /* Ensure that the L2 isn't written before COW has completed */
+                assert(!old_alloc->l2_writeback_lock.writer);
+                qemu_co_rwlock_rdlock(&old_alloc->l2_writeback_lock);
+
+                /* Stop at next cluster boundary */
+                *cur_bytes = MIN(*cur_bytes, s->cluster_size - subcluster_offset);
+
+                return 1;
             }
+
+            /* Wait for the dependency to complete. We need to recheck
+             * the free/allocated clusters when we continue. */
+            qemu_co_mutex_unlock(&s->lock);
+            if (old_alloc->sleeping) {
+                kick_l2meta(old_alloc);
+            }
+            qemu_co_queue_wait(&old_alloc->dependent_requests);
+            qemu_co_mutex_lock(&s->lock);
+            return -EAGAIN;
         }
     }
 
@@ -1230,6 +1334,7 @@ static int handle_alloc(BlockDriverState *bs, uint64_t guest_offset,
         },
     };
     qemu_co_queue_init(&(*m)->dependent_requests);
+    qemu_co_rwlock_init(&(*m)->l2_writeback_lock);
     QLIST_INSERT_HEAD(&s->cluster_allocs, *m, next_in_flight);
 
     *host_offset = alloc_cluster_offset + offset_into_cluster(s, guest_offset);
@@ -1318,13 +1423,13 @@ again:
          *         for contiguous clusters (the situation could have changed
          *         while we were sleeping)
          *
-         *      c) TODO: Request starts in the same cluster as the in-flight
+         *      c) Request starts in the same cluster as the in-flight
          *         allocation ends. Shorten the COW of the in-fight allocation,
          *         set cluster_offset to write to the same cluster and set up
          *         the right synchronisation between the in-flight request and
          *         the new one.
          */
-        ret = handle_dependencies(bs, start, &cur_bytes, m);
+        ret = handle_dependencies(bs, start, &cluster_offset, &cur_bytes, m);
         if (ret == -EAGAIN) {
             /* Currently handle_dependencies() doesn't yield if we already had
              * an allocation. If it did, we would have to clean up the L2Meta
@@ -1333,6 +1438,8 @@ again:
             goto again;
         } else if (ret < 0) {
             return ret;
+        } else if (ret) {
+            continue;
         } else if (cur_bytes == 0) {
             break;
         } else {

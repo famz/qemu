@@ -1053,6 +1053,22 @@ again:
 
     qemu_co_mutex_unlock(&s->lock);
 
+    if (m->parent) {
+        /*
+         * Allow the parent to write the L2 table entry now that both guest
+         * data write and COW have completed. Don't remove the request from the
+         * queue yet until the L2 is updated, we still need it for overriding
+         * the cluster_offset of requests to the same area.
+         *
+         * The release of the l2_writeback_lock and the queuing must be
+         * performed atomically to avoid a race. This code implements this
+         * correctly because unlocking only schedules a BH to wake the parent,
+         * but doesn't yield yet.
+         */
+        qemu_co_rwlock_unlock(&m->parent->l2_writeback_lock);
+        qemu_co_queue_wait(&m->parent->dependent_requests);
+    }
+
     /* Take the request off the list of running requests */
     if (m->nb_clusters != 0) {
         QLIST_REMOVE(m, next_in_flight);
