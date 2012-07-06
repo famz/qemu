@@ -888,7 +888,6 @@ static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
                 uint64_t subcluster_offset;
                 int nb_sectors;
 
-                *nb_clusters = 1;
                 subcluster_offset = offset_into_cluster(s, guest_offset);
                 nb_sectors = (subcluster_offset + bytes) >> BDRV_SECTOR_BITS;
 
@@ -1049,7 +1048,7 @@ int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
     BDRVQcowState *s = bs->opaque;
     int l2_index, ret, sectors;
     uint64_t *l2_table;
-    unsigned int nb_clusters, keep_clusters;
+    unsigned int nb_clusters, keep_clusters = 0;
     uint64_t cluster_offset = 0;
 
     trace_qcow2_alloc_clusters_offset(qemu_coroutine_self(), offset,
@@ -1096,10 +1095,11 @@ again:
     } else if (ret < 0) {
         return ret;
     } else if (*m) {
+        /* FIXME There could be more dependencies */
         keep_clusters = 1;
-        nb_clusters = 0;
-        goto done;
+        nb_clusters -= keep_clusters;
     }
+
 
     /* Find L2 entry for the first involved cluster */
     ret = get_cluster_table(bs, offset, &l2_table, &l2_index);
@@ -1107,6 +1107,9 @@ again:
         return ret;
     }
 
+    if (cluster_offset != 0) {
+        goto do_alloc;
+    }
     cluster_offset = be64_to_cpu(l2_table[l2_index]);
 
     /*
@@ -1128,6 +1131,7 @@ again:
         cluster_offset = 0;
     }
 
+do_alloc:
     if (nb_clusters > 0) {
         /* For the moment, overwrite compressed clusters one by one */
         uint64_t entry = be64_to_cpu(l2_table[l2_index + keep_clusters]);
@@ -1194,6 +1198,7 @@ again:
                                 << (s->cluster_bits - BDRV_SECTOR_BITS);
             int alloc_n_start = keep_clusters == 0 ? n_start : 0;
             int nb_sectors = MIN(requested_sectors, avail_sectors);
+            QCowL2Meta *old_m = *m;
 
             if (keep_clusters == 0) {
                 cluster_offset = alloc_cluster_offset;
@@ -1202,6 +1207,8 @@ again:
             *m = g_malloc0(sizeof(**m));
 
             **m = (QCowL2Meta) {
+                .next           = old_m,
+
                 .alloc_offset   = alloc_cluster_offset,
                 .offset         = alloc_offset & ~(s->cluster_size - 1),
                 .nb_clusters    = nb_clusters,
@@ -1215,6 +1222,7 @@ again:
                     .offset     = nb_sectors * BDRV_SECTOR_SIZE,
                     .nb_sectors = avail_sectors - nb_sectors,
                 },
+
             };
             qemu_co_queue_init(&(*m)->dependent_requests);
             qemu_co_rwlock_init(&(*m)->l2_writeback_lock);
@@ -1223,7 +1231,6 @@ again:
     }
 
     /* Some cleanup work */
-done:
     sectors = (keep_clusters + nb_clusters) << (s->cluster_bits - 9);
     if (sectors > n_end) {
         sectors = n_end;
