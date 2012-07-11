@@ -205,6 +205,8 @@ typedef struct BDRVQcowState {
     CoRwlock l2meta_flush;
     bool in_l2meta_flush;
 
+    int flush_error;
+
     uint32_t crypt_method; /* current crypt method, 0 if no key yet */
     uint32_t crypt_method_header;
     AES_KEY aes_encrypt_key;
@@ -293,6 +295,13 @@ typedef struct QCowL2Meta
      * be reentered in order to cancel the timer.
      */
     bool sleeping;
+
+    /**
+     * true if the request failed and is sleeping until we retry on the next
+     * flush. Requests in this state are inactive and bdrv_drain() can ignore
+     * them. If error is true, sleeping is always true as well.
+     */
+    bool error;
 
     /** Coroutine that handles delayed COW and updates L2 entry */
     Coroutine *co;

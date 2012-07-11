@@ -1022,11 +1022,33 @@ static void coroutine_fn process_l2meta(void *opaque)
         m->sleeping = false;
     }
 
+again:
     qemu_co_mutex_lock(&s->lock);
 
     ret = qcow2_alloc_cluster_link_l2(bs, m);
     if (ret < 0) {
-        /* FIXME */
+        /*
+         * This is a nasty situation: We have already completed the allocation
+         * write request and returned success, so just failing it isn't
+         * possible. We need to make sure to return an error during the next
+         * flush.
+         *
+         * However, we still can't drop the l2meta because we want I/O errors
+         * to be recoverable e.g. after the block device has been grown or the
+         * network connection restored. Sleep until the next flush comes and
+         * then retry.
+         */
+        s->flush_error = ret;
+
+        qemu_co_mutex_unlock(&s->lock);
+        qemu_co_rwlock_unlock(&s->l2meta_flush);
+        m->sleeping = true;
+        m->error = true;
+        qemu_coroutine_yield();
+        m->error = false;
+        m->sleeping = false;
+        qemu_co_rwlock_rdlock(&s->l2meta_flush);
+        goto again;
     }
 
     qemu_co_mutex_unlock(&s->lock);
@@ -1049,11 +1071,12 @@ static bool qcow2_drain(BlockDriverState *bs)
 {
     BDRVQcowState *s = bs->opaque;
     QCowL2Meta *m;
+    bool busy = false;
 
     s->in_l2meta_flush = true;
 again:
     QLIST_FOREACH(m, &s->cluster_allocs, next_in_flight) {
-        if (m->sleeping) {
+        if (m->sleeping && !m->error) {
             qemu_coroutine_enter(m->co, NULL);
             /* next_in_flight link could have become invalid */
             goto again;
@@ -1061,7 +1084,19 @@ again:
     }
     s->in_l2meta_flush = false;
 
-    return !QLIST_EMPTY(&s->cluster_allocs);
+    /*
+     * If there's still a sleeping l2meta, then an error must have occured.
+     * Don't consider l2metas in this state as busy, they only get active on
+     * flushes.
+     */
+    QLIST_FOREACH(m, &s->cluster_allocs, next_in_flight) {
+        if (!m->sleeping) {
+            busy = true;
+            break;
+        }
+    }
+
+    return busy;
 }
 
 static inline coroutine_fn void stop_l2meta(BlockDriverState *bs)
@@ -1989,7 +2024,8 @@ static coroutine_fn int qcow2_co_flush_to_os(BlockDriverState *bs)
         }
     }
 
-    ret = 0;
+    ret = s->flush_error;
+    s->flush_error = 0;
 fail:
     qemu_co_mutex_unlock(&s->lock);
     resume_l2meta(bs);
