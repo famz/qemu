@@ -703,6 +703,8 @@ static int perform_cow(BlockDriverState *bs, QCowL2Meta *m, Qcow2COWRegion *r)
     BDRVQcowState *s = bs->opaque;
     int ret;
 
+//    fprintf(stderr, "# perform COW: %lx + (%lx, %d secs)\n", m->offset, r->offset,  r->nb_sectors);
+
     r->final = true;
 
     if (r->nb_sectors == 0) {
@@ -990,6 +992,16 @@ static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
                  * things would become complicated. */
                 nb_sectors = MIN(s->cluster_sectors, nb_sectors);
 
+#if 0
+                fprintf(stderr, "Overlap:\n");
+                fprintf(stderr, "   new.start:  %lx\n", start);
+                fprintf(stderr, "   new.end:    %lx\n", end);
+                fprintf(stderr, "   old.start:  %lx\n", old_start);
+                fprintf(stderr, "   old.end:    %lx\n", old_end);
+                fprintf(stderr, "   old.ce_o:   %lx\n", old_alloc->cow_end.offset);
+                fprintf(stderr, "   old.host_o: %lx\n", old_alloc->alloc_offset);
+#endif
+
                 /* Shorten the COW area at the end of the old request */
                 old_alloc->cow_end.nb_sectors =
                     (guest_offset - old_cow_end) >> BDRV_SECTOR_BITS;
@@ -1024,6 +1036,13 @@ static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
                 qemu_co_queue_init(&(*m)->dependent_requests);
                 qemu_co_rwlock_init(&(*m)->l2_writeback_lock);
                 QLIST_INSERT_HEAD(&s->cluster_allocs, *m, next_in_flight);
+
+#if 0
+                fprintf(stderr, "   ol'.nbsec:  %x\n", old_alloc->cow_end.nb_sectors);
+                fprintf(stderr, "   new.host_o: %lx\n", (*m)->alloc_offset);
+                fprintf(stderr, "   new.ce_off: %lx\n", (*m)->cow_end.offset);
+                fprintf(stderr, "   new.ce_nbs: %x\n", (*m)->cow_end.nb_sectors);
+#endif
 
                 /* Ensure that the L2 isn't written before COW has completed */
                 assert(!old_alloc->l2_writeback_lock.writer);
