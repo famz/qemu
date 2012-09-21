@@ -968,25 +968,27 @@ static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
         }
 
         if (l2meta != NULL) {
-            ProcessL2Meta p = {
-                .bs = bs,
-                .m  = l2meta,
-            };
-
-            /*
-             * Must take l2meta_flush already here instead of in the coroutine;
-             * otherwise it would be possible that a concurrent flush would
-             * claim that this request is written to the disk when the metadata
-             * isn't written yet in fact.
-             */
             qemu_co_mutex_unlock(&s->lock);
-            qemu_co_rwlock_rdlock(&s->l2meta_flush);
 
-            l2meta->is_written = true;
-            l2meta->co = qemu_coroutine_create(process_l2meta);
-            qemu_coroutine_enter(l2meta->co, &p);
+            while (l2meta != NULL) {
+                ProcessL2Meta p = {
+                    .bs = bs,
+                    .m  = l2meta,
+                };
 
-            l2meta = NULL;
+                /*
+                 * Must take l2meta_flush already here instead of in the
+                 * coroutine;otherwise it would be possible that a concurrent
+                 * flush would claim that this request is written to the disk
+                 * when the metadata isn't written yet in fact.
+                 */
+                qemu_co_rwlock_rdlock(&s->l2meta_flush);
+                l2meta->is_written = true;
+                l2meta->co = qemu_coroutine_create(process_l2meta);
+                qemu_coroutine_enter(l2meta->co, &p);
+                l2meta = l2meta->next;
+            }
+
             qemu_co_mutex_lock(&s->lock);
         }
 
@@ -1000,12 +1002,17 @@ static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
 fail:
     qemu_co_mutex_unlock(&s->lock);
 
-    if (l2meta != NULL) {
+    while (l2meta != NULL) {
+        QCowL2Meta *next;
+
         if (l2meta->nb_clusters != 0) {
             QLIST_REMOVE(l2meta, next_in_flight);
         }
         qemu_co_queue_restart_all(&l2meta->dependent_requests);
+
+        next = l2meta->next;
         g_free(l2meta);
+        l2meta = next;
     }
 
     qemu_iovec_destroy(&hd_qiov);

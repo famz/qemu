@@ -311,6 +311,7 @@ typedef struct QCowL2Meta
      *   data even though the L2 table is not updated yet.
      */
     struct QCowL2Meta *parent;
+    struct QCowL2Meta *next;
 
     QLIST_ENTRY(QCowL2Meta) next_in_flight;
 } QCowL2Meta;
