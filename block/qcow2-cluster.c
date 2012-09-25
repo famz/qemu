@@ -883,7 +883,8 @@ static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
 
             if ((old_end & (s->cluster_size - 1)) == 0
                 && start >= old_cow_end
-                && !old_alloc->cow_end.final)
+                && !old_alloc->cow_end.final
+                && !*host_offset)
             {
                 uint64_t subcluster_offset;
                 int nb_sectors;
@@ -951,7 +952,7 @@ static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
                 assert(!old_alloc->l2_writeback_lock.writer);
                 qemu_co_rwlock_rdlock(&old_alloc->l2_writeback_lock);
 
-                return 0;
+                return (*m)->nb_clusters;
             }
 
             /* Wait for the dependency to complete. We need to recheck
@@ -1247,6 +1248,96 @@ fail:
         QLIST_REMOVE(*m, next_in_flight);
     }
     return ret;
+}
+
+int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
+    int n_start, int n_end, int *num, uint64_t *host_offset, QCowL2Meta **m)
+{
+    BDRVQcowState *s = bs->opaque;
+    uint64_t start, remaining;
+    uint64_t cluster_offset;
+
+again:
+    start = offset + (n_start << BDRV_SECTOR_BITS);
+    remaining = (n_end - n_start) << BDRV_SECTOR_BITS;
+    *m = NULL;
+    cluster_offset = 0;
+
+    /* FIXME free *m list */
+
+    while (remaining > 0) {
+        /*
+         * Now start gathering as many contiguous clusters as possible:
+         *
+         * 1. Check for overlaps with in-flight allocations
+         *
+         *      a) Overlap not in the first cluster -> shorten this request and let
+         *         the caller handle the rest in its next loop iteration.
+         *
+         *      b) Real overlaps of two requests. Yield and restart the search for
+         *         contiguous clusters (the situation could have changed while we
+         *         were sleeping)
+         *
+         *      c) Request starts in the same cluster as the in-flight
+         *         allocation ends. Shorten the COW of the in-fight allocation, set
+         *         cluster_offset to write to the same cluster and set up the right
+         *         synchronisation between the in-flight request and the new one.
+         */
+        unsigned int nb_clusters =
+            size_to_clusters(s, start + remaining)
+            - (start_of_cluster(s, start) >> s->cluster_bits);
+
+        ret = handle_dependencies(bs, offset, &cluster_offset,
+                                  (n_end - n_start) * BDRV_SECTOR_SIZE,
+                                  &nb_clusters, m);
+        if (ret == -EAGAIN) {
+            goto again;
+        } else if (ret < 0) {
+            return ret;
+        } else if (ret) {
+            start       = start_of_cluster(start + ret * s->cluster_size);
+            remaining   = MAX(0, remaining + ret * s->cluster_size);
+            continue;
+        } else {
+            /* handle_dependencies() can modify nb_clusters */
+            remaining = MIN(remaining, 
+        }
+
+        /* FIXME handle_dependencies() must be able to shrink remaining for the
+         * current round so that it stops at the next in-memory dependency
+         * (cluster granularity is probably not enough */
+
+        /*
+         * 2. Count contiguous COPIED clusters.
+         *    TODO: Consider cluster_offset if set in step 1c.
+         */
+        ret = handle_copied();
+        if (ret < 0) {
+            return ret;
+        } else if (ret) {
+            start       = start_of_cluster(start + ret * s->cluster_size);
+            remaining   = MAX(0, remaining + ret * s->cluster_size);
+            continue;
+        }
+
+        /*
+         * 3. If the request still hasn't completed, allocate new clusters,
+         *    considering any cluster_offset of steps 1c or 2.
+         */
+        ret = handle_alloc()
+        if (ret < 0) {
+            return ret;
+        } else if (ret) {
+            start       = start_of_cluster(start + ret * s->cluster_size);
+            remaining   = MAX(0, remaining + ret * s->cluster_size);
+            continue;
+        } else {
+            abort();
+        }
+    }
+
+    *host_offset = cluster_offset;
+    return 0;
 }
 
 static int decompress_buffer(uint8_t *out_buf, int out_buf_size,
