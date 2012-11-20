@@ -47,16 +47,16 @@ wrote 8192/8192 bytes at offset XXX
 8 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
 qemu-io> qemu-io> blkdebug: Suspended request 'A'
 qemu-io> qemu-io> qemu-io> blkdebug: Resuming request 'A'
-qemu-io> wrote 8192/8192 bytes at offset XXX
-8 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
-wrote 65536/65536 bytes at offset XXX
+qemu-io> wrote 65536/65536 bytes at offset XXX
 64 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
+wrote 8192/8192 bytes at offset XXX
+8 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
 qemu-io> qemu-io> blkdebug: Suspended request 'A'
 qemu-io> qemu-io> qemu-io> blkdebug: Resuming request 'A'
-qemu-io> wrote 8192/8192 bytes at offset XXX
-8 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
-wrote 65536/65536 bytes at offset XXX
+qemu-io> wrote 65536/65536 bytes at offset XXX
 64 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
+wrote 8192/8192 bytes at offset XXX
+8 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
 qemu-io> wrote 32768/32768 bytes at offset XXX
 32 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
 qemu-io> qemu-io> qemu-io> blkdebug: Suspended request 'A'
@@ -73,10 +73,10 @@ qemu-io> qemu-io> discard 65536/65536 bytes at offset XXX
 64 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
 qemu-io> qemu-io> qemu-io> blkdebug: Suspended request 'A'
 qemu-io> qemu-io> qemu-io> blkdebug: Resuming request 'A'
-qemu-io> wrote 8192/8192 bytes at offset XXX
-8 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
-wrote 57344/57344 bytes at offset XXX
+qemu-io> wrote 57344/57344 bytes at offset XXX
 56 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
+wrote 8192/8192 bytes at offset XXX
+8 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
 qemu-io> wrote 4096/4096 bytes at offset XXX
 4 KiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
 qemu-io> wrote 65536/65536 bytes at offset XXX

@@ -931,6 +931,9 @@ static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
             goto fail;
         }
 
+        //fprintf(stderr, "write: sector %#lx, cur_nr_sectors %d; host_off %#lx\n", sector_num, cur_nr_sectors, cluster_offset);
+
+        assert(cur_nr_sectors <= remaining_sectors);
         assert((cluster_offset & 511) == 0);
 
         qemu_iovec_reset(&hd_qiov);
