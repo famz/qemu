@@ -1112,7 +1112,7 @@ int qcow2_check_refcounts(BlockDriverState *bs, BdrvCheckResult *res,
                           BdrvCheckMode fix)
 {
     BDRVQcowState *s = bs->opaque;
-    int64_t size, i;
+    int64_t size, i, highest_cluster;
     int nb_clusters, refcount1, refcount2;
     QCowSnapshot *sn;
     uint16_t *refcount_table;
@@ -1150,7 +1150,7 @@ int qcow2_check_refcounts(BlockDriverState *bs, BdrvCheckResult *res,
         s->refcount_table_offset,
         s->refcount_table_size * sizeof(uint64_t));
 
-    for(i = 0; i < s->refcount_table_size; i++) {
+    for(i = 0, highest_cluster = 0; i < s->refcount_table_size; i++) {
         uint64_t offset, cluster;
         offset = s->refcount_table[i];
         cluster = offset >> s->cluster_bits;
@@ -1193,6 +1193,11 @@ int qcow2_check_refcounts(BlockDriverState *bs, BdrvCheckResult *res,
         }
 
         refcount2 = refcount_table[i];
+
+        if (refcount1 > 0 || refcount2 > 0) {
+            highest_cluster = i;
+        }
+
         if (refcount1 != refcount2) {
 
             /* Check if we're allowed to fix the mismatch */
@@ -1227,6 +1232,7 @@ int qcow2_check_refcounts(BlockDriverState *bs, BdrvCheckResult *res,
         }
     }
 
+    res->highest_offset = (highest_cluster + 1) * s->cluster_size;
     ret = 0;
 
 fail:

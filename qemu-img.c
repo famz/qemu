@@ -475,6 +475,10 @@ static int img_check(int argc, char **argv)
         result.bfi.fragmented_clusters * 100.0 / result.bfi.allocated_clusters);
     }
 
+    if (result.highest_offset > 0) {
+        printf("Highest offset in use: %" PRId64 "\n", result.highest_offset);
+    }
+
     bdrv_delete(bs);
 
     if (ret < 0 || result.check_errors) {
