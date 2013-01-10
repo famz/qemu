@@ -183,6 +183,20 @@ aio_write -P 160 0x104000 0x18000
 resume A
 aio_flush
 EOF
+
+# First overlap to the next cluster, and then add a sequential write
+cat <<EOF
+break write_aio A
+aio_write -P 180 0x12c000 0x10000
+wait_break A
+break write_aio B
+aio_write -P 181 0x13c000 0x2000
+wait_break B
+resume A
+resume B
+aio_flush
+EOF
+
 }
 
 overlay_io | $QEMU_IO blkdebug::"$TEST_IMG" | _filter_qemu_io |\
@@ -250,6 +264,11 @@ function verify_io()
     # Undefined content for 0x10c000 0x8000
     echo read -P 160 0x114000 0x8000
     echo read -P 17  0x11c000 0x4000
+
+    echo read -P 18  0x120000 0xc000
+    echo read -P 180 0x12c000 0x10000
+    echo read -P 181 0x13c000 0x2000
+    echo read -P 19  0x13e000 0x2000
 }
 
 verify_io | $QEMU_IO "$TEST_IMG" | _filter_qemu_io
