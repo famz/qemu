@@ -1005,54 +1005,6 @@ static int handle_dependencies(BlockDriverState *bs, uint64_t guest_offset,
 }
 
 /*
- * Allocates new clusters for the given guest_offset.
- *
- * At most *nb_clusters are allocated, and on return *nb_clusters is updated to
- * contain the number of clusters that have been allocated and are contiguous
- * in the image file.
- *
- * If *host_offset is non-zero, it specifies the offset in the image file at
- * which the new clusters must start. *nb_clusters can be 0 on return in this
- * case if the cluster at host_offset is already in use. If *host_offset is
- * zero, the clusters can be allocated anywhere in the image file.
- *
- * *host_offset is updated to contain the offset into the image file at which
- * the first allocated cluster starts.
- *
- * Return 0 on success and -errno in error cases. -EAGAIN means that the
- * function has been waiting for another request and the allocation must be
- * restarted, but the whole request should not be failed.
- */
-static int do_alloc_cluster_offset(BlockDriverState *bs, uint64_t guest_offset,
-    uint64_t *host_offset, unsigned int *nb_clusters)
-{
-    BDRVQcowState *s = bs->opaque;
-
-    //fprintf(stderr, "do_alloc: %lx -> %lx\n", guest_offset, *host_offset);
-    trace_qcow2_do_alloc_clusters_offset(qemu_coroutine_self(), guest_offset,
-                                         *host_offset, *nb_clusters);
-
-    /* Allocate new clusters */
-    trace_qcow2_cluster_alloc_phys(qemu_coroutine_self());
-    if (*host_offset == 0) {
-        int64_t cluster_offset =
-            qcow2_alloc_clusters(bs, *nb_clusters * s->cluster_size);
-        if (cluster_offset < 0) {
-            return cluster_offset;
-        }
-        *host_offset = cluster_offset;
-        return 0;
-    } else {
-        int ret = qcow2_alloc_clusters_at(bs, *host_offset, *nb_clusters);
-        if (ret < 0) {
-            return ret;
-        }
-        *nb_clusters = ret;
-        return 0;
-    }
-}
-
-/*
  * Checks how many already allocated clusters that don't require a copy on
  * write there are at the given guest_offset (up to *cur_bytes). If
  * *host_offset is not zero, only physically contiguous clusters beginning at
@@ -1144,6 +1096,54 @@ out:
     }
 
     return ret;
+}
+
+/*
+ * Allocates new clusters for the given guest_offset.
+ *
+ * At most *nb_clusters are allocated, and on return *nb_clusters is updated to
+ * contain the number of clusters that have been allocated and are contiguous
+ * in the image file.
+ *
+ * If *host_offset is non-zero, it specifies the offset in the image file at
+ * which the new clusters must start. *nb_clusters can be 0 on return in this
+ * case if the cluster at host_offset is already in use. If *host_offset is
+ * zero, the clusters can be allocated anywhere in the image file.
+ *
+ * *host_offset is updated to contain the offset into the image file at which
+ * the first allocated cluster starts.
+ *
+ * Return 0 on success and -errno in error cases. -EAGAIN means that the
+ * function has been waiting for another request and the allocation must be
+ * restarted, but the whole request should not be failed.
+ */
+static int do_alloc_cluster_offset(BlockDriverState *bs, uint64_t guest_offset,
+    uint64_t *host_offset, unsigned int *nb_clusters)
+{
+    BDRVQcowState *s = bs->opaque;
+
+    //fprintf(stderr, "do_alloc: %lx -> %lx\n", guest_offset, *host_offset);
+    trace_qcow2_do_alloc_clusters_offset(qemu_coroutine_self(), guest_offset,
+                                         *host_offset, *nb_clusters);
+
+    /* Allocate new clusters */
+    trace_qcow2_cluster_alloc_phys(qemu_coroutine_self());
+    if (*host_offset == 0) {
+        int64_t cluster_offset =
+            qcow2_alloc_clusters(bs, *nb_clusters * s->cluster_size);
+        if (cluster_offset < 0) {
+            return cluster_offset;
+        }
+        *host_offset = cluster_offset;
+        return 0;
+    } else {
+        int ret = qcow2_alloc_clusters_at(bs, *host_offset, *nb_clusters);
+        if (ret < 0) {
+            return ret;
+        }
+        *nb_clusters = ret;
+        return 0;
+    }
 }
 
 /*
