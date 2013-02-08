@@ -834,6 +834,7 @@ again:
     /* Meanwhile some new dependencies could have accumulated */
     qemu_co_queue_restart_all(&m->dependent_requests);
 
+    qcow2_delete_kick_l2meta_bh(m->kick_l2meta);
     g_free(m);
 
     qemu_co_rwlock_unlock(&s->l2meta_flush);

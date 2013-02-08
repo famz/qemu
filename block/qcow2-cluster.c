@@ -819,6 +819,7 @@ static void kick_l2meta_bh(void *opaque)
     struct KickL2Meta *k = opaque;
     QCowL2Meta *m = k->m;
 
+    m->kick_l2meta = NULL;
     qemu_bh_delete(k->bh);
     g_free(k);
 
@@ -829,12 +830,29 @@ static void kick_l2meta_bh(void *opaque)
 
 static void kick_l2meta(QCowL2Meta *m)
 {
-    struct KickL2Meta *k = g_malloc(sizeof(*k));
+    struct KickL2Meta *k;
 
+    if (m->kick_l2meta) {
+        return;
+    }
+
+    k = g_malloc(sizeof(*k));
     k->bh = qemu_bh_new(kick_l2meta_bh, k);
     k->m = m;
 
+    m->kick_l2meta = k;
+
     qemu_bh_schedule(k->bh);
+}
+
+void qcow2_delete_kick_l2meta_bh(void *opaque)
+{
+    if (opaque) {
+        struct KickL2Meta *k = opaque;
+
+        qemu_bh_delete(k->bh);
+        g_free(k);
+    }
 }
 
 /*
