@@ -495,6 +495,15 @@ void hw_error(const char *fmt, ...)
     abort();
 }
 
+void cpu_soft_reset(void)
+{
+    CPUState *cpu;
+
+    CPU_FOREACH(cpu) {
+        cpu_interrupt(cpu, CPU_INTERRUPT_RESET);
+    }
+}
+
 void cpu_synchronize_all_states(void)
 {
     CPUState *cpu;

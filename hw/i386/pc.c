@@ -45,6 +45,7 @@
 #include "kvm_i386.h"
 #include "hw/xen/xen.h"
 #include "sysemu/blockdev.h"
+#include "sysemu/cpus.h"
 #include "hw/block/block.h"
 #include "ui/qemu-spice.h"
 #include "exec/memory.h"
@@ -477,7 +478,7 @@ static void port92_write(void *opaque, hwaddr addr, uint64_t val,
     s->outport = val;
     qemu_set_irq(*s->a20_out, (val >> 1) & 1);
     if ((val & 1) && !(oldval & 1)) {
-        qemu_system_reset_request();
+        cpu_soft_reset();
     }
 }
 

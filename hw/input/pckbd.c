@@ -26,6 +26,7 @@
 #include "hw/i386/pc.h"
 #include "hw/input/ps2.h"
 #include "sysemu/sysemu.h"
+#include "sysemu/cpus.h"
 
 /* debug PC keyboard */
 //#define DEBUG_KBD
@@ -220,7 +221,7 @@ static void outport_write(KBDState *s, uint32_t val)
         qemu_set_irq(*s->a20_out, (val >> 1) & 1);
     }
     if (!(val & 1)) {
-        qemu_system_reset_request();
+        cpu_soft_reset();
     }
 }
 
@@ -299,7 +300,7 @@ static void kbd_write_command(void *opaque, hwaddr addr,
         s->outport &= ~KBD_OUT_A20;
         break;
     case KBD_CCMD_RESET:
-        qemu_system_reset_request();
+        cpu_soft_reset();
         break;
     case KBD_CCMD_NO_OP:
         /* ignore that */

@@ -45,6 +45,7 @@
 #include "hw/pci/pci_bus.h"
 #include "exec/address-spaces.h"
 #include "sysemu/sysemu.h"
+#include "sysemu/cpus.h"
 
 static int ich9_lpc_sci_irq(ICH9LPCState *lpc);
 
@@ -507,8 +508,15 @@ static void ich9_rst_cnt_write(void *opaque, hwaddr addr, uint64_t val,
     ICH9LPCState *lpc = opaque;
 
     if (val & 4) {
-        qemu_system_reset_request();
-        return;
+        /* In a real ICH9, FULL_RST affects whether the hardware goes to S5
+         * for 3-5 seconds, but is not enough alone; you need to set SYS_RST
+         * too.
+         */
+        if (val & 2) {
+            qemu_system_reset_request();
+        } else {
+            cpu_soft_reset();
+        }
     }
     lpc->rst_cnt = val & 0xA; /* keep FULL_RST (bit 3) and SYS_RST (bit 1) */
 }
