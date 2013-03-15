@@ -462,6 +462,14 @@ static int nbd_open(BlockDriverState *bs, QDict *options, int flags,
     qemu_co_mutex_init(&s->send_mutex);
     qemu_co_mutex_init(&s->free_sema);
 
+    if (options) {
+        QString *str = qobject_to_json_pretty(QOBJECT(options));
+        assert(str != NULL);
+        fprintf(stderr, "%s\n", qstring_get_str(str));
+        QDECREF(str);
+    }
+
+
     /* Pop the config into our state object. Exit if invalid. */
     result = nbd_config(s, options);
     if (result != 0) {
