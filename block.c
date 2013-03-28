@@ -971,6 +971,13 @@ int bdrv_open_backing_file(BlockDriverState *bs, QDict *options, Error **errp)
     BlockDriver *back_drv = NULL;
     Error *local_err = NULL;
 
+    if (options) {
+        QString *str = qobject_to_json_pretty(QOBJECT(options));
+        assert(str != NULL);
+        fprintf(stderr, "bdrv_open_backing_file: %s\n", qstring_get_str(str));
+        QDECREF(str);
+    }
+
     if (bs->backing_hd != NULL) {
         QDECREF(options);
         return 0;
@@ -1154,6 +1161,12 @@ int bdrv_open(BlockDriverState *bs, const char *filename, QDict *options,
     if (bs->file != file) {
         bdrv_unref(file);
         file = NULL;
+    }
+    if (options) {
+        QString *str = qobject_to_json_pretty(QOBJECT(options));
+        assert(str != NULL);
+        fprintf(stderr, "options left: %s\n", qstring_get_str(str));
+        QDECREF(str);
     }
 
     /* If there is a backing file, use it */
