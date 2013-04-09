@@ -865,6 +865,13 @@ int bdrv_file_open(BlockDriverState **pbs, const char *filename,
     Error *local_err = NULL;
     int ret;
 
+    if (0 && options) {
+        QString *str = qobject_to_json_pretty(QOBJECT(options));
+        assert(str != NULL);
+        fprintf(stderr, "bdrv_file_open: %s\n", qstring_get_str(str));
+        QDECREF(str);
+    }
+
     /* NULL means an empty set of options */
     if (options == NULL) {
         options = qdict_new();
@@ -1050,6 +1057,13 @@ int bdrv_open(BlockDriverState *bs, const char *filename, QDict *options,
 
     bs->options = options;
     options = qdict_clone_shallow(options);
+
+    if (0 && options) {
+        QString *str = qobject_to_json_pretty(QOBJECT(options));
+        assert(str != NULL);
+        fprintf(stderr, "bdrv_open: %s\n", qstring_get_str(str));
+        QDECREF(str);
+    }
 
     /* For snapshot=on, create a temporary qcow2 overlay */
     if (flags & BDRV_O_SNAPSHOT) {
