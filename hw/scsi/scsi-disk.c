@@ -1949,6 +1949,10 @@ static int32_t scsi_disk_dma_command(SCSIRequest *req, uint8_t *buf)
         if (!check_lba_range(s, r->req.cmd.lba, len)) {
             goto illegal_lba;
         }
+        if ((r->req.cmd.buf[1] & 0x02) == 0) {
+            scsi_req_complete(&r->req, GOOD);
+            return 0;
+        }
         r->sector = r->req.cmd.lba * (s->qdev.blocksize / 512);
         r->sector_count = len * (s->qdev.blocksize / 512);
         break;
