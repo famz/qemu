@@ -2160,6 +2160,7 @@ void qmp_block_job_complete(const char *device, Error **errp)
 
 void qmp_blockdev_add(BlockdevOptions *options, Error **errp)
 {
+    QString *str;
     QmpOutputVisitor *ov = qmp_output_visitor_new();
     QObject *obj;
     QDict *qdict;
@@ -2194,7 +2195,12 @@ void qmp_blockdev_add(BlockdevOptions *options, Error **errp)
     obj = qmp_output_get_qobject(ov);
     qdict = qobject_to_qdict(obj);
 
+    str = qobject_to_json_pretty(obj);
+    assert(str != NULL);
+    fprintf(stderr, "\n>>>>>>%s\n<<<<<<\n", qstring_get_str(str));
     qdict_flatten(qdict);
+    str = qobject_to_json_pretty(obj);
+    fprintf(stderr, "\n----->%s\n<-----\n", qstring_get_str(str));
 
     blockdev_init(qdict, IF_NONE, &local_err);
     if (error_is_set(&local_err)) {
@@ -2204,6 +2210,7 @@ void qmp_blockdev_add(BlockdevOptions *options, Error **errp)
 
 fail:
     qmp_output_visitor_cleanup(ov);
+    QDECREF(str);
 }
 
 static void do_qmp_query_block_jobs_one(void *opaque, BlockDriverState *bs)
