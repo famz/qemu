@@ -157,6 +157,10 @@ typedef struct Qcow2DiscardRegion {
     QTAILQ_ENTRY(Qcow2DiscardRegion) next;
 } Qcow2DiscardRegion;
 
+typedef struct Qcow2Journal {
+
+} Qcow2Journal;
+
 typedef struct BDRVQcowState {
     int cluster_bits;
     int cluster_size;
@@ -478,5 +482,79 @@ int qcow2_cache_get(BlockDriverState *bs, Qcow2Cache *c, uint64_t offset,
 int qcow2_cache_get_empty(BlockDriverState *bs, Qcow2Cache *c, uint64_t offset,
     void **table);
 int qcow2_cache_put(BlockDriverState *bs, Qcow2Cache *c, void **table);
+
+/* qcow2-journal.c functions */
+
+typedef struct Qcow2JournalTransaction Qcow2JournalTransaction;
+
+enum Qcow2JournalEntryTypeID {
+    QJ_DESC_NOOP    = 0,
+    QJ_DESC_WRITE   = 1,
+    QJ_DESC_COPY    = 2,
+
+    /* required after a cluster is freed and used for other purposes, so that
+     * new (unjournalled) data won't be overwritten with stale metadata */
+    QJ_DESC_REVOKE  = 3,
+};
+
+typedef struct Qcow2JournalEntryType {
+    enum Qcow2JournalEntryTypeID id;
+    int (*sync)(void *buf, size_t size);
+} Qcow2JournalEntryType;
+
+typedef struct Qcow2JournalDesc {
+    uint16_t    type;
+    uint16_t    size;
+} QEMU_PACKED Qcow2JournalDesc;
+
+typedef struct Qcow2JournalDescWrite {
+    Qcow2JournalDesc common;
+    struct {
+        uint32_t length;
+        uint64_t target_offset;
+        uint32_t data_block_index;
+    } write[];
+} QEMU_PACKED Qcow2JournalDescData;
+
+typedef struct Qcow2JournalDescCopy {
+    Qcow2JournalDesc common;
+    struct {
+        uint32_t length;
+        uint64_t target_offset;
+        uint64_t source_offset;
+    } copy[];
+} QEMU_PACKED Qcow2JournalDescCopy;
+
+typedef struct Qcow2JournalRevoke {
+    Qcow2JournalDesc common;
+    struct {
+        uint32_t length;
+        uint64_t target_offset;
+    } revoke[];
+} QEMU_PACKED Qcow2JournalDescRevoke;
+
+void qcow2_journal_register_entry_type(Qcow2JournalEntryType *type);
+
+/* When commit_interval seconds have passed since the last commit, or
+ * uncommitted journal data of at least commit_datasize bytes has accumulated
+ * (whatever occurs first), transactions are committed. */
+int qcow2_journal_init(Qcow2Journal **journal, uint64_t start_offset,
+                       int commit_interval, size_t commit_datasize);
+int qcow2_journal_destroy(Qcow2Journal *journal);
+
+/* These functions create microtransactions, i.e. a set of operations that must
+ * be executed atomically. In general, qemu doesn't map this to one qcow2
+ * on-disk transaction (which would leave a lot of space unused), but handles
+ * multiple microtransaction with one on-disk transaction. */
+Qcow2JournalTransaction *qcow2_journal_begin_transaction(Qcow2Journal *journal);
+void qcow2_journal_add(Qcow2JournalTransaction *ta, Qcow2JournalDesc *desc);
+void qcow2_journal_end_transaction(Qcow2JournalTransaction *ta);
+
+/* Commits all completed microtransactions (i.e. qcow2_journal_end_transaction
+ * has already been called) */
+int qcow2_journal_commit(Qcow2Journal *journal);
+
+/* Syncs all committed transactions */
+int qcow2_journal_sync(Qcow2Journal *journal);
 
 #endif

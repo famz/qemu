@@ -85,6 +85,10 @@ in the description of a field.
                                 be written to (unless for regaining
                                 consistency).
 
+                    Bit 2:      Journal dirty. A replay of the main journal is
+                                needed in order to regain consistency before
+                                accessing the image.
+
                     Bits 2-63:  Reserved (set to 0)
 
          80 -  87:  compatible_features
@@ -103,7 +107,15 @@ in the description of a field.
                     write to an image with unknown auto-clear features if it
                     clears the respective bits from this field first.
 
-                    Bits 0-63:  Reserved (set to 0)
+                    Bit 0:      Journal valid bit. This bit indicates that the
+                                image contains a valid main journal starting at
+                                journal_offset; it is used to mark journals
+                                invalid if the image was opened by older
+                                implementations that may have "reclaimed" the
+                                journal clusters that would appear as leaked
+                                clusters to them.
+
+                    Bits 1-63:  Reserved (set to 0)
 
          96 -  99:  refcount_order
                     Describes the width of a reference count block entry (width
@@ -113,6 +125,16 @@ in the description of a field.
         100 - 103:  header_length
                     Length of the header structure in bytes. For version 2
                     images, the length is always assumed to be 72 bytes.
+
+        104 - 111:  journal_offset
+                    Offset into the image file at which the main image journal
+                    starts. Must be aligned to a cluster boundary. 0 means that
+                    no journal is used.
+
+                    This field is only valid if the journal feature bit in
+                    autoclear_features is set. If the field is invalid or the
+                    header is too short to contain the field, the field is
+                    assumed to be 0 (no journal is used)
 
 Directly after the image header, optional sections called header extensions can
 be stored. Each extension has a structure like the following:
@@ -355,3 +377,193 @@ Snapshot table entry:
         variable:   Unique ID string for the snapshot (not null terminated)
 
         variable:   Name of the snapshot (not null terminated)
+
+
+== Journal ==
+
+Journals allow safe metadata updates without the need for carefully
+ordering and flushing between update steps.  They consist of transactions,
+which in turn contain operations that are effectively executed atomically. A
+qcow2 image can have a main image journal that deals with cluster management
+operations, and additional specific journals can be used by other features like
+data deduplication.
+
+
+As far as the on-disk format is concerned, a transaction is in one of the
+following states:
+
+    Incomplete:     This is the initial state of any transaction, while new
+                    operations can still be added. When opening an image with a
+                    dirty journal, incomplete transactions are discarded.
+
+    Committed:      When all operations that must be performed atomically
+                    during the transaction have been written and are stable on
+                    disk, the transaction can be committed by increasing the
+                    commited sequence number in the journal header. A
+                    transaction in this state may not be changed. When opening
+                    an image with a dirty journal, committed transactions
+                    should be replayed.
+
+    Synced:         A transaction is synced if all of its operations have been
+                    performed, all data written is stable on disk, and the
+                    synced sequence number is increased in the journal header.
+                    Synced transactions are no longer needed in the journal and
+                    can be overwritten. They are ignored during replay.
+
+The use of a sequence number implies that transactions are processed
+sequentially and an earlier transaction can never be unsynced/uncommitted if a
+later one is synced/committed.
+
+
+A journal is stored in a contiguous area in the image file and organised in
+journal blocks, all of which have a reference count of exactly 1. It starts
+with a block containing the following journal header:
+
+    Byte  0 -  7:   Magic ("qjournal" ASCII string)
+
+          8 - 11:   Journal size in bytes, including the header
+
+         12 - 15:   Journal block size order (block size in bytes = 1 << order)
+                    The block size must be at least 512 bytes and must not
+                    exceed the cluster size.
+
+         16 - 19:   Journal block index of the descriptor for the last
+                    transaction that has been synced, starting with 1 for the
+                    journal block after the header. 0 is used for empty
+                    journals.
+
+         20 - 23:   Sequence number of the last transaction that has been
+                    synced. 0 is recommended as the initial value.
+
+         24 - 27:   Sequence number of the last transaction that has been
+                    committed. When replaying a journal, all transactions
+                    after the last synced one up to the last commit one must be
+                    synced. Note that this may include a wraparound of sequence
+                    numbers.
+
+         28 -  31:  Checksum (one's complement of the sum of all bytes in the
+                    header journal block except those of the checksum field)
+
+         32 - 511:  Reserved (set to 0)
+
+
+The header is followed by journal blocks that are either descriptor or data
+blocks. The block index at byte 16 points to the first valid descriptor, except
+for completely empty journals, where it can be 0. The next descriptor can be
+found by skipping a descriptor and its associated data blocks. When the journal
+size is exceeded, a wraparound occurs, essentially forming a ring buffer.
+Note that a wraparound may occur in the middle of a single transaction and even
+a single operation.
+
+The chain of valid descriptors ends if a descriptor is reached whose sequence
+number isn't the successor of the previous sequence number. This means in
+particular that the journal must be ordered chronologically and has ascending
+sequence numbers (except in the case of a sequence number wraparound).
+All blocks from the end of the descriptor chain until the starting point are
+unused.
+
+Implementations must take care to terminate the chain of valid descriptors
+correctly. In particular, they need to ensure that the next journal block
+(which could be either a descriptor or a data block) can't accidentally match
+the excepted sequence number. They should therefore always add a zeroed journal
+block at the end of the descriptor chain.
+
+
+Descriptor blocks describe one transaction each and have the following
+structure:
+
+    Byte  0 -  3:   Magic ("qjbk" ASCII string)
+
+          4 -  7:   Checksum (one's complement of the sum of all bytes in the
+                    descriptor block except those of the checksum field, and
+                    all bytes in the associated data blocks)
+
+          8 - 11:   Sequence number of the transaction
+
+         12 - 15:   Byte offset into the descriptor block at which descriptors
+                    start
+
+         16 - 19:   Total length of descriptors in this block in bytes
+
+         20 - 23:   Number of following data blocks that are associated with
+                    this transaction.
+
+         24 -  n:   (Future extensions)
+
+          n -  m:   Array of descriptors as described below. The exact values
+                    of n and m are determined by the above fields.
+
+All descriptors start with a common part:
+
+    Byte  0 -  1:   Descriptor type
+                        0 - No-op descriptor
+                        1 - Write data block
+                        2 - Copy data
+                        3 - Revoke
+                        4 - Deduplication hash insertion
+                        5 - Deduplication hash deletion
+
+          2 -  3:   Size of the descriptor in bytes
+
+          4 -  n:   Type-specific data
+
+The following section specifies the purpose (i.e. the action that is to be
+performed when syncing) and type-specific data layout of each descriptor type:
+
+  * No-op descriptor: No action is to be performed when syncing this descriptor
+
+          4 -  n:   Ignored
+
+  * Write data block: Write literal data associated with this transaction from
+    the journal to a given offset.
+
+          4 -  7:   Length of the data to write in bytes
+
+          8 - 15:   Offset in the image file to write the data to
+
+         16 - 19:   Index of the journal block at which the data to write
+                    starts. The data must be stored sequentially and be fully
+                    contained in the data blocks associated with the
+                    transaction.
+
+    The type-specific data can be repeated, specifying multiple chunks of data
+    to be written in one operation. This means the size of the descriptor must
+    be 4 + 16 * n.
+
+  * Copy data: Copy data from one offset in the image to another one. This can
+    be used for journalling copy-on-write operations.
+
+          4 -  7:   Length of the data to write in bytes
+
+          8 - 15:   Target offset in the image file
+
+         16 - 23:   Source offset in the image file.
+                    Source and targe range may not overlap.
+
+    The type-specific data can be repeated, specifying multiple chunks of data
+    to be copied in one operation. This means the size of the descriptor must
+    be 4 + 20 * n.
+
+  * Revoke: Marks operations on a given range in the image file invalid for all
+    earlier transactions (this does not include the transaction containing the
+    revoke). They must not be executed on a sync operation (e.g. because the
+    range in question has been freed and may have been reused for other, not
+    journalled data structures that must not be overwritten with stale data).
+    Note that this may mean that operations are to be executed partially.
+
+          4 -  7:   Length of the range in bytes
+
+          8 - 15:   Offset of the range in the image file
+
+    The type-specific data can be repeated, specifying multiple ranges for
+    which operations should be revoked. This means the size of the descriptor
+    must be 4 + 12 * n.
+
+  * Deduplication hash insertion: Associates a hash value with a cluster.
+
+    TODO
+
+  * Deduplication hash deletion: Marks a hash value invalid (e.g. because the
+    hashed data has changed)
+
+    TODO
