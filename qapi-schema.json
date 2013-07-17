@@ -4023,6 +4023,29 @@
             '*no-flush': 'bool' } }
 
 ##
+# @BlockdevThrottlingOptions
+#
+# Includes block device options related to I/O throttling. Leaving an option out
+# means the same as assigning 0 and applies no throttling.
+#
+# @bps-total:   #optional limit total bytes per second
+# @bps-read:    #optional limit read bytes per second
+# @bps-write:   #optional limit written bytes per second
+# @iops-total:  #optional limit total I/O operations per second
+# @iops-read:   #optional limit read operations per second
+# @iops-write:  #optional limit write operations per second
+#
+# Since: 1.7
+##
+{ 'type': 'BlockdevThrottlingOptions',
+  'data': { '*bps-total': 'int',
+            '*bps-read': 'int',
+            '*bps-write': 'int',
+            '*iops-total': 'int',
+            '*iops-read': 'int',
+            '*iops-write': 'int' } }
+
+##
 # @BlockdevOptionsBase
 #
 # Options that are available for all block devices, independent of the block
@@ -4039,6 +4062,7 @@
 #               (default: report)
 # @werror:      #optional how to handle write errors on the device
 #               (default: enospc)
+# @throttling:  #optional I/O throttling related options
 # @read-only:   #optional whether the block device should be read-only
 #               (default: false)
 #
@@ -4052,6 +4076,7 @@
             '*aio': 'BlockdevAioOptions',
             '*rerror': 'BlockdevOnError',
             '*werror': 'BlockdevOnError',
+            '*throttling': 'BlockdevThrottlingOptions',
             '*read-only': 'bool' } }
 
 ##
@@ -4107,12 +4132,16 @@
 #               device (if missing, taken from the image file content). It is
 #               allowed to pass an empty string here in order to disable the
 #               default backing file.
+# @copy-on-read: #optional whether to enable copy on read for the device
+#                (default: false). Copy on read can only be used if the
+#                image is not read-only.
 #
 # Since: 1.7
 ##
 { 'type': 'BlockdevOptionsGenericCOWFormat',
   'base': 'BlockdevOptionsGenericFormat',
-  'data': { '*backing': 'BlockdevRef' } }
+  'data': { '*backing': 'BlockdevRef',
+            '*copy-on-read': 'bool' } }
 
 ##
 # @BlockdevOptionsQcow2
