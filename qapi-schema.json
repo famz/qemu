@@ -4093,6 +4093,42 @@
   'data': { 'filename': 'str' } }
 
 ##
+# @BlockdevOptionsNBD
+#
+# Driver specific block device options for the NBD protocol. Either path or host
+# must be specified.
+#
+# @path:        #optional path to a unix domain socket
+# @host:        #optional host name for a TCP connection
+# @port:        #optional port number for a TCP connection (default: 10809)
+# @export:      #optional NBD export name
+#
+# Since: 1.7
+##
+{ 'type': 'BlockdevOptionsNBD',
+  'data': { '*path': 'str', '*host': 'str', '*port': 'int', '*export': 'str' } }
+
+##
+# @BlockdevOptionsSSH
+#
+# Driver specific block device options for the SSH protocol.
+#
+# @host:        host name for a TCP connection
+# @port:        #optional port number for a TCP connection (default: 22)
+# @path:        path to the image on the remote host
+# @user:        #optional SSH user name (default: current user name)
+#
+# @host-key-check: #optional
+# TODO Should this be split into multiple fields for QMP?
+# TODO Driver takes host_key_check with underscores currently
+#
+# Since: 1.7
+##
+{ 'type': 'BlockdevOptionsSSH',
+  'data': { 'host': 'str', '*port': 'int', 'path': 'str', '*user': 'str',
+            '*host-key-check': 'str' } }
+
+##
 # @BlockdevOptionsVVFAT
 #
 # Driver specific block device options for the vvfat protocol.
