@@ -3172,7 +3172,8 @@ static const MonitorDef monitor_defs[] = {
     { NULL },
 };
 
-static void expr_error(Monitor *mon, const char *fmt, ...)
+static void GCC_FMT_ATTR(2, 3) QEMU_NORETURN
+expr_error(Monitor *mon, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
