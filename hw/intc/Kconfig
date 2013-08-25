@@ -1,0 +1,28 @@
+config HEATHROW_PIC
+    bool
+
+config I8259
+    bool
+
+config PL190
+    bool
+
+config APIC
+    bool
+
+config ARM_GIC
+    bool
+
+config ARM_GIC_KVM
+    bool
+    depends on KVM
+
+config IOAPIC
+    bool
+
+config OPENPICS
+    bool
+
+config STELLARIS
+    bool
+    select ARM_GIC
