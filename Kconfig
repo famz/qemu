@@ -1,0 +1,12 @@
+# Kconfig SeaBIOS configuration
+
+mainmenu "QEMU Configuration"
+
+# Include the user-selected Kconfigs
+menu "Boards"
+    source "Kconfig.targets"
+endmenu
+
+# Device and bus configurations
+source "hw/Kconfig"
+
