@@ -1,0 +1,2 @@
+config OPEN_BY_HANDLE
+    bool
