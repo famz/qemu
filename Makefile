@@ -22,7 +22,7 @@ endif
 CONFIG_SOFTMMU := $(if $(filter %-softmmu,$(TARGET_DIRS)),y)
 CONFIG_USER_ONLY := $(if $(filter %-user,$(TARGET_DIRS)),y)
 CONFIG_ALL=y
--include config-all-devices.mak
+-include $(CONFIG_DEVICES_FILE)
 -include config-all-disas.mak
 
 include $(SRC_PATH)/rules.mak
@@ -56,7 +56,7 @@ Makefile: ;
 configure: ;
 
 .PHONY: all clean cscope distclean dvi html info install install-doc \
-	pdf recurse-all speed test dist
+	pdf recurse-all speed test dist help config-devices-file kconfig-reconfigure
 
 $(call set-vpath, $(SRC_PATH))
 
@@ -73,8 +73,11 @@ else
 DOCS=
 endif
 
+export KCONFIG_CONFIG=kconfig-devices.mak
 SUBDIR_MAKEFLAGS=$(if $(V),,--no-print-directory) BUILD_DIR=$(BUILD_DIR)
+ifneq ($(CONFIG_DEVICES_FILE),$(KCONFIG_CONFIG))
 SUBDIR_DEVICES_MAK=$(patsubst %, %/config-devices.mak, $(TARGET_DIRS))
+endif
 SUBDIR_DEVICES_MAK_DEP=$(patsubst %, %-config-devices.mak.d, $(TARGET_DIRS))
 
 ifeq ($(SUBDIR_DEVICES_MAK),)
@@ -112,6 +115,9 @@ endif
 
 defconfig:
 	rm -f config-all-devices.mak $(SUBDIR_DEVICES_MAK)
+ifeq ($(CONFIG_DEVICES_FILE),$(KCONFIG_CONFIG))
+	$(call quiet-command,sed -i "s/CONFIG_DEVICES_FILE=.*/CONFIG_DEVICES_FILE=config-all-devices.mak/" config-host.mak)
+endif
 
 ifneq ($(wildcard config-host.mak),)
 include $(SRC_PATH)/Makefile.objs
@@ -177,6 +183,93 @@ Makefile: $(version-obj-y) $(version-lobj-y)
 
 libqemustub.a: $(stub-obj-y)
 libqemuutil.a: $(util-obj-y) qapi-types.o qapi-visit.o
+
+######################################################################
+
+######################################################################
+# Kconfig rules
+#
+KCONFIG_PATH:=scripts/kconfig
+Kconfig:=$(SRC_PATH)/Kconfig
+export KCONFIG_AUTOHEADER=auto.h
+export KCONFIG_AUTOCONFIG=auto.mak
+
+KCONFIG_FRONTENDS:=$(KCONFIG_PATH)/frontends
+KCONFIG_CONF:=$(KCONFIG_FRONTENDS)/conf/conf
+
+kconfig-reconfigure:
+	$(call quiet-command, cd $(KCONFIG_PATH) ; ./configure)
+
+define kconfig-check-deps
+@if test -f $1 ; then \
+	$1 $(Kconfig); \
+else \
+	echo $2; \
+	echo "After installing the missing dependencies, please run \"make kconfig-reconfigure\""; \
+fi
+endef
+
+$(KCONFIG_PATH)/bootstrap:
+	@echo Cloning kconfig-frontends...
+	$(call quiet-command,git submodule update --init $(KCONFIG_PATH))
+
+$(KCONFIG_PATH)/Makefile: $(KCONFIG_PATH)/bootstrap
+	$(call quiet-command,cd $(KCONFIG_PATH) ; ./bootstrap ; ./configure)
+
+$(foreach i, conf nconf mconf gconf xconf, \
+	$(KCONFIG_FRONTENDS)/$i/$i): $(KCONFIG_PATH)/Makefile config-host.mak
+	$(MAKE) -C $(KCONFIG_PATH)
+
+config-devices-file:
+ifneq ($(CONFIG_DEVICES_FILE),$(KCONFIG_CONFIG))
+	$(call quiet-command,sed -i "s/CONFIG_DEVICES_FILE=.*/CONFIG_DEVICES_FILE=$(KCONFIG_CONFIG)/" config-host.mak)
+endif
+
+config: $(KCONFIG_CONF) config-devices-file
+	$< --oldaskconfig $(Kconfig)
+
+nconfig: $(KCONFIG_FRONTENDS)/nconfig/nconfig config-devices-file
+	$(call kconfig-check-deps,$<,"Please install libncurses5 and libncurses5-dev")
+
+xconfig: $(KCONFIG_FRONTENDS)/qconf/qconf config-devices-file
+	$(call kconfig-check-deps,$<,"Please install Qt headers and libraries (libqt4-gui, libqt4-dev)")
+
+gconfig: $(KCONFIG_FRONTENDS)/gconf/gconf config-devices-file
+	$(call kconfig-check-deps,$<,"Please install GTK+ headers and libraries (libgtk-dev, libglade-dev, gir-glib)")
+
+oldconfig: $(KCONFIG_CONF) config-devices-file
+	$< --$@ $(Kconfig)
+
+menuconfig: $(KCONFIG_FRONTENDS)/mconf/mconf config-devices-file
+	$(call kconfig-check-deps,$<,"Please install libncurses5 and libncurses5-dev")
+
+silentoldconfig: $(KCONFIG_CONF) config-devices-file
+	@echo "  Build Kconfig config file"
+	mkdir -p include/config
+	$< --$@ $(Kconfig)
+
+savedefconfig: $(obj)/conf config-devices-file
+	$< --$@=defconfig $(Kconfig)
+
+%config: $(KCONFIG_CONF) config-devices-file
+	$< --$@ $(Kconfig)
+
+help:
+	@echo  '  config	  - Update current config utilising a line-oriented program'
+	@echo  '  nconfig         - Update current config utilising a ncurses menu based program'
+	@echo  '  menuconfig	  - Update current config utilising a menu based program'
+	@echo  '  xconfig	  - Update current config utilising a QT based front-end'
+	@echo  '  gconfig	  - Update current config utilising a GTK based front-end'
+	@echo  '  oldconfig	  - Update current config utilising a provided .config as base'
+	@echo  '  silentoldconfig - Same as oldconfig, but quietly, additionally update deps'
+	@echo  '  defconfig	  - New config with default from ARCH supplied defconfig'
+	@echo  '  savedefconfig   - Save current config as ./defconfig (minimal config)'
+	@echo  '  allnoconfig	  - New config where all options are answered with no'
+	@echo  '  allyesconfig	  - New config where all options are accepted with yes'
+	@echo  '  alldefconfig    - New config with all symbols set to default'
+	@echo  '  randconfig	  - New config with random answer to all options'
+	@echo  '  listnewconfig   - List new options'
+	@echo  '  oldnoconfig     - Same as silentoldconfig but set new symbols to n (unset)'
 
 ######################################################################
 
