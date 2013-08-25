@@ -1,0 +1,24 @@
+config IPACK 
+    bool
+    depends on PCI
+
+config ESCC
+    bool
+
+config PARALLEL
+    bool
+    #select ISA
+
+config SERIAL
+    bool
+    #select ISA
+
+config SERIAL_PCI
+    bool
+    depends on PCI
+
+config SCLPCONSOLE
+    bool
+
+config PL011
+    bool
