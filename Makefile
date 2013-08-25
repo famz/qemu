@@ -56,8 +56,8 @@ Makefile: ;
 configure: ;
 
 .PHONY: all clean cscope distclean dvi html info install install-doc \
-	pdf recurse-all speed test dist
-
+	pdf recurse-all speed test dist help
+	
 $(call set-vpath, $(SRC_PATH))
 
 LIBS+=-lz $(LIBS_TOOLS)
@@ -146,11 +146,10 @@ $(SRC_PATH)/pixman/configure:
 	(cd $(SRC_PATH)/pixman; autoreconf -v --install)
 
 DTC_MAKE_ARGS=-I$(SRC_PATH)/dtc VPATH=$(SRC_PATH)/dtc -C dtc V="$(V)" LIBFDT_srcdir=$(SRC_PATH)/dtc/libfdt
-DTC_CFLAGS=$(CFLAGS) $(QEMU_CFLAGS)
-DTC_CPPFLAGS=-I$(BUILD_DIR)/dtc -I$(SRC_PATH)/dtc -I$(SRC_PATH)/dtc/libfdt
+DTC_CFLAGS=$(CFLAGS) $(QEMU_CFLAGS) -I$(BUILD_DIR)/dtc -I$(SRC_PATH)/dtc -I$(SRC_PATH)/dtc/libfdt
 
 subdir-dtc:dtc/libfdt dtc/tests
-	$(call quiet-command,$(MAKE) $(DTC_MAKE_ARGS) CPPFLAGS="$(DTC_CPPFLAGS)" CFLAGS="$(DTC_CFLAGS)" LDFLAGS="$(LDFLAGS)" ARFLAGS="$(ARFLAGS)" CC="$(CC)" AR="$(AR)" LD="$(LD)" $(SUBDIR_MAKEFLAGS) libfdt/libfdt.a,)
+	$(call quiet-command,$(MAKE) $(DTC_MAKE_ARGS) CFLAGS="$(DTC_CFLAGS)" LDFLAGS="$(LDFLAGS)" ARFLAGS="$(ARFLAGS)" CC="$(CC)" AR="$(AR)" LD="$(LD)" $(SUBDIR_MAKEFLAGS) libfdt/libfdt.a,)
 
 dtc/%:
 	mkdir -p $@
@@ -167,8 +166,11 @@ recurse-all: $(SUBDIR_RULES) $(ROMSUBDIR_RULES)
 
 bt-host.o: QEMU_CFLAGS += $(BLUEZ_CFLAGS)
 
-$(BUILD_DIR)/version.o: $(SRC_PATH)/version.rc $(BUILD_DIR)/config-host.h | $(BUILD_DIR)/version.lo
-$(BUILD_DIR)/version.lo: $(SRC_PATH)/version.rc $(BUILD_DIR)/config-host.h
+version.o: $(SRC_PATH)/version.rc config-host.h | version.lo
+version.lo: $(SRC_PATH)/version.rc config-host.h
+
+version-obj-$(CONFIG_WIN32) += version.o
+version-lobj-$(CONFIG_WIN32) += version.lo
 
 Makefile: $(version-obj-y) $(version-lobj-y)
 
@@ -180,6 +182,85 @@ libqemuutil.a: $(util-obj-y) qapi-types.o qapi-visit.o
 
 ######################################################################
 
+######################################################################
+# Kconfig rules
+#
+#KCONFIG_PATH:=$(SRC_PATH)/scripts/kconfig
+KCONFIG_PATH:=scripts/kconfig
+Kconfig:=$(SRC_PATH)/Kconfig
+export KCONFIG_AUTOHEADER=auto.h
+export KCONFIG_AUTOCONFIG=auto.mak
+
+KCONFIG_FRONTENDS:=$(KCONFIG_PATH)/frontends
+KCONFIG_CONF:=$(KCONFIG_FRONTENDS)/conf/conf
+
+$(KCONFIG_PATH)/bootstrap:
+	@echo Cloning kconfig-frontends...
+	$(call quiet-command,git submodule --init $(KCONFIG_PATH))
+
+$(KCONFIG_PATH)/Makefile: $(KCONFIG_PATH)/bootstrap
+	@(cd $(KCONFIG_PATH) ; ./bootstrap ; ./configure)
+
+$(foreach i, conf nconf mconf gconf qconf, \
+	$(KCONFIG_FRONTENDS)/$i/$i): $(KCONFIG_PATH)/Makefile config-host.mak
+	$(MAKE) -C $(KCONFIG_PATH)
+
+config: $(KCONFIG_CONF)
+	$< --oldaskconfig $(Kconfig)
+
+nconfig: $(KCONFIG_FRONTENDS)/nconfig/nconfig
+	$< $(Kconfig)
+
+xconfig: $(KCONFIG_FRONTENDS)/xconf/xconf
+	$< $(Kconfig)
+
+gconfig: $(KCONFIG_FRONTENDS)/gconf/gconf
+	$< $(Kconfig)
+
+oldconfig: $(KCONFIG_CONF)
+	$< --$@ $(Kconfig)
+
+menuconfig: $(KCONFIG_FRONTENDS)/mconf/mconf
+	$< $(Kconfig)
+
+localyesconfig:
+# TODO
+
+silentoldconfig: $(KCONFIG_CONF)
+	@echo "  Build Kconfig config file"
+	mkdir -p include/config
+	$< --$@ $(Kconfig)
+
+defconfig:
+# have it
+
+savedefconfig: $(obj)/conf
+	$< --$@=defconfig $(Kconfig)
+
+%config: $(KCONFIG_CONF)
+	$< --$@ $(Kconfig)
+
+help:
+	@echo  '  config	  - Update current config utilising a line-oriented program'
+	@echo  '  nconfig         - Update current config utilising a ncurses menu based program'
+	@echo  '  menuconfig	  - Update current config utilising a menu based program'
+	@echo  '  xconfig	  - Update current config utilising a QT based front-end'
+	@echo  '  gconfig	  - Update current config utilising a GTK based front-end'
+	@echo  '  oldconfig	  - Update current config utilising a provided .config as base'
+#	@echo  '  localmodconfig  - Update current config disabling modules not loaded'
+	@echo  '  localyesconfig  - Update current config converting local mods to core'
+	@echo  '  silentoldconfig - Same as oldconfig, but quietly, additionally update deps'
+	@echo  '  defconfig	  - New config with default from ARCH supplied defconfig'
+	@echo  '  savedefconfig   - Save current config as ./defconfig (minimal config)'
+	@echo  '  allnoconfig	  - New config where all options are answered with no'
+	@echo  '  allyesconfig	  - New config where all options are accepted with yes'
+#	@echo  '  allmodconfig	  - New config selecting modules when possible'
+	@echo  '  alldefconfig    - New config with all symbols set to default'
+	@echo  '  randconfig	  - New config with random answer to all options'
+	@echo  '  listnewconfig   - List new options'
+	@echo  '  oldnoconfig     - Same as silentoldconfig but set new symbols to n (unset)'
+
+######################################################################
 qemu-img.o: qemu-img-cmds.h
 
 qemu-img$(EXESUF): qemu-img.o $(block-obj-y) libqemuutil.a libqemustub.a
@@ -433,61 +514,6 @@ pdf: qemu-doc.pdf qemu-tech.pdf
 qemu-doc.dvi qemu-doc.html qemu-doc.info qemu-doc.pdf: \
 	qemu-img.texi qemu-nbd.texi qemu-options.texi \
 	qemu-monitor.texi qemu-img-cmds.texi
-
-ifdef CONFIG_WIN32
-
-INSTALLER = qemu-setup-$(VERSION)$(EXESUF)
-
-nsisflags = -V2 -NOCD
-
-ifneq ($(wildcard $(SRC_PATH)/dll),)
-ifeq ($(ARCH),x86_64)
-# 64 bit executables
-DLL_PATH = $(SRC_PATH)/dll/w64
-nsisflags += -DW64
-else
-# 32 bit executables
-DLL_PATH = $(SRC_PATH)/dll/w32
-endif
-endif
-
-.PHONY: installer
-installer: $(INSTALLER)
-
-INSTDIR=/tmp/qemu-nsis
-
-$(INSTALLER): $(SRC_PATH)/qemu.nsi
-	make install prefix=${INSTDIR}
-ifdef SIGNCODE
-	(cd ${INSTDIR}; \
-         for i in *.exe; do \
-           $(SIGNCODE) $${i}; \
-         done \
-        )
-endif # SIGNCODE
-	(cd ${INSTDIR}; \
-         for i in qemu-system-*.exe; do \
-           arch=$${i%.exe}; \
-           arch=$${arch#qemu-system-}; \
-           echo Section \"$$arch\" Section_$$arch; \
-           echo SetOutPath \"\$$INSTDIR\"; \
-           echo File \"\$${BINDIR}\\$$i\"; \
-           echo SectionEnd; \
-         done \
-        ) >${INSTDIR}/system-emulations.nsh
-	makensis $(nsisflags) \
-                $(if $(BUILD_DOCS),-DCONFIG_DOCUMENTATION="y") \
-                $(if $(CONFIG_GTK),-DCONFIG_GTK="y") \
-                -DBINDIR="${INSTDIR}" \
-                $(if $(DLL_PATH),-DDLLDIR="$(DLL_PATH)") \
-                -DSRCDIR="$(SRC_PATH)" \
-                -DOUTFILE="$(INSTALLER)" \
-                $(SRC_PATH)/qemu.nsi
-	rm -r ${INSTDIR}
-ifdef SIGNCODE
-	$(SIGNCODE) $(INSTALLER)
-endif # SIGNCODE
-endif # CONFIG_WIN
 
 # Add a dependency on the generated files, so that they are always
 # rebuilt before other object files
