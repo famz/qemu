@@ -1,0 +1,6 @@
+config TPM_TIS
+    bool
+    #select ISA
+
+config TPM_PASSTHROUGH
+    bool
