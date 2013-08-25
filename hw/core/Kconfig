@@ -1,0 +1,11 @@
+config EMPTY_SLOT
+    bool
+
+config XILINX_AXI
+    bool
+
+config PTIMER
+    bool
+
+config SOFTMMU
+    bool
