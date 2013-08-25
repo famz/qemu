@@ -1,0 +1,235 @@
+config ARM
+    bool
+#    select ARM_NVIC
+    default y
+
+menu "ARM" 
+    config EXYNOS4
+        bool "Samsung Exynos4210 SoC"
+        select A9SCU # snoop controll unit
+        select USB_EHCI
+        select LAN9118
+        select PL310 # cache controller
+        select PCI
+        select ARM_GIC
+        select ARM_NVIC
+        select ARM9MPCORE
+        select ARM_MPTIMER
+        default y
+
+    config HIGHBANK
+        bool "Calxeda Highbank SoC"
+        select A9SCU # snoop controll unit
+        select AHCI
+        select PL011 # UART
+        select PL022 # Serial port
+        select PL031 # RTC
+        select PL061 # GPIO
+        select PL310 # cache controller
+        select XGMAC # ethernet
+        select ARM_TIMER # sp804
+        select ARM_NVIC
+        select ARM_MPTIMER
+        select ARM9MPCORE
+        select PCI
+        default y
+
+    config INTEGRATORCP
+        bool "ARM Integrator CP"
+        select SMC91C111
+        select ARM_TIMER
+        select PL011 # UART
+        select PL031 # RTC
+        select PL050 # keyboard/mouse
+        select PL110 # pl111 LCD controller
+        select PL181 # display
+        select PCI
+        default y
+
+    config KZM
+        bool "Kzm"
+        select SERIAL
+        select IMX
+        select LAN9118
+        select PCI
+        default y
+
+    config MUSICPAL
+        bool "Marvell MV88W8618 / Freecom MusicPal"
+        select PFLASH_CFI02
+        select PTIMER
+        select PCI
+        select BITBANG_I2C
+        select MARVELL_88W8618
+        select WM8750
+        select SERIAL
+        default y
+
+    config OMAP
+        bool "Texas Instruments Open Multimedia Applications Platform"
+        select SERIAL
+        select PFLASH_CFI01
+        select PCI
+        default y
+
+    config NSERIES
+        bool "Nokia N-Series tablets"
+        select TMP105   # tempature sensor
+        select BLIZZARD # LCD/TV controller
+        select ONENAND 
+        select TSC210X  # touchscreen/sensors/audio
+        select TSC2005  # touchscreen/sensors/keypad
+        select LM832X   # GPIO keyboard chip
+        select TWL92230 # energy-management
+        depends on OMAP
+        default y
+
+    config PALM
+        bool "PalmOne PDAs"
+        select TSC210X
+        depends on OMAP
+        default y
+
+    config STELLARIS
+        bool
+        select PL011 # UART
+        select PL022 # Serial port
+        select PL061 # GPIO
+        select STELLARIS_INPUT
+        select STELLARIS_ENET # ethernet
+        select SSD0303 # OLED display
+        select SSD0323 # OLED display
+        select SSI_SD
+        default y    # for armv7m_nvic_*
+
+    config REALVIEW
+        bool "ARM Realview baseboard"
+        # networking
+        select SMC91C111
+        select LAN9118
+        select RTL8139_PCI
+
+        select VERSATILE_PCI
+        select WM8750 # audio codec
+        select PL011  # UART
+        select PL041  # audio codec
+        select PL050  # keyboard/mouse
+        select PL061  # GPIO
+        select PL080  # DMA controller
+        select VERSATILE_I2C
+        select DS1338 # I2C RTC+NVRAM
+        select USB_OHCI
+        select ARM_GIC
+        select ARM_MPTIMER
+        select ARM15MPCORE
+        select ARM11MPCORE
+        select ARM9MPCORE
+    
+    config VERSATILEPB
+        bool "ARM Versatile platform"
+        select PFLASH_CFI01
+        select PL031  # RTC
+        select PL050  # keyboard/mouse
+        select PL080  # DMA controller
+        select PL181  # display
+        select PL190  # Vector PIC
+        select ARM_TIMER # sp804
+        select USB_OHCI
+        select LSI_SCSI_PCI
+        select REALVIEW
+        default y
+
+    config VXPRESS
+        bool "ARM Versatile Express"
+        select PFLASH_CFI01
+        select LAN9118
+        select PL011 # UART
+        select PL031  # RTC
+        select PL041 # audio codec
+        select PL110 # pl111 LCD controller
+        select PL181  # display
+        select PL310 # cache controller
+        select A9SCU # snoop controll unit
+        select ARM_TIMER # sp804
+        select ARM_MPTIMER
+        select ARM15MPCORE
+        select ARM9MPCORE
+        select REALVIEW
+        default y
+
+    config ZYNQ
+        bool "Xilinx Zynq Baseboard"
+        select ARM9MPCORE
+        select CADENCE # UART
+        select PCI
+        select PFLASH_CFI02
+        select SDHCI
+        select USB_EHCI
+        select XILINX # UART
+        select XILINX_SPI
+        select XILINX_SPISS
+        default y
+
+    config PXA2XX
+        bool "Intel XScale PXA255/270"
+        select SERIAL
+        select PCI
+        select USB_OHCI
+        select SSI
+        default y
+
+    config GUMSTIX
+        bool "Gumstix platform"
+        select PFLASH_CFI01
+        select SMC91C111
+        depends on PXA2XX
+        default y
+
+    config TOSA
+        bool "PXA255 Sharp Zaurus SL-6000 PDA platform"
+        select ZAURUS  # scoop
+        select MICRODRIVE
+        depends on PXA2XX
+        default y
+
+    config MAINSTONE
+        bool "PXA270-based Intel Mainstone"
+        depends on PXA2XX
+        select PFLASH_CFI01
+        select SMC91C111
+        default y
+
+    config SPITZ
+        bool "PXA270-based Clamshell PDA platforms"
+        select ADS7846 # display
+        select MAX111X # A/D converter
+        select WM8750  # audio codec
+        select MAX7310 # GPIO expander
+        select ZAURUS  # scoop
+        select NAND    # memory
+        select ECC     # Error-correcting for NAND
+        select MICRODRIVE
+        depends on PXA2XX
+        default y
+
+    config Z2
+        bool "Zipit Z2"
+        select PFLASH_CFI01
+        select WM8750
+        select PL011 # UART
+        depends on PXA2XX
+        default y
+
+    config STRONGARM
+       bool 
+       select PXA2XX
+
+    config COLLIE
+        bool "Sharp Zaurus SL-5500"
+        select PFLASH_CFI01
+        select ZAURUS  # scoop
+        select STRONGARM
+        default y
+        help
+            SA-1110-based Sharp Zaurus SL-5500 platform.
+endmenu
