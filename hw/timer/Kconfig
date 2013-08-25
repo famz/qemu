@@ -1,0 +1,80 @@
+config ARM_TIMER
+    bool
+    select PTIMER
+
+config CADENCE
+    bool
+
+config DS1338
+    bool
+
+config HPET
+    bool
+
+config I8254
+    bool
+    select MC146818RTC
+    #select ISA
+
+config M48T59
+    bool
+    #select ISA
+
+config PL031
+    bool
+
+config PUV3
+    bool
+    select PTIMER
+
+config TWL92230
+    bool
+
+config XILINX
+    bool
+    select PTIMER
+
+config SLAVIO
+    bool
+    select PTIMER
+
+config ETRAXFS
+    bool
+    select PTIMER
+
+config GRLIB
+    bool
+    select PTIMER
+
+config IMX
+    bool
+    select PTIMER
+
+config LM32
+    bool
+    select PTIMER
+
+config MILKYMIST
+    bool
+    select PTIMER
+
+config EXYNOS4
+    bool
+    select PTIMER
+
+config SH4
+    bool
+    select PTIMER
+
+config TUSB6010
+    bool
+    select USB_MUSB
+
+config ARM_MPTIMER
+    bool
+    select PTIMER
+
+config MC146818RTC
+    bool
+    select PTIMER
+    #select ISA
