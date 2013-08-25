@@ -1,0 +1,21 @@
+menu "SCSI devices"
+    config LSI_SCSI_PCI
+        bool "LSI53C895A SCSI Host Bus Adapter"
+        depends on PCI
+
+    config MEGASAS_SCSI_PCI
+        bool "MegaRAID SAS 8708EM2 Host Bus Adapter"
+        depends on PCI
+
+    config VMW_PVSCSI_SCSI_PCI
+        bool "VMware PVSCSI paravirtual SCSI bus"
+        depends on PCI
+
+    config ESP
+        bool
+
+    config ESP_PCI
+        bool "ESP/NCR53C9x"
+        depends on PCI
+        select ESP
+endmenu
