@@ -1,0 +1,11 @@
+config ARM11MPCORE
+    bool
+
+config ARM9MPCORE
+    bool 
+
+config ARM15MPCORE
+    bool
+
+config ICC_BUS
+    bool
