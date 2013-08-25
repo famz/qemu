@@ -1,0 +1,67 @@
+config APPLESMC
+    bool
+    #select ISA
+    
+config MAX111X
+    bool
+    select SSI
+
+config TMP105
+    bool
+    #select I2C
+
+config ISA_DEBUG
+    bool
+    #select ISA
+
+config SGA
+    bool
+    #depends on PCI
+
+config ISA_TESTDEV
+    bool
+    #select ISA
+
+config PCI_TESTDEV
+    bool
+    depends on PCI
+
+config VMPORT
+    bool
+    #select ISA
+
+config PL310
+    bool
+
+config PUV3
+    bool
+
+config MACIO
+    bool
+    depends on PCI
+    select MAC_NVRAM
+
+config CUDA
+    bool
+    select MACIO
+
+config MAC_DBDMA
+    bool   
+    select MACIO
+    select ADB
+    #select ISA
+
+config A9SCU
+    bool
+
+config ECCMEMCTL
+    bool
+    select ECC
+
+config OMAP
+    bool
+    select ECCMEMCTL
+    select NAND
+    
+config PVPANIC
+    bool
