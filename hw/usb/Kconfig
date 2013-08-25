@@ -1,0 +1,61 @@
+menu "USB devices"
+    config USB_UHCI
+        bool "USB UHCI support"
+        depends on PCI
+        default y
+        
+    config USB_OHCI
+        bool "USB OHCI support"
+        depends on PCI
+        default y
+
+    config USB_EHCI
+        bool "USB EHCI support"
+        default y
+
+    config USB_XHCI
+        bool "USB XHCI support"
+        default y
+        depends on PCI
+
+    config USB_MUSB
+        bool "USB MUSB support"
+        default y
+
+    config USB_TABLET_WACOM
+        bool "Wacom tablet USB"
+        default y
+
+    config USB_STORAGE_BOT
+        bool "USB harddrive support"
+        default y
+
+    config USB_STORAGE_UAS
+        bool "UAS storage"
+        default y
+
+    config USB_AUDIO
+        bool "USB audio"
+        default y
+
+    config USB_SERIAL
+        bool "USB serial port adapter"
+        default y
+
+    config USB_NETWORK
+        bool "USB networking"
+
+    config USB_BLUETOOTH
+        bool "USB bluetooth"
+        default y
+
+    config USB_SMARTCARD
+        bool "USB Smart Card"
+        default y
+
+    config USB_SMARTCARD_NSS
+        bool "Emulated USB Smart Card"
+
+    config USB_REDIR
+        bool "USB redirection device"
+endmenu
