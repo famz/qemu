@@ -1,0 +1,49 @@
+config IDE_CORE
+    bool
+    #select ISA
+
+config IDE_QDEV
+    bool
+    select IDE_CORE
+
+config IDE_PCI
+    bool "IDE PCI"
+    select IDE_QDEV
+    select USB_XHCI
+
+config IDE_ISA
+    bool
+    #select ISA
+    select IDE_QDEV
+
+config IDE_PIIX
+    bool
+    select IDE_QDEV
+    depends on PCI
+
+config IDE_CMD646
+    bool
+    #select ISA
+    depends on PCI
+    select IDE_QDEV
+
+config IDE_MACIO
+    bool
+    select IDE_QDEV
+
+config IDE_MMIO
+    bool
+    select IDE_QDEV
+
+config IDE_VIA
+    bool
+    select IDE_QDEV
+    depends on PCI
+
+config MICRODRIVE
+    bool
+    select IDE_CORE
+
+config AHCI
+    bool
+    select IDE_QDEV
