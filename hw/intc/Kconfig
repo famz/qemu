@@ -16,17 +16,23 @@ config ARM_GIC
 
 config ARM_GIC_KVM
     bool
-    depends on KVM
 
 config IOAPIC
     bool
 
-config OPENPICS
+config OPENPIC
     bool
 
 config OPENPIC_KVM
     bool
 
+<<<<<<< HEAD
+config OPENPIC_KVM
+    bool
+
 config ARMV7M_NVIC
+=======
+config STELLARIS
+>>>>>>> eb5e304... hw/intc/Kconfig: Add Kconfig file
     bool
     select ARM_GIC
