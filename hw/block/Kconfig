@@ -1,0 +1,34 @@
+config FDC
+    bool
+    #select ISA
+
+config SSI_M25P80
+    bool
+    select SSI
+
+config NAND
+    bool
+
+config PFLASH_CFI01
+    bool
+
+config PFLASH_CFI02
+    bool
+
+config ECC
+    bool
+
+config ONENAND
+    bool
+
+config PC_SYSFW
+    bool
+    #select ISA
+
+config NVME_PCI
+    bool
+    depends on PCI
+
+config VIRTIO_BLK_DATA_PLANE
+    bool
+    select VIRTIO
