@@ -1,0 +1,41 @@
+menu "Audio devices"
+    config SB16
+        bool
+        #select ISA
+    
+    config ES1370
+        bool "ES1370"
+        depends on PCI
+
+    config AC97
+        bool "AC97 sound card"
+        default y
+        depends on PCI
+
+    config ADLIB
+        bool
+        #select ISA
+
+    config CS4231A
+        bool
+
+    config HDA
+        bool
+        #select ISA
+
+    config PCSPK
+        bool
+        select I8254
+
+    config WM8750
+        bool
+
+    config PL041
+        bool
+
+    config CS4231
+        bool
+
+    config MARVELL_88W8618
+        bool
+endmenu
