@@ -25,3 +25,6 @@
 [submodule "dtc"]
 	path = dtc
 	url = git://git.qemu.org/dtc.git
+[submodule "scripts/kconfig"]
+	path = scripts/kconfig
+	url = git://ymorin.is-a-geek.org/kconfig-frontends
