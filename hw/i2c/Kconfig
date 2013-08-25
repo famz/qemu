@@ -1,0 +1,10 @@
+config VERSATILE_I2C
+    bool
+    select BITBANG_I2C
+
+config ACPI
+    bool
+    depends on PCI
+    
+config BITBANG_I2C
+    bool
