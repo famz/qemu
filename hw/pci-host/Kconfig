@@ -1,0 +1,36 @@
+config PREP_PCI
+    bool
+    select PCI
+
+config GRACKLE_PCI
+    bool
+    select PCI
+
+config UNIN_PCI
+    bool
+    select PCI
+
+config PPCE500_PCI
+    bool
+    select PCI
+
+config VERSATILE_PCI
+    bool
+    select PCI
+
+config PCI_APB
+    bool
+    select PCI
+
+config FULONG
+    bool
+    select PCI
+
+config PCI_PIIX
+    bool
+    select PCI
+    #select ISA
+
+config PCI_Q35
+    bool
+    select PCI
