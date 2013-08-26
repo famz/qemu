@@ -1,10 +1,10 @@
 config ARM11MPCORE
     bool
 
-config ARM9MPCORE
+config A9MPCORE
     bool 
 
-config ARM15MPCORE
+config A15MPCORE
     bool
 
 config ICC_BUS
