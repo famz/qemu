@@ -9,6 +9,7 @@ config PL190
 
 config APIC
     bool
+    select IOAPIC
 
 config ARM_GIC
     bool
@@ -23,6 +24,6 @@ config IOAPIC
 config OPENPICS
     bool
 
-config STELLARIS
+config ARMV7_NVIC
     bool
     select ARM_GIC
