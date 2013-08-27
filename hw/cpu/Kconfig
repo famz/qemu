@@ -1,11 +1,18 @@
 config ARM11MPCORE
     bool
+    select ARM_GIC
+    select ARM_MPTIMER
+    select REALVIEW_GIC
 
 config A9MPCORE
     bool 
+    select ARM_GIC
+    select ARM_MPTIMER
+    select A9SCU
 
 config A15MPCORE
     bool
+    select ARM_GIC
 
 config ICC_BUS
     bool
