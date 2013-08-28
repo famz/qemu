@@ -5,7 +5,8 @@ obj-$(CONFIG_PSERIES) += spapr.o spapr_vio.o spapr_events.o
 obj-$(CONFIG_PSERIES) += spapr_hcall.o spapr_iommu.o spapr_rtas.o
 obj-$(CONFIG_PSERIES) += spapr_pci.o
 # PowerPC 4xx boards
-obj-$(CONFIG_PPC405) += ppc405_boards.o  ppc405_uc.o
+obj-$(CONFIG_PPC405_UC) +=  ppc405_uc.o
+obj-$(CONFIG_PPC405) += ppc405_boards.o
 obj-$(CONFIG_PPC440) += ppc440_bamboo.o
 obj-$(CONFIG_PPC4XX) += ppc4xx_pci.o ppc4xx_devs.o
 # PReP
