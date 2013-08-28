@@ -1,18 +1,18 @@
 config APPLESMC
     bool
-    #select ISA
+    #depends on ISA
     
 config MAX111X
     bool
-    select SSI
+    depends on SSI
 
 config TMP105
     bool
-    #select I2C
+    #depends on I2C
 
 config ISA_DEBUG
     bool
-    #select ISA
+    #depends on ISA
 
 config SGA
     bool
@@ -20,7 +20,7 @@ config SGA
 
 config ISA_TESTDEV
     bool
-    #select ISA
+    #depends ISA
 
 config PCI_TESTDEV
     bool
@@ -28,7 +28,7 @@ config PCI_TESTDEV
 
 config VMPORT
     bool
-    #select ISA
+    #depends on ISA
 
 config PL310
     bool
@@ -49,7 +49,7 @@ config MAC_DBDMA
     bool   
     select MACIO
     select ADB
-    #select ISA
+    #depends on ISA
 
 config A9SCU
     bool
