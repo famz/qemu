@@ -21,7 +21,10 @@ config ARM_GIC_KVM
 config IOAPIC
     bool
 
-config OPENPICS
+config OPENPIC
+    bool
+
+config OPENPIC_KVM
     bool
 
 config ARMV7_NVIC
