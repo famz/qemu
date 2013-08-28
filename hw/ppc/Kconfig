@@ -1,0 +1,98 @@
+menu "PowerPc (PPC)"
+    config PSERIES
+        bool "PowerPC pSeries Logical Partition"
+        default n
+        select VGA_PCI
+        select NVRAM
+        select PFLASH_CFI02
+        select PCI_OHCI
+        # error: ‘CPUPPCState’ has no member named ‘sps’
+
+    config PPC4XX 
+        bool
+
+    config PPC405_UC
+        bool
+        select PPC4XX
+        select SERIAL
+        # for monitor.c
+        select PCI
+        select I8259
+
+    config PPC405
+        bool "PowerPC 405EP reference board"
+        default y
+        select PFLASH_CFI02
+        select M48T59
+        select PPC405_UC
+
+    config PPC440
+        bool "PowerPC 440 Bamboo"
+        default y
+        select PPC405_UC
+
+    config VIRTEX
+        bool "Xilinx Virtex5 ML507"
+        default y
+        select SERIAL
+        select PFLASH_CFI01
+        select XILINX
+        select PPC405_UC
+
+    config PREP
+        bool "PowerPC Reference Platform (PReP)"
+        default y
+        select FDC
+        select PC87312
+        select I82378
+        select MC146818RTC
+        select PREP_PCI
+        select IDE_ISA
+        select M48T59
+        select PCI_OHCI
+        select IDE_CORE
+        select PCKBD
+        select PPC405_UC
+
+    config MAC_OLDWORLD
+        bool "OldWorld PowerMac"
+        default y
+        select ADB
+        select ISA_MMIO
+        select HEATHROW_PIC
+        select GRACKLE_PCI
+        select ESCC
+        select IDE_CORE
+        select IDE_MACIO
+        select PCI_OHCI
+        select VGA_PCI
+        select CUDA
+        select MAC_DBDMA
+        select PPC405_UC
+
+    config MAC_NEWWORLD
+        bool "NewWorld PowerMac"
+        default y
+        select ADB
+        select M48T59
+        select OPENPIC
+        select ESCC
+        select ISA_MMIO
+        select UNIN_PCI
+        select VGA_PCI
+        select IDE_MACIO
+        select IDE_CORE
+        select CUDA
+        select USB_OHCI
+        select MAC_DBDMA
+        select OPENPIC
+        select PPC405_UC
+
+    config E500
+        bool "PowerPC e500-based platforms"
+        default y
+        select OPENPIC
+        select SERIAL
+        select PPCE500_PCI
+        select PPC405_UC
+endmenu
