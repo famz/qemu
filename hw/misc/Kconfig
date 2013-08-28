@@ -20,7 +20,7 @@ config SGA
 
 config ISA_TESTDEV
     bool
-    #depends ISA
+    #depends on ISA
 
 config PCI_TESTDEV
     bool
