@@ -9,9 +9,25 @@ menu "USB devices"
         depends on PCI
         default y
 
+    config USB_OHCI_SYSBUS
+        bool
+        select USB_OHCI
+
+    config USB_OHCI_PCI
+        bool
+        select USB_OHCI
+
     config USB_EHCI
         bool "USB EHCI support"
         default y
+
+    config USB_EHCI_SYSBUS
+        bool
+        select USB_EHCI
+
+    config USB_EHCI_PCI
+        bool
+        select USB_EHCI
 
     config USB_XHCI
         bool "USB XHCI support"
