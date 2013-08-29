@@ -1,5 +1,6 @@
 config FDC
     bool
+    select I8257
     #depends on ISA
 
 config SSI_M25P80
