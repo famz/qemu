@@ -1,5 +1,3 @@
-# Kconfig SeaBIOS configuration
-
 mainmenu "QEMU Configuration"
 
 # Include the user-selected Kconfigs
