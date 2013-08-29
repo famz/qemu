@@ -13,10 +13,6 @@ config I82378
     select MC146818RTC # timer
     depends on PCI
 
-config ISA_MMIO
-    bool
-    #select ISA 
-
 config PC87312
     bool
     #select ISA 
