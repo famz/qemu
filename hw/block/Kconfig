@@ -1,10 +1,10 @@
 config FDC
     bool
-    #select ISA
+    #depends on ISA
 
 config SSI_M25P80
     bool
-    select SSI
+    depends on SSI
 
 config NAND
     bool
@@ -23,12 +23,8 @@ config ONENAND
 
 config PC_SYSFW
     bool
-    #select ISA
+    #depends on ISA
 
 config NVME_PCI
     bool
     depends on PCI
-
-config VIRTIO_BLK_DATA_PLANE
-    bool
-    select VIRTIO
