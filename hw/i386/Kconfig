@@ -1,0 +1,54 @@
+menu "i386"
+    config KVM
+        bool
+        select I8254
+        select PIIX
+        select LINUX
+
+    config PIIX
+       bool "Pentium IIx board" 
+       select ACPI
+       select APM
+       select FDC
+       select IDE_ISA
+       select IDE_PIIX
+       select MC146818RTC
+       select PCI_PIIX
+       select PCKBD
+       select PFLASH_CFI01
+       select SERIAL
+       select USB_UHCI
+       # interrupt controllers
+       select I8259
+       select APIC
+       select IOAPIC
+       #
+       #select ISA
+       select PVPANIC
+       select ICC_BUS
+       select PCSPK
+       select VMPORT
+
+    config Q35
+        bool "Q36 chipset based PC"
+        select ACPI
+        select AHCI
+        select APIC
+        select FDC
+        select I8254
+        select I8259
+        select ICC_BUS
+        select IDE_MMIO
+        select LPC_ICH9
+        select PCI_Q35
+        select PCKBD
+        select PCSPK
+        select PFLASH_CFI01
+        select PVPANIC
+        select SERIAL
+        select USB_EHCI_PCI
+        select VMPORT
+
+    config XEN
+        bool
+endmenu
