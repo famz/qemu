@@ -7,7 +7,7 @@ config IDE_QDEV
     select IDE_CORE
 
 config IDE_PCI
-    bool "IDE PCI"
+    bool
     select IDE_QDEV
     select USB_XHCI
 
@@ -18,7 +18,7 @@ config IDE_ISA
 
 config IDE_PIIX
     bool
-    select IDE_QDEV
+    select IDE_PCI
     depends on PCI
 
 config IDE_CMD646
