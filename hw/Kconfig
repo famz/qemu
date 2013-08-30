@@ -1,5 +1,6 @@
 source "hw/9pfs/Kconfig"
 source "hw/audio/Kconfig"
+source "hw/acpi/Kconfig"
 source "hw/block/Kconfig"
 source "hw/char/Kconfig"
 source "hw/core/Kconfig"

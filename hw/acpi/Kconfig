@@ -1,0 +1,4 @@
+config ACPI
+    bool
+    select APM
+    depends on PCI
