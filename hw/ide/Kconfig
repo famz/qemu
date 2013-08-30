@@ -38,7 +38,7 @@ config IDE_MMIO
 config IDE_VIA
     bool
     select IDE_QDEV
-    depends on PCI
+    select IDE_PIIX
 
 config MICRODRIVE
     bool
