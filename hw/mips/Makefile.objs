@@ -1,5 +1,5 @@
 obj-y += addr.o cputimer.o mips_int.o
-obj-y += gt64xxx_pci.o
+obj-$(CONFIG_GT64XXX_PCI) += gt64xxx_pci.o
 
 obj-$(CONFIG_R4K) += mips_r4k.o
 obj-$(CONFIG_JAZZ) += mips_jazz.o
