@@ -27,6 +27,6 @@ config OPENPIC
 config OPENPIC_KVM
     bool
 
-config ARMV7_NVIC
+config ARMV7M_NVIC
     bool
     select ARM_GIC
