@@ -30,6 +30,7 @@ config VT82C686
     bool
     #select ISA 
     depends on PCI
+    depends on ACPI
 
 config LPC_ICH9
     bool
