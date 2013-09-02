@@ -1,0 +1,19 @@
+menu "Xilinx MicroBlaze"
+    config PETALOGIX_S3ADSP1800
+        bool "Petalogix board for Spartan S3ADSP-1800"
+        select PCI
+        select PFLASH_CFI01
+        select XILINX
+        select XILINX_ETHLITE
+
+    config PETALOGIX_ML605
+        bool "Petalogix board for Spartan ML605"
+        select PFLASH_CFI01
+        select SERIAL
+        select SSI
+        select XILINX
+        select XILINX_ETHLITE
+        select XILINX_AXI
+        select XILINX_SPI
+        select SSI_M25P80
+endmenu
