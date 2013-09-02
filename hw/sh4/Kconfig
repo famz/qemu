@@ -1,0 +1,17 @@
+menu "SH4"
+    config SH4
+        bool
+        default y
+
+    config R2D
+        bool "Renesas SH7751R R2D-PLUS"
+        select PFLASH_CFI02
+        select PCI
+        select SM501
+        select SERIAL
+        select IDE_MMIO
+
+    config SHIX
+        bool "SHIX 2.0 board"
+        select PCI
+endmenu
