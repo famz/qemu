@@ -21,3 +21,7 @@ config MILKYMIST
 config PXA2XX
     bool
     select SD
+
+config OMAP
+    bool
+    select SD
