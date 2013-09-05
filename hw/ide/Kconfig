@@ -47,3 +47,4 @@ config MICRODRIVE
 config AHCI
     bool
     select IDE_QDEV
+    depends on PCI
