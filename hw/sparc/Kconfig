@@ -1,0 +1,18 @@
+menu "Sparc"
+    config SUN4M
+        bool "Sun4m & Sun4d & Sun4c"
+        select EMPTY_SLOT
+        select ESCC
+        select ESP
+        select M48T59
+        select SLAVIO
+        select LEON3
+        select FDC
+
+    config LEON3
+        bool "Leon3"
+        select GRLIB
+        select SUN4M
+        select STP2000
+    
+endmenu
