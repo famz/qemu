@@ -1,6 +1,6 @@
 config FDC
     bool
-    select I8257
+    select I8257 if !SUN4M
     #depends on ISA
 
 config SSI_M25P80
