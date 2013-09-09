@@ -983,18 +983,23 @@ esac
 QEMU_CFLAGS="$CPU_CFLAGS $QEMU_CFLAGS"
 EXTRA_CFLAGS="$CPU_CFLAGS $EXTRA_CFLAGS"
 
-aux_target_list="$(ls -d *-softmmu) $(ls -d *-user)"
 default_target_list=""
 
-# Exclude bsd-user, linux-user and sparc64-softmmu directories
-for target in $aux_target_list; do
-    if test $target != "bsd-user" -a \
-        $target != "linux-user" -a \
-        $target != "sparc64-softmmu"; then
-        default_target_list="${default_target_list} $target"
-     fi
+mak_wilds=""
+
+if [ "$softmmu" = "yes" ]; then
+    mak_wilds="${mak_wilds} $source_path/default-configs/*-softmmu.mak"
+fi
+if [ "$linux_user" = "yes" ]; then
+    mak_wilds="${mak_wilds} $source_path/default-configs/*-linux-user.mak"
+fi
+if [ "$bsd_user" = "yes" ]; then
+    mak_wilds="${mak_wilds} $source_path/default-configs/*-bsd-user.mak"
+fi
+
+for config in $mak_wilds; do
+    default_target_list="${default_target_list} $(basename "$config" .mak)"
 done
-unset aux_target_list
 
 if test x"$show_help" = x"yes" ; then
 cat << EOF
