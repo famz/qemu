@@ -196,7 +196,7 @@ KCONFIG_CONF:=$(KCONFIG_FRONTENDS)/conf/conf
 
 $(KCONFIG_PATH)/bootstrap:
 	@echo Cloning kconfig-frontends...
-	$(call quiet-command,git submodule --init $(KCONFIG_PATH))
+	$(call quiet-command,git submodule update --init $(KCONFIG_PATH))
 
 $(KCONFIG_PATH)/Makefile: $(KCONFIG_PATH)/bootstrap
 	@(cd $(KCONFIG_PATH) ; ./bootstrap ; ./configure)
