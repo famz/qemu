@@ -22,7 +22,7 @@ endif
 CONFIG_SOFTMMU := $(if $(filter %-softmmu,$(TARGET_DIRS)),y)
 CONFIG_USER_ONLY := $(if $(filter %-user,$(TARGET_DIRS)),y)
 CONFIG_ALL=y
--include config-all-devices.mak
+-include $(CONFIG_DEVICES_FILE)
 -include config-all-disas.mak
 
 include $(SRC_PATH)/rules.mak
@@ -56,7 +56,7 @@ Makefile: ;
 configure: ;
 
 .PHONY: all clean cscope distclean dvi html info install install-doc \
-	pdf recurse-all speed test dist help
+	pdf recurse-all speed test dist help config-devices-file
 	
 $(call set-vpath, $(SRC_PATH))
 
@@ -73,8 +73,11 @@ else
 DOCS=
 endif
 
+export KCONFIG_CONFIG=kconfig-devices.mak
 SUBDIR_MAKEFLAGS=$(if $(V),,--no-print-directory) BUILD_DIR=$(BUILD_DIR)
+ifneq ($(CONFIG_DEVICES_FILE),$(KCONFIG_CONFIG))
 SUBDIR_DEVICES_MAK=$(patsubst %, %/config-devices.mak, $(TARGET_DIRS))
+endif
 SUBDIR_DEVICES_MAK_DEP=$(patsubst %, %-config-devices.mak.d, $(TARGET_DIRS))
 
 ifeq ($(SUBDIR_DEVICES_MAK),)
@@ -112,6 +115,9 @@ endif
 
 defconfig:
 	rm -f config-all-devices.mak $(SUBDIR_DEVICES_MAK)
+ifeq ($(CONFIG_DEVICES_FILE),$(KCONFIG_CONFIG))
+	$(call quiet-command,sed -i "s/CONFIG_DEVICES_FILE=.*/CONFIG_DEVICES_FILE=config-all-devices.mak/" config-host.mak)
+endif
 
 ifneq ($(wildcard config-host.mak),)
 include $(SRC_PATH)/Makefile.objs
@@ -185,7 +191,6 @@ libqemuutil.a: $(util-obj-y) qapi-types.o qapi-visit.o
 ######################################################################
 # Kconfig rules
 #
-#KCONFIG_PATH:=$(SRC_PATH)/scripts/kconfig
 KCONFIG_PATH:=scripts/kconfig
 Kconfig:=$(SRC_PATH)/Kconfig
 export KCONFIG_AUTOHEADER=auto.h
@@ -205,39 +210,41 @@ $(foreach i, conf nconf mconf gconf qconf, \
 	$(KCONFIG_FRONTENDS)/$i/$i): $(KCONFIG_PATH)/Makefile config-host.mak
 	$(MAKE) -C $(KCONFIG_PATH)
 
-config: $(KCONFIG_CONF)
+config-devices-file:
+ifneq ($(CONFIG_DEVICES_FILE),$(KCONFIG_CONFIG))
+	$(call quiet-command,sed -i "s/CONFIG_DEVICES_FILE=.*/CONFIG_DEVICES_FILE=$(KCONFIG_CONFIG)/" config-host.mak)
+endif
+
+config: $(KCONFIG_CONF) config-devices-file
 	$< --oldaskconfig $(Kconfig)
 
-nconfig: $(KCONFIG_FRONTENDS)/nconfig/nconfig
+nconfig: $(KCONFIG_FRONTENDS)/nconfig/nconfig config-devices-file
 	$< $(Kconfig)
 
-xconfig: $(KCONFIG_FRONTENDS)/xconf/xconf
+xconfig: $(KCONFIG_FRONTENDS)/xconf/xconf config-devices-file
 	$< $(Kconfig)
 
-gconfig: $(KCONFIG_FRONTENDS)/gconf/gconf
+gconfig: $(KCONFIG_FRONTENDS)/gconf/gconf config-devices-file
 	$< $(Kconfig)
 
-oldconfig: $(KCONFIG_CONF)
+oldconfig: $(KCONFIG_CONF) config-devices-file
 	$< --$@ $(Kconfig)
 
-menuconfig: $(KCONFIG_FRONTENDS)/mconf/mconf
+menuconfig: $(KCONFIG_FRONTENDS)/mconf/mconf config-devices-file
 	$< $(Kconfig)
 
-localyesconfig:
+localyesconfig: config-devices-file
 # TODO
 
-silentoldconfig: $(KCONFIG_CONF)
+silentoldconfig: $(KCONFIG_CONF) config-devices-file
 	@echo "  Build Kconfig config file"
 	mkdir -p include/config
 	$< --$@ $(Kconfig)
 
-defconfig:
-# have it
-
-savedefconfig: $(obj)/conf
+savedefconfig: $(obj)/conf config-devices-file
 	$< --$@=defconfig $(Kconfig)
 
-%config: $(KCONFIG_CONF)
+%config: $(KCONFIG_CONF) config-devices-file
 	$< --$@ $(Kconfig)
 
 help:
