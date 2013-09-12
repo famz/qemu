@@ -77,4 +77,5 @@ config ARM_MPTIMER
 config MC146818RTC
     bool
     select PTIMER
+    depends on APIC
     #select ISA
