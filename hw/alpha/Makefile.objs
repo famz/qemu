@@ -1,1 +1,1 @@
-obj-$(CONFIG_CLIPPER) += dp264.o pci.o typhoon.o
+obj-y += dp264.o pci.o typhoon.o
