@@ -9,12 +9,12 @@ config PL330
 
 config I82374
     bool
-    #select ISA
     select I8257
+    #depends on ISA
 
 config I8257
     bool
-    #select ISA
+    #depends on ISA
 
 config XILINX_AXI
     bool
