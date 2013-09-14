@@ -16,7 +16,6 @@ config ARM_GIC
 
 config ARM_GIC_KVM
     bool
-    depends on KVM
 
 config IOAPIC
     bool
