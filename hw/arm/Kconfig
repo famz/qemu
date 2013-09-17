@@ -1,49 +1,49 @@
-config ARM
-    bool
-#    select ARM_NVIC
-    default y
-
 menu "ARM" 
+    config ARMV7M
+        bool
+
     config EXYNOS4
         bool "Samsung Exynos4210 SoC"
+        select A9MPCORE
         select A9SCU # snoop controll unit
-        select USB_EHCI
+        select ARMV7M
+        select ARMV7M_NVIC
+        select ARM_GIC
+        select ARM_MPTIMER
         select LAN9118
         select PL310 # cache controller
-        select PCI
-        select ARM_GIC
-        select ARM_NVIC
-        select ARM9MPCORE
-        select ARM_MPTIMER
+        select USB_EHCI
+        select USB_EHCI_SYSBUS
         default y
 
     config HIGHBANK
         bool "Calxeda Highbank SoC"
+        select A15MPCORE
+        select A9MPCORE
         select A9SCU # snoop controll unit
         select AHCI
+        select ARMV7M_NVIC
+        select ARM_MPTIMER
+        select ARM_TIMER # sp804
+        select PCI
         select PL011 # UART
         select PL022 # Serial port
         select PL031 # RTC
         select PL061 # GPIO
         select PL310 # cache controller
         select XGMAC # ethernet
-        select ARM_TIMER # sp804
-        select ARM_NVIC
-        select ARM_MPTIMER
-        select ARM9MPCORE
-        select PCI
         default y
 
     config INTEGRATORCP
         bool "ARM Integrator CP"
         select SMC91C111
         select ARM_TIMER
+        select ARMV7M_NVIC
         select PL011 # UART
         select PL031 # RTC
         select PL050 # keyboard/mouse
         select PL110 # pl111 LCD controller
         select PL181 # display
-        select PCI
         default y
 
     config KZM
@@ -51,16 +51,16 @@ menu "ARM"
         select SERIAL
         select IMX
         select LAN9118
-        select PCI
+        select ARMV7M_NVIC
         default y
 
     config MUSICPAL
         bool "Marvell MV88W8618 / Freecom MusicPal"
         select PFLASH_CFI02
         select PTIMER
-        select PCI
         select BITBANG_I2C
         select MARVELL_88W8618
+        select ARMV7M_NVIC
         select WM8750
         select SERIAL
         default y
@@ -70,6 +70,7 @@ menu "ARM"
         select SERIAL
         select PFLASH_CFI01
         select PCI
+        select ARMV7M_NVIC
         default y
 
     config NSERIES
@@ -81,7 +82,7 @@ menu "ARM"
         select TSC2005  # touchscreen/sensors/keypad
         select LM832X   # GPIO keyboard chip
         select TWL92230 # energy-management
-        depends on OMAP
+        select OMAP
         default y
 
     config PALM
@@ -91,7 +92,7 @@ menu "ARM"
         default y
 
     config STELLARIS
-        bool
+        bool "Stellaris"
         select PL011 # UART
         select PL022 # Serial port
         select PL061 # GPIO
@@ -100,15 +101,10 @@ menu "ARM"
         select SSD0303 # OLED display
         select SSD0323 # OLED display
         select SSI_SD
-        default y    # for armv7m_nvic_*
+        default y
 
     config REALVIEW
         bool "ARM Realview baseboard"
-        # networking
-        select SMC91C111
-        select LAN9118
-        select RTL8139_PCI
-
         select VERSATILE_PCI
         select WM8750 # audio codec
         select PL011  # UART
