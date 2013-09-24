@@ -1,0 +1,13 @@
+config CLIPPER
+    bool
+    select PCI
+    select VGA_PCI
+    select SERIAL
+    select IDE_ISA
+    select I8259
+    select IDE_PIIX
+    select I8254
+    select PCKBD
+    select MC146818RTC
+    select IDE_CMD646
+    default y
