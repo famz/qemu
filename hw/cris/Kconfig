@@ -1,0 +1,7 @@
+config CRIS
+    bool
+    select ETRAXFS
+    select NAND
+    select PTIMER
+    select PFLASH_CFI02
+    default y
