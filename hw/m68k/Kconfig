@@ -1,0 +1,22 @@
+menu "Motorola 68xxx"
+    config AN5206
+        bool "Arnewsh 5206 ColdFire"
+        select MCF5206
+        default y
+
+    config DUMMY_M68K
+        bool "Dummy m68k board"
+        default y
+
+    config MCF5206
+        bool
+        select PTIMER
+        select COLDFIRE
+
+    config MCF5208
+        bool "Motorola ColdFire MCF5208 SoC emulation"
+        select PTIMER
+        select COLDFIRE
+        default y
+endmenu
+
