@@ -1,0 +1,4 @@
+config MOXIESIM
+    select MC146818RTC
+    select SERIAL
+    select VGA
