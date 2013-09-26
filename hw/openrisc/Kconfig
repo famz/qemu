@@ -1,0 +1,7 @@
+menu "OpenRISC"
+    config OPENRISC_SIM    
+        bool
+        select SERIAL
+        select OPENCORES_ETH
+        default y
+endmenu
