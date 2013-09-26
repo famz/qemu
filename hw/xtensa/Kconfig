@@ -1,0 +1,10 @@
+config XTENSA_SIM
+    bool "Xtensa simulator"
+    default y
+
+config XTENSA_LX60
+    bool "Xtensa lx60"
+    select SERIAL
+    select PFLASH_CFI01
+    select OPENCORES_ETH
+    default y
