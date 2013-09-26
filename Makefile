@@ -199,14 +199,26 @@ export KCONFIG_AUTOCONFIG=auto.mak
 KCONFIG_FRONTENDS:=$(KCONFIG_PATH)/frontends
 KCONFIG_CONF:=$(KCONFIG_FRONTENDS)/conf/conf
 
+kconfig-reconfigure:
+	$(call quiet-command, cd $(KCONFIG_PATH) ; ./configure)
+
+define kconfig-check-deps
+@if test -f $1 ; then \
+	$1 $(Kconfig); \
+else \
+	echo $2; \
+	echo "After installing the missing dependencies, please run \"make kconfig-reconfigure\""; \
+fi
+endef
+
 $(KCONFIG_PATH)/bootstrap:
 	@echo Cloning kconfig-frontends...
 	$(call quiet-command,git submodule update --init $(KCONFIG_PATH))
 
 $(KCONFIG_PATH)/Makefile: $(KCONFIG_PATH)/bootstrap
-	@(cd $(KCONFIG_PATH) ; ./bootstrap ; ./configure)
+	$(call quiet-command,cd $(KCONFIG_PATH) ; ./bootstrap ; ./configure)
 
-$(foreach i, conf nconf mconf gconf qconf, \
+$(foreach i, conf nconf mconf gconf xconf, \
 	$(KCONFIG_FRONTENDS)/$i/$i): $(KCONFIG_PATH)/Makefile config-host.mak
 	$(MAKE) -C $(KCONFIG_PATH)
 
@@ -219,22 +231,19 @@ config: $(KCONFIG_CONF) config-devices-file
 	$< --oldaskconfig $(Kconfig)
 
 nconfig: $(KCONFIG_FRONTENDS)/nconfig/nconfig config-devices-file
-	$< $(Kconfig)
+	$(call kconfig-check-deps,$<,"Please install libncurses5 and libncurses5-dev")
 
-xconfig: $(KCONFIG_FRONTENDS)/xconf/xconf config-devices-file
-	$< $(Kconfig)
+xconfig: $(KCONFIG_FRONTENDS)/qconf/qconf config-devices-file
+	$(call kconfig-check-deps,$<,"Please install Qt headers and libraries (libqt4-gui, libqt4-dev)")
 
 gconfig: $(KCONFIG_FRONTENDS)/gconf/gconf config-devices-file
-	$< $(Kconfig)
+	$(call kconfig-check-deps,$<,"Please install GTK+ headers and libraries (libgtk-dev, libglade-dev, gir-glib)")
 
 oldconfig: $(KCONFIG_CONF) config-devices-file
 	$< --$@ $(Kconfig)
 
 menuconfig: $(KCONFIG_FRONTENDS)/mconf/mconf config-devices-file
-	$< $(Kconfig)
-
-localyesconfig: config-devices-file
-# TODO
+	$(call kconfig-check-deps,$<,"Please install libncurses5 and libncurses5-dev")
 
 silentoldconfig: $(KCONFIG_CONF) config-devices-file
 	@echo "  Build Kconfig config file"
@@ -254,14 +263,11 @@ help:
 	@echo  '  xconfig	  - Update current config utilising a QT based front-end'
 	@echo  '  gconfig	  - Update current config utilising a GTK based front-end'
 	@echo  '  oldconfig	  - Update current config utilising a provided .config as base'
-#	@echo  '  localmodconfig  - Update current config disabling modules not loaded'
-	@echo  '  localyesconfig  - Update current config converting local mods to core'
 	@echo  '  silentoldconfig - Same as oldconfig, but quietly, additionally update deps'
 	@echo  '  defconfig	  - New config with default from ARCH supplied defconfig'
 	@echo  '  savedefconfig   - Save current config as ./defconfig (minimal config)'
 	@echo  '  allnoconfig	  - New config where all options are answered with no'
 	@echo  '  allyesconfig	  - New config where all options are accepted with yes'
-#	@echo  '  allmodconfig	  - New config selecting modules when possible'
 	@echo  '  alldefconfig    - New config with all symbols set to default'
 	@echo  '  randconfig	  - New config with random answer to all options'
 	@echo  '  listnewconfig   - List new options'
