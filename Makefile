@@ -56,8 +56,8 @@ Makefile: ;
 configure: ;
 
 .PHONY: all clean cscope distclean dvi html info install install-doc \
-	pdf recurse-all speed test dist help config-devices-file
-	
+	pdf recurse-all speed test dist help config-devices-file kconfig-reconfigure
+
 $(call set-vpath, $(SRC_PATH))
 
 LIBS+=-lz $(LIBS_TOOLS)
@@ -273,6 +273,7 @@ help:
 	@echo  '  oldnoconfig     - Same as silentoldconfig but set new symbols to n (unset)'
 
 ######################################################################
+
 qemu-img.o: qemu-img-cmds.h
 
 qemu-img$(EXESUF): qemu-img.o $(block-obj-y) libqemuutil.a libqemustub.a

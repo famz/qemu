@@ -70,6 +70,5 @@ menu "Network devices"
         bool
 
     config VIRTIO
-        default y
         bool
 endmenu
