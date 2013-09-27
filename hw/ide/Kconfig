@@ -1,6 +1,6 @@
 config IDE_CORE
     bool
-    #select ISA
+    #depends on ISA
 
 config IDE_QDEV
     bool
@@ -13,7 +13,7 @@ config IDE_PCI
 
 config IDE_ISA
     bool
-    #select ISA
+    #depends on ISA
     select IDE_QDEV
 
 config IDE_PIIX
@@ -23,7 +23,7 @@ config IDE_PIIX
 
 config IDE_CMD646
     bool
-    #select ISA
+    #depends on ISA
     depends on PCI
     select IDE_QDEV
 
