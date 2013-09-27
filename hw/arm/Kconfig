@@ -1,6 +1,7 @@
 menu "ARM" 
     config ARMV7M
         bool
+        default y
 
     config EXYNOS4
         bool "Samsung Exynos4210 SoC"
@@ -66,12 +67,11 @@ menu "ARM"
         default y
 
     config OMAP
-        bool "Texas Instruments Open Multimedia Applications Platform"
+        bool
         select SERIAL
         select PFLASH_CFI01
         select PCI
         select ARMV7M_NVIC
-        default y
 
     config NSERIES
         bool "Nokia N-Series tablets"
@@ -88,7 +88,7 @@ menu "ARM"
     config PALM
         bool "PalmOne PDAs"
         select TSC210X
-        depends on OMAP
+        select OMAP
         default y
 
     config STELLARIS
@@ -101,10 +101,14 @@ menu "ARM"
         select SSD0303 # OLED display
         select SSD0323 # OLED display
         select SSI_SD
+        select ARMV7M_NVIC
         default y
 
     config REALVIEW
         bool "ARM Realview baseboard"
+        select LAN9118
+        select SMC91C111
+
         select VERSATILE_PCI
         select WM8750 # audio codec
         select PL011  # UART
@@ -112,11 +116,13 @@ menu "ARM"
         select PL050  # keyboard/mouse
         select PL061  # GPIO
         select PL080  # DMA controller
+        select PL110  # display
         select VERSATILE_I2C
         select DS1338 # I2C RTC+NVRAM
         select USB_OHCI
         select ARM_GIC
-        select ARM_MPTIMER
+        select ARMV7M_NVIC
+        select ARM_TIMER
         select ARM15MPCORE
         select ARM11MPCORE
         select ARM9MPCORE
