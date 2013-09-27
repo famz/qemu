@@ -22,4 +22,3 @@ config XILINX_AXI
 
 config STP2000
     bool
-    select SUN4M
