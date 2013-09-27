@@ -1,0 +1,14 @@
+config SUN4M
+    bool
+    select ISA_MMIO
+    select M48T59
+    select PTIMER
+    select VGA_PCI
+    select SERIAL
+    select PARALLEL
+    select PCKBD
+    select FDC
+    select IDE_CMD646
+    select PCI_APB
+    select MC146818RTC
+    select ISA_TESTDEV
