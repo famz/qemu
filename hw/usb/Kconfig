@@ -1,12 +1,13 @@
 menu "USB devices"
     config USB_UHCI
         bool "USB UHCI support"
+        depends on PCI
         default y
         
     config USB_OHCI
         bool "USB OHCI support"
-        default y
         depends on PCI
+        default y
 
     config USB_OHCI_SYSBUS
         bool
