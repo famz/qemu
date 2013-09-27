@@ -6,7 +6,7 @@ config APM
 
 config I82378
     bool    
-    #select ISA
+    #depends on ISA
     select I8259  # irq
     select PCSPK
     select I82374 # DMA
@@ -15,7 +15,7 @@ config I82378
 
 config PC87312
     bool
-    #select ISA 
+    #depends on ISA 
     select SERIAL
     select PARALLEL
     select FDC
@@ -23,17 +23,17 @@ config PC87312
 
 config PIIX4
     bool
-    #select ISA 
+    #depends on ISA 
     depends on PCI
 
 config VT82C686
     bool
-    #select ISA 
+    #depends on ISA 
     depends on PCI
     depends on ACPI
 
 config LPC_ICH9
     bool
-    #select ISA 
+    #depends on ISA 
     depends on PCI 
     select APM
