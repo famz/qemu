@@ -7,11 +7,11 @@ config ESCC
 
 config PARALLEL
     bool
-    #select ISA
+    #depends on ISA
 
 config SERIAL
     bool
-    #select ISA
+    #depends on ISA
 
 config SERIAL_PCI
     bool
