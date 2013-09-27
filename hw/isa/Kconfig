@@ -1,0 +1,39 @@
+#config ISA
+#   bool
+
+config APM
+    bool
+
+config I82378
+    bool    
+    #depends on ISA
+    select I8259  # irq
+    select PCSPK
+    select I82374 # DMA
+    select MC146818RTC # timer
+    depends on PCI
+
+config PC87312
+    bool
+    #depends on ISA 
+    select SERIAL
+    select PARALLEL
+    select FDC
+    select IDE_ISA
+
+config PIIX4
+    bool
+    #depends on ISA 
+    depends on PCI
+
+config VT82C686
+    bool
+    #depends on ISA 
+    depends on PCI
+    depends on ACPI
+
+config LPC_ICH9
+    bool
+    #depends on ISA 
+    depends on PCI 
+    select APM

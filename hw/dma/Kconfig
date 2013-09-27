@@ -1,0 +1,24 @@
+config RC4030
+    bool
+
+config PL080
+    bool
+
+config PL330
+    bool
+
+config I82374
+    bool
+    select I8257
+    #depends on ISA
+
+config I8257
+    bool
+    #depends on ISA
+
+config XILINX_AXI
+    bool
+    select PTIMER
+
+config STP2000
+    bool

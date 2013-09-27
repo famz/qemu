@@ -5,16 +5,18 @@ obj-$(CONFIG_PSERIES) += spapr.o spapr_vio.o spapr_events.o
 obj-$(CONFIG_PSERIES) += spapr_hcall.o spapr_iommu.o spapr_rtas.o
 obj-$(CONFIG_PSERIES) += spapr_pci.o
 # PowerPC 4xx boards
-obj-y += ppc405_boards.o ppc4xx_devs.o ppc405_uc.o ppc440_bamboo.o
-obj-y += ppc4xx_pci.o
+obj-$(CONFIG_PPC405_UC) +=  ppc405_uc.o
+obj-$(CONFIG_PPC405) += ppc405_boards.o
+obj-$(CONFIG_PPC440) += ppc440_bamboo.o
+obj-$(CONFIG_PPC4XX) += ppc4xx_pci.o ppc4xx_devs.o
 # PReP
-obj-y += prep.o
+obj-$(CONFIG_PREP) += prep.o
 # OldWorld PowerMac
-obj-y += mac_oldworld.o
+obj-$(CONFIG_MAC_OLDWORLD) += mac_oldworld.o
 # NewWorld PowerMac
-obj-y += mac_newworld.o
+obj-$(CONFIG_MAC_NEWWORLD) += mac_newworld.o
 # e500
 obj-$(CONFIG_E500) += e500.o mpc8544ds.o e500plat.o
 obj-$(CONFIG_E500) += mpc8544_guts.o ppce500_spin.o
 # PowerPC 440 Xilinx ML507 reference board.
-obj-y += virtex_ml507.o
+obj-$(CONFIG_VIRTEX) += virtex_ml507.o

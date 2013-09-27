@@ -1,0 +1,27 @@
+config SD
+    bool
+
+config PL181
+    bool
+    select SD
+
+config SSI_SD
+    bool
+    select SD
+    select SSI
+
+config SDHCI
+    bool
+    select SD
+
+config MILKYMIST
+    bool
+    select SD
+
+config PXA2XX
+    bool
+    select SD
+
+config OMAP
+    bool
+    select SD

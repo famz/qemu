@@ -1,0 +1,8 @@
+config PCI
+    bool
+
+menu "PCI"
+    config PCI_HOTPLUG
+        bool "Enable hotplugging for PCI devices"
+        depends on PCI
+endmenu

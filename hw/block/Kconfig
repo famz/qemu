@@ -1,0 +1,31 @@
+config FDC
+    bool
+    select I8257 if !SUN4M
+    #depends on ISA
+
+config SSI_M25P80
+    bool
+    depends on SSI
+
+config NAND
+    bool
+
+config PFLASH_CFI01
+    bool
+
+config PFLASH_CFI02
+    bool
+
+config ECC
+    bool
+
+config ONENAND
+    bool
+
+config PC_SYSFW
+    bool
+    #depends on ISA
+
+config NVME_PCI
+    bool
+    depends on PCI

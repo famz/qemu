@@ -1,0 +1,14 @@
+config SSI
+    bool
+
+config PL022
+    bool
+    select SSI
+
+config XILINX_SPI
+    bool
+    select SSI
+
+config XILINX_SPIPS
+    bool
+    select SSI

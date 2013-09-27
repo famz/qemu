@@ -1,0 +1,6 @@
+config VERSATILE_I2C
+    bool
+    select BITBANG_I2C
+    
+config BITBANG_I2C
+    bool

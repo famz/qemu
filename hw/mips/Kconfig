@@ -1,0 +1,73 @@
+menu "MIPS"
+    config GT64XXX_PCI
+        bool
+        select PCI
+
+    config R4K
+        bool "MIPS pseudo-board"
+        default y
+        select I8254 # RTC
+        select I8259 # int. controller
+        select IDE_ISA
+        select PCKBD
+        select PFLASH_CFI01
+        select PCI   # for PIIX4
+        select PIIX4
+        select SERIAL
+        help
+            Emulates a simple machine with ISA-like bus.
+
+    config JAZZ
+        bool "MIPS Jazz board"
+        default y
+        select DP8393X
+        select ESP
+        select FDC
+        select I8254 # RTC
+        select I8259 # int. controller
+        select PARALLEL
+        select PCKBD
+        select PCI   # for PIIX4
+        select PIIX4
+        select RC4030
+        select SERIAL
+        select VGA_ISA_MM
+
+    config MALTA
+        bool "MIPS Malta board"
+        default y
+        select GT64XXX_PCI
+        select ACPI
+        select EMPTY_SLOT
+        select FDC
+        select I8259 # int. controller
+        select MC146818RTC
+        select PFLASH_CFI01
+        select PIIX4
+        select IDE_PIIX
+        select SERIAL
+
+    config FULONG
+        bool "Fulong 2e mini pc"
+        default y
+        select IDE_VIA
+        select SERIAL
+        select I8259 # int. controller
+        select I8254 # RTC
+        select I8257 # DMA
+        select PCI   # for VT82C686
+        select ACPI  # for VT82C686
+        select VT82C686
+        help
+            Fulong 2e mini pc is based on ICT/ST Loongson 2e CPU (MIPS III like, 800MHz)
+
+    config MIPSSIM
+        bool "MIPSsim-like machine emulation"
+        default y
+        select I8259 # int. controller
+        select PCI   # for PIIX4
+        select PIIX4
+        select SERIAL
+        help
+            Emulates a very simple machine model similar to the one used by the proprietary MIPS emulator.
+endmenu

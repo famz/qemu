@@ -1,0 +1,12 @@
+menu "s390x"
+    config S390_VIRTIO
+        bool "s390x virtio"
+        select SCLPCONSOLE
+        default y
+
+    config S390_CCW
+        bool "s390x virtio ccw"
+        select SCLPCONSOLE
+        select S390_VIRTIO
+        default y
+endmenu

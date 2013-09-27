@@ -1,0 +1,3 @@
+config DEC_PCI
+    bool
+    select PCI

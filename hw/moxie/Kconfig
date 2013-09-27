@@ -1,0 +1,6 @@
+config MOXIESIM
+    bool
+    select MC146818RTC
+    select SERIAL
+    select VGA
+    default y

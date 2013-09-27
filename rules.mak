@@ -113,6 +113,22 @@ clean: clean-timestamp
 obj := .
 old-nested-dirs :=
 
+# Logical functions
+lnot = $(if $(subst n,,$1),n,y)
+
+land-yy = y
+land = $(land-$1$2)
+
+lor = $(if $(subst $2,,$1)$(subst $1,,$2),n,y)
+
+lif = $(if $(subst n,,$1),$2,$3)
+
+eq = $(if $(subst $2,,$1)$(subst $1,,$2),n,y)
+ne = $(if $(subst $2,,$1)$(subst $1,,$2),y,n)
+
+isempty = $(call eq,$1,)
+notempty = $(call ne,$1,)
+
 define push-var
 $(eval save-$2-$1 = $(value $1))
 $(eval $1 :=)
