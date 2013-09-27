@@ -1,3 +1,5 @@
 config PUV3
+    bool
     select PTIMER
     select PCKBD
+    default y
