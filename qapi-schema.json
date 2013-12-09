@@ -2209,6 +2209,61 @@
             '*on-target-error': 'BlockdevOnError' } }
 
 ##
+# @BlockDirtyBitmap
+#
+# @device: name of device which the bitmap is tracking
+#
+# @name: name of the dirty bitmap
+#
+# Since 2.1
+##
+{ 'type': 'BlockDirtyBitmap',
+  'data': { 'device': 'str', 'name': 'str' } }
+
+##
+# @BlockDirtyBitmapAdd
+#
+# @device: name of device which the bitmap is tracking
+#
+# @name: name of the dirty bitmap
+#
+# @granularity: #optional the bitmap granularity, default is 64k for
+#               block-dirty-bitmap-add
+#
+# Since 2.1
+##
+{ 'type': 'BlockDirtyBitmapAdd',
+  'data': { 'device': 'str', 'name': 'str', '*granularity': 'int' } }
+
+##
+# @block-dirty-bitmap-add
+#
+# Create a dirty bitmap with a name on the device
+#
+# Returns: nothing on success
+#          If @device is not a valid block device, DeviceNotFound
+#          If @name is already taken, GenericError with an explaining message
+#
+# Since 2.1
+##
+{'command': 'block-dirty-bitmap-add',
+  'data': 'BlockDirtyBitmapAdd' }
+
+##
+# @block-dirty-bitmap-remove
+#
+# Remove a dirty bitmap on the device
+#
+# Returns: nothing on success
+#          If @device is not a valid block device, DeviceNotFound
+#          If @name is not found, GenericError with an explaining message
+#
+# Since 2.1
+##
+{'command': 'block-dirty-bitmap-remove',
+  'data': 'BlockDirtyBitmap' }
+
+##
 # @migrate_cancel
 #
 # Cancel the current executing migration process.
