@@ -310,13 +310,26 @@ static int mig_save_device_bulk(QEMUFile *f, BlkMigDevState *bmds)
 
 /* Called with iothread lock taken.  */
 
-static void set_dirty_tracking(void)
+static int set_dirty_tracking(void)
 {
     BlkMigDevState *bmds;
 
     QSIMPLEQ_FOREACH(bmds, &block_mig_state.bmds_list, entry) {
-        bmds->dirty_bitmap = bdrv_create_dirty_bitmap(bmds->bs, BLOCK_SIZE);
+        bmds->dirty_bitmap = bdrv_create_dirty_bitmap(bmds->bs, BLOCK_SIZE,
+                                                      NULL);
+        if (!bmds->dirty_bitmap) {
+            goto fail;
+        }
     }
+    return 0;
+
+fail:
+    QSIMPLEQ_FOREACH(bmds, &block_mig_state.bmds_list, entry) {
+        if (bmds->dirty_bitmap) {
+            bdrv_release_dirty_bitmap(bmds->bs, bmds->dirty_bitmap);
+        }
+    }
+    return -1;
 }
 
 static void unset_dirty_tracking(void)
@@ -611,10 +624,17 @@ static int block_save_setup(QEMUFile *f, void *opaque)
             block_mig_state.submitted, block_mig_state.transferred);
 
     qemu_mutex_lock_iothread();
-    init_blk_migration(f);
 
     /* start track dirty blocks */
-    set_dirty_tracking();
+    ret = set_dirty_tracking();
+
+    if (ret) {
+        qemu_mutex_unlock_iothread();
+        return ret;
+    }
+
+    init_blk_migration(f);
+
     qemu_mutex_unlock_iothread();
 
     ret = flush_blks(f);
