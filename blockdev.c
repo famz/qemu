@@ -1384,6 +1384,8 @@ static void drive_backup_prepare(BlkTransactionState *common, Error **errp)
                      backup->sync,
                      backup->has_mode, backup->mode,
                      backup->has_speed, backup->speed,
+                     backup->has_bitmap, backup->bitmap,
+                     backup->has_bitmap_use_mode, backup->bitmap_use_mode,
                      backup->has_on_source_error, backup->on_source_error,
                      backup->has_on_target_error, backup->on_target_error,
                      &local_err);
@@ -2029,6 +2031,8 @@ void qmp_drive_backup(const char *device, const char *target,
                       enum MirrorSyncMode sync,
                       bool has_mode, enum NewImageMode mode,
                       bool has_speed, int64_t speed,
+                      bool has_bitmap, const char *bitmap,
+                      bool has_bitmap_use_mode, enum BitmapUseMode bitmap_mode,
                       bool has_on_source_error, BlockdevOnError on_source_error,
                       bool has_on_target_error, BlockdevOnError on_target_error,
                       Error **errp)
@@ -2126,7 +2130,10 @@ void qmp_drive_backup(const char *device, const char *target,
         return;
     }
 
-    backup_start(bs, target_bs, speed, sync, on_source_error, on_target_error,
+    backup_start(bs, target_bs, speed, sync,
+                 has_bitmap ? bdrv_find_dirty_bitmap(bs, bitmap) : NULL,
+                 has_bitmap_use_mode ? bitmap_mode : BITMAP_USE_MODE_RESET,
+                 on_source_error, on_target_error,
                  block_job_cb, bs, &local_err);
     if (local_err != NULL) {
         bdrv_unref(target_bs);
