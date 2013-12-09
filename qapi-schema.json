@@ -2264,6 +2264,34 @@
   'data': 'BlockDirtyBitmap' }
 
 ##
+# @block-dirty-bitmap-enable
+#
+# Enable a dirty bitmap on the device
+#
+# Returns: nothing on success
+#          If @device is not a valid block device, DeviceNotFound
+#          If @name is not found, GenericError with an explaining message
+#
+# Since 2.1
+##
+{'command': 'block-dirty-bitmap-enable',
+  'data': 'BlockDirtyBitmap' }
+
+##
+# @block-dirty-bitmap-disable
+#
+# Disable a dirty bitmap on the device
+#
+# Returns: nothing on success
+#          If @device is not a valid block device, DeviceNotFound
+#          If @name is not found, GenericError with an explaining message
+#
+# Since 2.1
+##
+{'command': 'block-dirty-bitmap-disable',
+  'data': 'BlockDirtyBitmap' }
+
+##
 # @migrate_cancel
 #
 # Cancel the current executing migration process.

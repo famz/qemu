@@ -1768,6 +1768,48 @@ void qmp_block_dirty_bitmap_remove(const char *device, const char *name,
     bdrv_release_dirty_bitmap(bs, bitmap);
 }
 
+void qmp_block_dirty_bitmap_enable(const char *device, const char *name,
+                                   Error **errp)
+{
+    BlockDriverState *bs;
+    BdrvDirtyBitmap *bitmap;
+
+    bs = bdrv_find(device);
+    if (!bs) {
+        error_set(errp, QERR_DEVICE_NOT_FOUND, device);
+        return;
+    }
+
+    bitmap = bdrv_find_dirty_bitmap(bs, name);
+    if (!bitmap) {
+        error_setg(errp, "Dirty bitmap not found: %s", name);
+        return;
+    }
+
+    bdrv_enable_dirty_bitmap(bs, bitmap);
+}
+
+void qmp_block_dirty_bitmap_disable(const char *device, const char *name,
+                                    Error **errp)
+{
+    BlockDriverState *bs;
+    BdrvDirtyBitmap *bitmap;
+
+    bs = bdrv_find(device);
+    if (!bs) {
+        error_set(errp, QERR_DEVICE_NOT_FOUND, device);
+        return;
+    }
+
+    bitmap = bdrv_find_dirty_bitmap(bs, name);
+    if (!bitmap) {
+        error_setg(errp, "Dirty bitmap not found: %s", name);
+        return;
+    }
+
+    bdrv_disable_dirty_bitmap(bs, bitmap);
+}
+
 int do_drive_del(Monitor *mon, const QDict *qdict, QObject **ret_data)
 {
     const char *id = qdict_get_str(qdict, "id");
