@@ -5192,6 +5192,12 @@ int bdrv_get_dirty(BlockDriverState *bs, BdrvDirtyBitmap *bitmap, int64_t sector
     }
 }
 
+int bdrv_dirty_bitmap_granularity(BlockDriverState *bs,
+                                  BdrvDirtyBitmap *bitmap)
+{
+    return hbitmap_granularity(bitmap->bitmap);
+}
+
 void bdrv_dirty_iter_init(BlockDriverState *bs,
                           BdrvDirtyBitmap *bitmap, HBitmapIter *hbi)
 {
