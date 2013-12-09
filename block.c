@@ -52,6 +52,7 @@
 
 struct BdrvDirtyBitmap {
     HBitmap *bitmap;
+    char *name;
     QLIST_ENTRY(BdrvDirtyBitmap) list;
 };
 
@@ -5096,18 +5097,47 @@ bool bdrv_qiov_is_aligned(BlockDriverState *bs, QEMUIOVector *qiov)
     return true;
 }
 
-BdrvDirtyBitmap *bdrv_create_dirty_bitmap(BlockDriverState *bs, int granularity)
+BdrvDirtyBitmap *bdrv_find_dirty_bitmap(BlockDriverState *bs, const char *name)
+{
+    BdrvDirtyBitmap *bm;
+
+    assert(name);
+    QLIST_FOREACH(bm, &bs->dirty_bitmaps, list) {
+        if (bm->name && !strcmp(name, bm->name)) {
+            return bm;
+        }
+    }
+    return NULL;
+}
+
+void bdrv_dirty_bitmap_make_anon(BlockDriverState *bs, BdrvDirtyBitmap *bitmap)
+{
+    g_free(bitmap->name);
+    bitmap->name = NULL;
+}
+
+BdrvDirtyBitmap *bdrv_create_dirty_bitmap(BlockDriverState *bs,
+                                          int granularity,
+                                          const char *name,
+                                          Error **errp)
 {
     int64_t bitmap_size;
     BdrvDirtyBitmap *bitmap;
 
     assert((granularity & (granularity - 1)) == 0);
 
+    if (name && bdrv_find_dirty_bitmap(bs, name)) {
+        error_setg(errp, "Bitmap already exists: %s", name);
+        return NULL;
+    }
     granularity >>= BDRV_SECTOR_BITS;
     assert(granularity);
     bitmap_size = (bdrv_getlength(bs) >> BDRV_SECTOR_BITS);
     bitmap = g_malloc0(sizeof(BdrvDirtyBitmap));
     bitmap->bitmap = hbitmap_alloc(bitmap_size, ffs(granularity) - 1);
+    if (name) {
+        bitmap->name = g_strdup(name);
+    }
     QLIST_INSERT_HEAD(&bs->dirty_bitmaps, bitmap, list);
     return bitmap;
 }
@@ -5119,6 +5149,7 @@ void bdrv_release_dirty_bitmap(BlockDriverState *bs, BdrvDirtyBitmap *bitmap)
         if (bm == bitmap) {
             QLIST_REMOVE(bitmap, list);
             hbitmap_free(bitmap->bitmap);
+            g_free(bitmap->name);
             g_free(bitmap);
             return;
         }
@@ -5137,6 +5168,8 @@ BlockDirtyInfoList *bdrv_query_dirty_bitmaps(BlockDriverState *bs)
         info->count = bdrv_get_dirty_count(bs, bm);
         info->granularity =
             ((int64_t) BDRV_SECTOR_SIZE << hbitmap_granularity(bm->bitmap));
+        info->has_name = !!bm->name;
+        info->name = info->has_name ? g_strdup(bm->name) : NULL;
         entry->value = info;
         *plist = entry;
         plist = &entry->next;
