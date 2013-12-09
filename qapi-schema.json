@@ -1994,7 +1994,10 @@
        'blockdev-snapshot-sync': 'BlockdevSnapshot',
        'drive-backup': 'DriveBackup',
        'abort': 'Abort',
-       'blockdev-snapshot-internal-sync': 'BlockdevSnapshotInternal'
+       'blockdev-snapshot-internal-sync': 'BlockdevSnapshotInternal',
+       'block-dirty-bitmap-add': 'BlockDirtyBitmapAdd',
+       'block-dirty-bitmap-enable': 'BlockDirtyBitmap',
+       'block-dirty-bitmap-disable': 'BlockDirtyBitmap'
    } }
 
 ##

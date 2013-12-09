@@ -1411,6 +1411,83 @@ static void drive_backup_abort(BlkTransactionState *common)
     }
 }
 
+static void block_dirty_bitmap_add_prepare(BlkTransactionState *common,
+                                           Error **errp)
+{
+    BlockDirtyBitmapAdd *action;
+
+    action = common->action->block_dirty_bitmap_add;
+    qmp_block_dirty_bitmap_add(action->device, action->name,
+                               action->has_granularity, action->granularity,
+                               errp);
+}
+
+static void block_dirty_bitmap_add_abort(BlkTransactionState *common)
+{
+    BlockDirtyBitmapAdd *action;
+    BdrvDirtyBitmap *bm;
+    BlockDriverState *bs;
+
+    action = common->action->block_dirty_bitmap_add;
+    bs = bdrv_find(action->device);
+    if (bs) {
+        bm = bdrv_find_dirty_bitmap(bs, action->name);
+        if (bm) {
+            bdrv_release_dirty_bitmap(bs, bm);
+        }
+    }
+}
+
+static void block_dirty_bitmap_enable_prepare(BlkTransactionState *common,
+                                               Error **errp)
+{
+    BlockDirtyBitmap *action;
+
+    action = common->action->block_dirty_bitmap_enable;
+    qmp_block_dirty_bitmap_enable(action->device, action->name, errp);
+}
+
+static void block_dirty_bitmap_enable_abort(BlkTransactionState *common)
+{
+    BlockDirtyBitmap *action;
+    BdrvDirtyBitmap *bitmap;
+    BlockDriverState *bs;
+
+    action = common->action->block_dirty_bitmap_enable;
+    bs = bdrv_find(action->device);
+    if (bs) {
+        bitmap = bdrv_find_dirty_bitmap(bs, action->name);
+        if (bitmap) {
+            bdrv_disable_dirty_bitmap(bs, bitmap);
+        }
+    }
+}
+
+static void block_dirty_bitmap_disable_prepare(BlkTransactionState *common,
+                                               Error **errp)
+{
+    BlockDirtyBitmap *action;
+
+    action = common->action->block_dirty_bitmap_disable;
+    qmp_block_dirty_bitmap_disable(action->device, action->name, errp);
+}
+
+static void block_dirty_bitmap_disable_abort(BlkTransactionState *common)
+{
+    BlockDirtyBitmap *action;
+    BdrvDirtyBitmap *bitmap;
+    BlockDriverState *bs;
+
+    action = common->action->block_dirty_bitmap_disable;
+    bs = bdrv_find(action->device);
+    if (bs) {
+        bitmap = bdrv_find_dirty_bitmap(bs, action->name);
+        if (bitmap) {
+            bdrv_enable_dirty_bitmap(bs, bitmap);
+        }
+    }
+}
+
 static void abort_prepare(BlkTransactionState *common, Error **errp)
 {
     error_setg(errp, "Transaction aborted using Abort action");
@@ -1442,6 +1519,21 @@ static const BdrvActionOps actions[] = {
         .instance_size = sizeof(InternalSnapshotState),
         .prepare  = internal_snapshot_prepare,
         .abort = internal_snapshot_abort,
+    },
+    [TRANSACTION_ACTION_KIND_BLOCK_DIRTY_BITMAP_ADD] = {
+        .instance_size = sizeof(BlkTransactionState),
+        .prepare = block_dirty_bitmap_add_prepare,
+        .abort = block_dirty_bitmap_add_abort,
+    },
+    [TRANSACTION_ACTION_KIND_BLOCK_DIRTY_BITMAP_ENABLE] = {
+        .instance_size = sizeof(BlkTransactionState),
+        .prepare = block_dirty_bitmap_enable_prepare,
+        .abort = block_dirty_bitmap_enable_abort,
+    },
+    [TRANSACTION_ACTION_KIND_BLOCK_DIRTY_BITMAP_DISABLE] = {
+        .instance_size = sizeof(BlkTransactionState),
+        .prepare = block_dirty_bitmap_disable_prepare,
+        .abort = block_dirty_bitmap_disable_abort,
     },
 };
 
