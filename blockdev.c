@@ -351,6 +351,13 @@ static DriveInfo *blockdev_init(const char *file, QDict *bs_opts,
     /* extract parameters */
     snapshot = qemu_opt_get_bool(opts, "snapshot", 0);
     ro = qemu_opt_get_bool(opts, "read-only", 0);
+
+    /* having ro and snapshot together does not make sense */
+    if (ro && snapshot) {
+        error_setg(errp, "invalid option combination: read-only and snapshot");
+        goto early_err;
+    }
+
     copy_on_read = qemu_opt_get_bool(opts, "copy-on-read", false);
 
     serial = qemu_opt_get(opts, "serial");
