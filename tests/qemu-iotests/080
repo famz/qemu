@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+#
+# Tests for IO throttling.
+#
+# Copyright (C) 2012 IBM Corp.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+import time
+import os
+import iotests
+import subprocess
+from iotests import qemu_img, qemu_io
+
+test_img = os.path.join(iotests.test_dir, 'test.img')
+
+class TestThrottle(iotests.QMPTestCase):
+
+    def blockstats(self, device):
+        result = self.vm.qmp('query-blockstats')
+        for i in result['return']:
+            if i['device'] == device:
+                r = i['stats']
+                return r['rd_bytes'], r['wr_bytes'], r['rd_operations'], r['wr_operations']
+        raise Exception("Can't find device '%d' in query-blockstats" % device)
+
+    def setUp(self):
+        qemu_img('create', '-f', iotests.imgfmt, test_img, "1G")
+        self.vm = iotests.VM().add_drive(test_img)
+        self.vm.launch()
+
+    def tearDown(self):
+        self.vm.shutdown()
+        os.remove(test_img)
+
+    def test_bps(self):
+        result = self.vm.qmp_notrans('block_set_io_throttle',
+                                     device="drive0",
+                                     bps=20,
+                                     bps_rd=0,
+                                     bps_wr=0,
+                                     bps_max=1,
+                                     bps_rd_max=0,
+                                     bps_wr_max=0,
+                                     iops=0,
+                                     iops_rd=0,
+                                     iops_wr=0,
+                                     iops_max=1,
+                                     iops_rd_max=0,
+                                     iops_wr_max=0)
+
+        self.assert_qmp(result, 'return', {})
+
+        sockfile = os.path.join(iotests.test_dir, 'nbd-server.%d.sock' % os.getpid())
+        result = self.vm.qmp('nbd-server-start', addr={
+                             'type': 'unix',
+                             'data': {
+                                 'path': sockfile
+                                 }
+                             })
+        self.assert_qmp(result, 'return', {})
+
+        result = self.vm.qmp('nbd-server-add', device="drive0", writable=True)
+        self.assert_qmp(result, 'return', {})
+
+        rd_bytes, rd_opts, wr_bytes, wr_opts = self.blockstats('drive0')
+
+        # Start writing
+        print self.blockstats('drive0')
+        print self.vm.hmp_qemu_io("drive0", "aio_write 0 1M")
+        print self.vm.hmp_qemu_io("drive0", "aio_read 0 1M")
+        print self.blockstats('drive0')
+
+        self.vm.qmp('nbd-server-stop')
+        self.vm.shutdown()
+
+if __name__ == '__main__':
+    iotests.main()

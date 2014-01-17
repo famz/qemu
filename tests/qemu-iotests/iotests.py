@@ -184,6 +184,9 @@ class VM(object):
 
         return self._qmp.cmd(cmd, args=qmp_args)
 
+    def qmp_notrans(self, cmd, **args):
+        return self._qmp.cmd(cmd, args)
+
     def get_qmp_event(self, wait=False):
         '''Poll for one queued QMP events and return it'''
         return self._qmp.pull_event(wait=wait)

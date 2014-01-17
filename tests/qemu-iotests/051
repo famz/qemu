@@ -200,6 +200,18 @@ echo 'qemu-io ide0-hd0 "write -P 0x22 0 4k"' | run_qemu -drive file="$TEST_IMG",
 
 $QEMU_IO -c "read -P 0x22 0 4k" "$TEST_IMG" | _filter_qemu_io
 
+echo
+echo === IO throttling  ===
+echo
+
+{
+    # first request to consume bps_max
+    echo 'qemu-io ide0-hd0 "aio_write 0 512"'
+    echo 'qemu-io ide0-hd0 "aio_write 0 10240000"'
+    sleep 20
+    echo 'info block'
+} | run_qemu -drive file="$TEST_IMG",bps=1024000,bps_max=1
+
 # success, all done
 echo "*** done"
 rm -f $seq.full
