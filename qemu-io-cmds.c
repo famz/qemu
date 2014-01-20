@@ -1346,6 +1346,7 @@ out:
 }
 
 struct aio_ctx {
+    BlockDriverState *bs;
     QEMUIOVector qiov;
     int64_t offset;
     char *buf;
@@ -1353,6 +1354,8 @@ struct aio_ctx {
     int vflag;
     int Cflag;
     int Pflag;
+    int aflag;
+    BlockAcctCookie acct;
     int pattern;
     struct timeval t1;
 };
@@ -1368,6 +1371,10 @@ static void aio_write_done(void *opaque, int ret)
     if (ret < 0) {
         printf("aio_write failed: %s\n", strerror(-ret));
         goto out;
+    }
+
+    if (ctx->aflag) {
+        bdrv_acct_done(ctx->bs, &ctx->acct);
     }
 
     if (ctx->qflag) {
@@ -1407,6 +1414,10 @@ static void aio_read_done(void *opaque, int ret)
         g_free(cmp_buf);
     }
 
+    if (ctx->aflag) {
+        bdrv_acct_done(ctx->bs, &ctx->acct);
+    }
+
     if (ctx->qflag) {
         goto out;
     }
@@ -1442,6 +1453,7 @@ static void aio_read_help(void)
 " -P, -- use a pattern to verify read data\n"
 " -v, -- dump buffer to standard output\n"
 " -q, -- quiet mode, do not show I/O statistics\n"
+" -a, -- account IO\n"
 "\n");
 }
 
@@ -1452,7 +1464,7 @@ static const cmdinfo_t aio_read_cmd = {
     .cfunc      = aio_read_f,
     .argmin     = 2,
     .argmax     = -1,
-    .args       = "[-Cqv] [-P pattern ] off len [len..]",
+    .args       = "[-Cqva] [-P pattern ] off len [len..]",
     .oneline    = "asynchronously reads a number of bytes",
     .help       = aio_read_help,
 };
@@ -1462,7 +1474,8 @@ static int aio_read_f(BlockDriverState *bs, int argc, char **argv)
     int nr_iov, c;
     struct aio_ctx *ctx = g_new0(struct aio_ctx, 1);
 
-    while ((c = getopt(argc, argv, "CP:qv")) != EOF) {
+    ctx->bs = bs;
+    while ((c = getopt(argc, argv, "CP:qva")) != EOF) {
         switch (c) {
         case 'C':
             ctx->Cflag = 1;
@@ -1480,6 +1493,9 @@ static int aio_read_f(BlockDriverState *bs, int argc, char **argv)
             break;
         case 'v':
             ctx->vflag = 1;
+            break;
+        case 'a':
+            ctx->aflag = 1;
             break;
         default:
             g_free(ctx);
@@ -1515,6 +1531,9 @@ static int aio_read_f(BlockDriverState *bs, int argc, char **argv)
     }
 
     gettimeofday(&ctx->t1, NULL);
+    if (ctx->aflag) {
+        bdrv_acct_start(bs, &ctx->acct, ctx->qiov.size, BDRV_ACCT_READ);
+    }
     bdrv_aio_readv(bs, ctx->offset >> 9, &ctx->qiov,
                    ctx->qiov.size >> 9, aio_read_done, ctx);
     return 0;
@@ -1537,6 +1556,7 @@ static void aio_write_help(void)
 " -P, -- use different pattern to fill file\n"
 " -C, -- report statistics in a machine parsable format\n"
 " -q, -- quiet mode, do not show I/O statistics\n"
+" -a, -- account IO\n"
 "\n");
 }
 
@@ -1547,7 +1567,7 @@ static const cmdinfo_t aio_write_cmd = {
     .cfunc      = aio_write_f,
     .argmin     = 2,
     .argmax     = -1,
-    .args       = "[-Cq] [-P pattern ] off len [len..]",
+    .args       = "[-Cqa] [-P pattern ] off len [len..]",
     .oneline    = "asynchronously writes a number of bytes",
     .help       = aio_write_help,
 };
@@ -1558,7 +1578,7 @@ static int aio_write_f(BlockDriverState *bs, int argc, char **argv)
     int pattern = 0xcd;
     struct aio_ctx *ctx = g_new0(struct aio_ctx, 1);
 
-    while ((c = getopt(argc, argv, "CqP:")) != EOF) {
+    while ((c = getopt(argc, argv, "CqP:a")) != EOF) {
         switch (c) {
         case 'C':
             ctx->Cflag = 1;
@@ -1572,6 +1592,9 @@ static int aio_write_f(BlockDriverState *bs, int argc, char **argv)
                 g_free(ctx);
                 return 0;
             }
+            break;
+        case 'a':
+            ctx->aflag = 1;
             break;
         default:
             g_free(ctx);
@@ -1607,6 +1630,9 @@ static int aio_write_f(BlockDriverState *bs, int argc, char **argv)
     }
 
     gettimeofday(&ctx->t1, NULL);
+    if (ctx->aflag) {
+        bdrv_acct_start(bs, &ctx->acct, ctx->qiov.size, BDRV_ACCT_WRITE);
+    }
     bdrv_aio_writev(bs, ctx->offset >> 9, &ctx->qiov,
                     ctx->qiov.size >> 9, aio_write_done, ctx);
     return 0;

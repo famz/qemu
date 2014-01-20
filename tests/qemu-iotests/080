@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 #
-# Tests for IO throttling.
+# Tests for image block commit.
 #
-# Copyright (C) 2012 IBM Corp.
+# Copyright (C) 2012 IBM, Corp.
+# Copyright (C) 2012 Red Hat, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,73 +18,51 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+# Test for live block commit
+# Derived from Image Streaming Test 030
 
 import time
 import os
 import iotests
-import subprocess
 from iotests import qemu_img, qemu_io
+import datetime
+import struct
+import errno
 
 test_img = os.path.join(iotests.test_dir, 'test.img')
 
-class TestThrottle(iotests.QMPTestCase):
+class ThrottleTestCase(iotests.QMPTestCase):
+    image_len = 80 * 1024 * 1024 # MB
 
     def blockstats(self, device):
-        result = self.vm.qmp('query-blockstats')
-        for i in result['return']:
-            if i['device'] == device:
-                r = i['stats']
-                return r['rd_bytes'], r['wr_bytes'], r['rd_operations'], r['wr_operations']
-        raise Exception("Can't find device '%d' in query-blockstats" % device)
+        result = self.vm.qmp("query-blockstats")
+        for r in result['return']:
+            if r['device'] == device:
+                stat = r['stats']
+                return stat['rd_bytes'], stat['rd_operations'], stat['wr_bytes'], stat['wr_operations']
+        raise Exception("Device not found for blockstats: %s" % device)
 
     def setUp(self):
         qemu_img('create', '-f', iotests.imgfmt, test_img, "1G")
-        self.vm = iotests.VM().add_drive(test_img)
+        self.vm = iotests.VM().add_drive(test_img, "bps=102400,bps_max=1")
         self.vm.launch()
 
     def tearDown(self):
         self.vm.shutdown()
         os.remove(test_img)
 
-    def test_bps(self):
-        result = self.vm.qmp_notrans('block_set_io_throttle',
-                                     device="drive0",
-                                     bps=20,
-                                     bps_rd=0,
-                                     bps_wr=0,
-                                     bps_max=1,
-                                     bps_rd_max=0,
-                                     bps_wr_max=0,
-                                     iops=0,
-                                     iops_rd=0,
-                                     iops_wr=0,
-                                     iops_max=1,
-                                     iops_rd_max=0,
-                                     iops_wr_max=0)
+    def test_throttle(self):
 
-        self.assert_qmp(result, 'return', {})
+        # Enqueue many requests to throttling queue
+        for i in range(2):
+            print self.vm.hmp_qemu_io("drive0", "aio_read -aq 0 10M")
+            print datetime.datetime.now()
 
-        sockfile = os.path.join(iotests.test_dir, 'nbd-server.%d.sock' % os.getpid())
-        result = self.vm.qmp('nbd-server-start', addr={
-                             'type': 'unix',
-                             'data': {
-                                 'path': sockfile
-                                 }
-                             })
-        self.assert_qmp(result, 'return', {})
-
-        result = self.vm.qmp('nbd-server-add', device="drive0", writable=True)
-        self.assert_qmp(result, 'return', {})
-
-        rd_bytes, rd_opts, wr_bytes, wr_opts = self.blockstats('drive0')
-
-        # Start writing
-        print self.blockstats('drive0')
-        print self.vm.hmp_qemu_io("drive0", "aio_write 0 1M")
-        print self.vm.hmp_qemu_io("drive0", "aio_read 0 1M")
-        print self.blockstats('drive0')
-
-        self.vm.qmp('nbd-server-stop')
+        print "querying..."
+        for i in range(10):
+            print datetime.datetime.now()
+            print self.blockstats("drive0")
+            time.sleep(1)
         self.vm.shutdown()
 
 if __name__ == '__main__':
