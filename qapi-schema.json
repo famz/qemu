@@ -1022,15 +1022,22 @@
 #
 # @stats:  A @BlockDeviceStats for the device.
 #
-# @parent: #optional This may point to the backing block device if this is a
-#          a virtual block device.  If it's a backing block, this will point
-#          to the backing file is one is present.
+# @file:   #optional This may point to the file block device if present.
+#          (Since 2.0)
+#
+# @backing: #optional This may point to the backing block device if present.
+#           (Since 2.0)
+#
+# @parent: #optional An alias of @file for backward comatibility. (Since
+#          0.14.0)
 #
 # Since: 0.14.0
 ##
 { 'type': 'BlockStats',
   'data': {'*device': 'str', 'stats': 'BlockDeviceStats',
-           '*parent': 'BlockStats'} }
+           '*parent': 'BlockStats',
+           '*file': 'BlockStats',
+           '*backing': 'BlockStats'} }
 
 ##
 # @query-blockstats:
