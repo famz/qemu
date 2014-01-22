@@ -968,13 +968,19 @@
 ##
 # @query-block:
 #
-# Get a list of BlockInfo for all virtual block devices.
+# Get a list of BlockInfo for virtual block devices.
 #
-# Returns: a list of @BlockInfo describing each virtual block device
+# @device: #optional The name of device to query. (Since 2.0)
+#
+# Returns: A list of @BlockInfo describing block device. If @device is
+#          provided, the list contains at most one item describing the queried
+#          one; otherwise all devices are listed.
 #
 # Since: 0.14.0
 ##
-{ 'command': 'query-block', 'returns': ['BlockInfo'] }
+{ 'command': 'query-block',
+  'data': {'*device': 'str'},
+  'returns': ['BlockInfo'] }
 
 ##
 # @BlockDeviceStats:
@@ -1042,13 +1048,19 @@
 ##
 # @query-blockstats:
 #
-# Query the @BlockStats for all virtual block devices.
+# Query the @BlockStats for the virtual block device, or all the devices if
+# @device is not provided.
 #
-# Returns: A list of @BlockStats for each virtual block devices.
+# @device: #optional The name of device to query. (Since 2.0)
+#
+# Returns: A list of @BlockStats. Contains at most one item if @device is
+#          present; otherwise it has all the devices.
 #
 # Since: 0.14.0
 ##
-{ 'command': 'query-blockstats', 'returns': ['BlockStats'] }
+{ 'command': 'query-blockstats',
+  'data': {'*device': 'str'},
+  'returns': ['BlockStats'] }
 
 ##
 # @VncClientInfo:
@@ -1481,11 +1493,17 @@
 #
 # Return information about long-running block device operations.
 #
-# Returns: a list of @BlockJobInfo for each active block job
+# @device: #optional The name of the device on which the operation is running on.
+#          (Since 2.0)
+#
+# Returns: a list of @BlockJobInfo. It has all the active block job if @device
+#          not provided; otherwise only one item is in the list.
 #
 # Since: 1.1
 ##
-{ 'command': 'query-block-jobs', 'returns': ['BlockJobInfo'] }
+{ 'command': 'query-block-jobs',
+  'data': {'device': 'str'},
+  'returns': ['BlockJobInfo'] }
 
 ##
 # @quit:

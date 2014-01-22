@@ -290,7 +290,7 @@ void hmp_info_block(Monitor *mon, const QDict *qdict)
     const char *device = qdict_get_try_str(qdict, "device");
     bool verbose = qdict_get_try_bool(qdict, "verbose", 0);
 
-    block_list = qmp_query_block(NULL);
+    block_list = qmp_query_block(false, NULL, NULL);
 
     for (info = block_list; info; info = info->next) {
         if (device && strcmp(device, info->value->device)) {
@@ -826,7 +826,7 @@ void hmp_cont(Monitor *mon, const QDict *qdict)
     BlockInfoList *bdev_list, *bdev;
     Error *errp = NULL;
 
-    bdev_list = qmp_query_block(NULL);
+    bdev_list = qmp_query_block(false, NULL, NULL);
     for (bdev = bdev_list; bdev; bdev = bdev->next) {
         if (key_is_missing(bdev->value)) {
             monitor_read_block_device_key(mon, bdev->value->device,
@@ -1541,7 +1541,7 @@ void hmp_nbd_server_start(Monitor *mon, const QDict *qdict)
     /* Then try adding all block devices.  If one fails, close all and
      * exit.
      */
-    block_list = qmp_query_block(NULL);
+    block_list = qmp_query_block(false, NULL, NULL);
 
     for (info = block_list; info; info = info->next) {
         if (!info->value->has_inserted) {

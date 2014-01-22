@@ -328,13 +328,24 @@ BlockStats *bdrv_query_stats(const BlockDriverState *bs)
     return s;
 }
 
-BlockInfoList *qmp_query_block(Error **errp)
+BlockInfoList *qmp_query_block(bool has_device, const char *device,
+                               Error **errp)
 {
     BlockInfoList *head = NULL, **p_next = &head;
     BlockDriverState *bs = NULL;
     Error *local_err = NULL;
 
-     while ((bs = bdrv_next(bs))) {
+    if (has_device) {
+        bs = bdrv_find(device);
+        if (!bs) {
+            error_set(errp, QERR_DEVICE_NOT_FOUND, device);
+            goto err;
+        }
+    } else {
+        bs = bdrv_next(bs);
+    }
+
+    while (true) {
         BlockInfoList *info = g_malloc0(sizeof(*info));
         bdrv_query_info(bs, &info->value, &local_err);
         if (error_is_set(&local_err)) {
@@ -344,6 +355,10 @@ BlockInfoList *qmp_query_block(Error **errp)
 
         *p_next = info;
         p_next = &info->next;
+
+        if (has_device) {
+            break;
+        }
     }
 
     return head;
