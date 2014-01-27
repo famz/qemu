@@ -22,6 +22,26 @@ image: TEST_DIR/t.IMGFMT
 file format: IMGFMT
 virtual size: 2.0G (2147483648 bytes)
 
+=== Testing zeroed_grain write ===
+Formatting 'TEST_DIR/t.IMGFMT', fmt=IMGFMT size=1048576
+wrote 1048576/1048576 bytes at offset 0
+1 MiB, X ops; XX:XX:XX.X (XXX YYY/sec and XXX ops/sec)
+Offset          Length          Mapped to       File
+image: TEST_DIR/t.vmdk
+file format: vmdk
+virtual size: 1.0M (1048576 bytes)
+disk size: 16K
+Format specific information:
+    cid: XXXXXXXX
+    parent cid: XXXXXXXX
+    create type: monolithicSparse
+    extents:
+        [0]:
+            virtual size: 1048576
+            filename: TEST_DIR/t.vmdk
+            cluster size: 65536
+            format:
+
 === Testing monolithicFlat with zeroed_grain ===
 qemu-img: TEST_DIR/t.IMGFMT: Flat image can't enable zeroed grain
 Formatting 'TEST_DIR/t.IMGFMT', fmt=IMGFMT size=2147483648

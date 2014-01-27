@@ -1371,7 +1371,8 @@ static int vmdk_write(BlockDriverState *bs, int64_t sector_num,
                                 bs,
                                 extent,
                                 &m_data,
-                                sector_num << 9, !extent->compressed,
+                                sector_num << 9,
+                                !(extent->compressed || zeroed),
                                 &cluster_offset);
         if (extent->compressed) {
             if (ret == VMDK_OK) {

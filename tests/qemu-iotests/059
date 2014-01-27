@@ -50,6 +50,11 @@ capacity_offset=16
 granularity_offset=20
 grain_table_size_offset=44
 
+_vmdk_img_info()
+{
+    $QEMU_IMG info $TEST_IMG | _filter_testdir | sed -e 's/cid: [0-9]*/cid: XXXXXXXX/'
+}
+
 echo
 echo "=== Testing invalid granularity ==="
 _make_test_img 64M
@@ -75,13 +80,21 @@ IMGOPTS="subformat=monolithicFlat" _make_test_img 2G
 _img_info
 
 echo
+echo "=== Testing zeroed_grain write ==="
+IMGOPTS="zeroed_grain=on" _make_test_img 1M
+$QEMU_IO -c "write -z 0 1m" "$TEST_IMG" | _filter_qemu_io | _filter_testdir
+# Zeroed gains are not listed by map
+$QEMU_IMG map $TEST_IMG | _filter_testdir
+_vmdk_img_info
+
+echo
 echo "=== Testing monolithicFlat with zeroed_grain ==="
 IMGOPTS="subformat=monolithicFlat,zeroed_grain=on" _make_test_img 2G
 
 echo
 echo "=== Testing big twoGbMaxExtentFlat ==="
 IMGOPTS="subformat=twoGbMaxExtentFlat" _make_test_img 1000G
-$QEMU_IMG info $TEST_IMG | _filter_testdir | sed -e 's/cid: [0-9]*/cid: XXXXXXXX/'
+_vmdk_img_info
 
 echo
 echo "=== Testing malformed VMFS extent description line ==="
