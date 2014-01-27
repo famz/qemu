@@ -868,6 +868,7 @@ static coroutine_fn int qcow2_co_readv(BlockDriverState *bs, int64_t sector_num,
     QEMUIOVector hd_qiov;
     uint8_t *cluster_data = NULL;
 
+//fprintf(stderr, "qcow2_co_readv: %lx + %d\n", sector_num, remaining_sectors);
     qemu_iovec_init(&hd_qiov, qiov->niov);
 
     qemu_co_mutex_lock(&s->lock);
@@ -993,6 +994,40 @@ fail:
     return ret;
 }
 
+int coroutine_fn copy_sectors(BlockDriverState *bs,
+                                     uint64_t start_sect,
+                                     uint64_t cluster_offset,
+                                     int n_start, int n_end);
+
+static int perform_cow(BlockDriverState *bs, QCowL2Meta *m, Qcow2COWRegion *r)
+{
+    BDRVQcowState *s = bs->opaque;
+    int ret;
+
+    if (r->nb_sectors == 0) {
+        return 0;
+    }
+
+    qemu_co_mutex_unlock(&s->lock);
+    ret = copy_sectors(bs, m->offset / BDRV_SECTOR_SIZE, m->alloc_offset,
+                       r->offset / BDRV_SECTOR_SIZE,
+                       r->offset / BDRV_SECTOR_SIZE + r->nb_sectors);
+    qemu_co_mutex_lock(&s->lock);
+
+    if (ret < 0) {
+        return ret;
+    }
+
+    /*
+     * Before we update the L2 table to actually point to the new cluster, we
+     * need to be sure that the refcounts have been increased and COW was
+     * handled.
+     */
+    qcow2_cache_depends_on_flush(s->l2_table_cache);
+
+    return 0;
+}
+
 static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
                            int64_t sector_num,
                            int remaining_sectors,
@@ -1061,24 +1096,73 @@ static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
                 cur_nr_sectors * 512);
         }
 
+        /* copy content of unmodified sectors */
+        QCowL2Meta *m = l2meta;
+        bool endcow = false;
+        void *tail_buf = NULL;
+        size_t request_size = cur_nr_sectors * 512;
+
+        while (m) {
+            ret = perform_cow(bs, m, &m->cow_start);
+            if (ret < 0) {
+                goto fail;
+            }
+
+            if (m->cow_end.offset == (index_in_cluster + cur_nr_sectors) * BDRV_SECTOR_SIZE) {
+                QEMUIOVector qiov;
+                struct iovec iov;
+
+                assert(!endcow);
+                endcow = true;
+                tail_buf = qemu_blockalign(bs->file, m->cow_end.nb_sectors * 512);
+
+                iov.iov_len = m->cow_end.nb_sectors * 512;
+                iov.iov_base = tail_buf;
+
+                qemu_iovec_init_external(&qiov, &iov, 1);
+
+//fprintf(stderr, "qcow2: sec_num %lx end_off %lx\n", m->offset, m->cow_end.offset);
+//fprintf(stderr, "qcow2: read cow: %lx + %d sectors\n", m->offset+ (m->cow_end.offset >>  9), m->cow_end.nb_sectors);
+    qemu_co_mutex_unlock(&s->lock);
+                ret = bs->drv->bdrv_co_readv(bs, (m->offset + m->cow_end.offset) >> 9, m->cow_end.nb_sectors, &qiov);
+    qemu_co_mutex_lock(&s->lock);
+//fprintf(stderr, "qcow2: done read cow [%x]\n", *(uint32_t*)tail_buf);
+                if (ret < 0) {
+                    goto fail;
+                }
+                 qemu_iovec_add(&hd_qiov, tail_buf, m->cow_end.nb_sectors * 512);
+                qcow2_cache_depends_on_flush(s->l2_table_cache);
+                 request_size += m->cow_end.nb_sectors * 512;
+            } else {
+                ret = perform_cow(bs, m, &m->cow_end);
+                if (ret < 0) {
+                    goto fail;
+                }
+            }
+            m = m->next;
+        }
+
         ret = qcow2_pre_write_overlap_check(bs, 0,
                 cluster_offset + index_in_cluster * BDRV_SECTOR_SIZE,
-                cur_nr_sectors * BDRV_SECTOR_SIZE);
+                request_size);
         if (ret < 0) {
             goto fail;
         }
 
+        /* Write guest data */
         qemu_co_mutex_unlock(&s->lock);
         BLKDBG_EVENT(bs->file, BLKDBG_WRITE_AIO);
         trace_qcow2_writev_data(qemu_coroutine_self(),
                                 (cluster_offset >> 9) + index_in_cluster);
         ret = bdrv_co_writev(bs->file,
                              (cluster_offset >> 9) + index_in_cluster,
-                             cur_nr_sectors, &hd_qiov);
+                             request_size >> 9, &hd_qiov);
         qemu_co_mutex_lock(&s->lock);
         if (ret < 0) {
             goto fail;
         }
+
+        free(tail_buf);
 
         while (l2meta != NULL) {
             QCowL2Meta *next;

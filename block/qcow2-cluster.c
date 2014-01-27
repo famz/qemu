@@ -349,7 +349,11 @@ void qcow2_encrypt_sectors(BDRVQcowState *s, int64_t sector_num,
     }
 }
 
-static int coroutine_fn copy_sectors(BlockDriverState *bs,
+int coroutine_fn copy_sectors(BlockDriverState *bs,
+                                     uint64_t start_sect,
+                                     uint64_t cluster_offset,
+                                     int n_start, int n_end);
+int coroutine_fn copy_sectors(BlockDriverState *bs,
                                      uint64_t start_sect,
                                      uint64_t cluster_offset,
                                      int n_start, int n_end)
@@ -659,35 +663,6 @@ uint64_t qcow2_alloc_compressed_cluster_offset(BlockDriverState *bs,
     return cluster_offset;
 }
 
-static int perform_cow(BlockDriverState *bs, QCowL2Meta *m, Qcow2COWRegion *r)
-{
-    BDRVQcowState *s = bs->opaque;
-    int ret;
-
-    if (r->nb_sectors == 0) {
-        return 0;
-    }
-
-    qemu_co_mutex_unlock(&s->lock);
-    ret = copy_sectors(bs, m->offset / BDRV_SECTOR_SIZE, m->alloc_offset,
-                       r->offset / BDRV_SECTOR_SIZE,
-                       r->offset / BDRV_SECTOR_SIZE + r->nb_sectors);
-    qemu_co_mutex_lock(&s->lock);
-
-    if (ret < 0) {
-        return ret;
-    }
-
-    /*
-     * Before we update the L2 table to actually point to the new cluster, we
-     * need to be sure that the refcounts have been increased and COW was
-     * handled.
-     */
-    qcow2_cache_depends_on_flush(s->l2_table_cache);
-
-    return 0;
-}
-
 int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
 {
     BDRVQcowState *s = bs->opaque;
@@ -699,17 +674,6 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
     assert(m->nb_clusters > 0);
 
     old_cluster = g_malloc(m->nb_clusters * sizeof(uint64_t));
-
-    /* copy content of unmodified sectors */
-    ret = perform_cow(bs, m, &m->cow_start);
-    if (ret < 0) {
-        goto err;
-    }
-
-    ret = perform_cow(bs, m, &m->cow_end);
-    if (ret < 0) {
-        goto err;
-    }
 
     /* Update L2 table. */
     if (s->use_lazy_refcounts) {
