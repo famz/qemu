@@ -1,0 +1,164 @@
+#!/usr/bin/env python
+#
+# Tests for IO throttling
+#
+# Copyright (C) 2014 Red Hat, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+import time
+import os
+import iotests
+from iotests import qemu_img
+
+test_img = os.path.join(iotests.test_dir, 'test.img')
+
+class ThrottleTestCase(iotests.QMPTestCase):
+    image_len = 80 * 1024 * 1024 # MB
+
+    def blockstats(self, device):
+        result = self.vm.qmp("query-blockstats")
+        for r in result['return']:
+            if r['device'] == device:
+                stat = r['stats']
+                return stat['rd_bytes'], stat['rd_operations'], stat['wr_bytes'], stat['wr_operations']
+        raise Exception("Device not found for blockstats: %s" % device)
+
+    def setUp(self):
+        qemu_img('create', '-f', iotests.imgfmt, test_img, "1G")
+        #self.vm = iotests.VM().add_drive(test_img, "bps=1024,bps_max=1")
+        self.vm = iotests.VM().add_drive(test_img)
+        self.vm.launch()
+
+    def tearDown(self):
+        self.vm.shutdown()
+        os.remove(test_img)
+
+    def do_test_throttle(self, seconds=10, **limits):
+        def check_limit(limit, num):
+            # IO throttling algorithm is discrete, allow 10% error so the test
+            # is more deterministic
+            return limit == 0 or num < seconds * limit * 1.1
+
+        nsec_per_sec = 1000000000
+
+        limits['bps_max'] = 1
+        limits['iops_max'] = 1
+
+        # Enqueue many requests to throttling queue
+        result = self.vm.qmp("block_set_io_throttle", conv_keys=False, **limits)
+        self.assert_qmp(result, 'return', {})
+
+        # Set vm clock to a known value
+        ns = nsec_per_sec
+        self.vm.qtest_cmd("clock_step %d" % ns)
+
+        # Append many requests into the throttle queue
+        # They drain bps_max and iops_max
+        # The rest requests won't get executed until qtest clock is driven
+        for i in range(1000):
+            self.vm.hmp_qemu_io("drive0", "aio_read -a -q 0 512")
+            self.vm.hmp_qemu_io("drive0", "aio_write -a -q 0 512")
+
+        start_rd_bytes, start_rd_iops, start_wr_bytes, start_wr_iops = self.blockstats('drive0')
+
+        ns += seconds * nsec_per_sec
+        self.vm.qtest_cmd("clock_step %d" % ns)
+        # wait for a while to let requests take off
+        time.sleep(1)
+        end_rd_bytes, end_rd_iops, end_wr_bytes, end_wr_iops = self.blockstats('drive0')
+
+        rd_bytes = end_rd_bytes - start_rd_bytes
+        rd_iops = end_rd_iops - start_rd_iops
+        wr_bytes = end_wr_bytes - start_wr_bytes
+        wr_iops = end_wr_iops - start_wr_iops
+
+        assert check_limit(limits['bps'], rd_bytes)
+        assert check_limit(limits['bps_rd'], rd_bytes)
+        assert check_limit(limits['bps'], wr_bytes)
+        assert check_limit(limits['bps_wr'], wr_bytes)
+        assert check_limit(limits['iops'], rd_iops)
+        assert check_limit(limits['iops_rd'], rd_iops)
+        assert check_limit(limits['iops'], wr_iops)
+        assert check_limit(limits['iops_wr'], wr_iops)
+
+    def test_bps(self):
+        self.do_test_throttle(**{
+            'device': 'drive0',
+            'bps': 1000,
+            'bps_rd': 0,
+            'bps_wr': 0,
+            'iops': 0,
+            'iops_rd': 0,
+            'iops_wr': 0,
+            })
+
+    def test_bps_rd(self):
+        self.do_test_throttle(**{
+            'device': 'drive0',
+            'bps': 0,
+            'bps_rd': 1000,
+            'bps_wr': 0,
+            'iops': 0,
+            'iops_rd': 0,
+            'iops_wr': 0,
+            })
+
+    def test_bps_wr(self):
+        self.do_test_throttle(**{
+            'device': 'drive0',
+            'bps': 0,
+            'bps_rd': 0,
+            'bps_wr': 1000,
+            'iops': 0,
+            'iops_rd': 0,
+            'iops_wr': 0,
+            })
+
+    def test_iops(self):
+        self.do_test_throttle(**{
+            'device': 'drive0',
+            'bps': 0,
+            'bps_rd': 0,
+            'bps_wr': 0,
+            'iops': 10,
+            'iops_rd': 0,
+            'iops_wr': 0,
+            })
+
+    def test_iops_rd(self):
+        self.do_test_throttle(**{
+            'device': 'drive0',
+            'bps': 0,
+            'bps_rd': 0,
+            'bps_wr': 0,
+            'iops': 0,
+            'iops_rd': 10,
+            'iops_wr': 0,
+            })
+
+    def test_iops_wr(self):
+        self.do_test_throttle(**{
+            'device': 'drive0',
+            'bps': 0,
+            'bps_rd': 0,
+            'bps_wr': 0,
+            'iops': 0,
+            'iops_rd': 0,
+            'iops_wr': 10,
+            })
+
+if __name__ == '__main__':
+    iotests.main()
