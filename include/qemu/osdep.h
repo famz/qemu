@@ -215,6 +215,10 @@ bool fips_get_state(void);
  */
 char *qemu_get_local_state_pathname(const char *relative_pathname);
 
+/* Find program directory with best effort. Try platform API first, then parse
+ * argv0 if it's not NULL. The returned string needs to be g_free'ed */
+char *qemu_exec_dir(const char *argv0);
+
 /**
  * qemu_getauxval:
  * @type: the auxiliary vector key to lookup

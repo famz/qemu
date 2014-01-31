@@ -57,6 +57,7 @@ extern int daemon(int, int);
 #include "trace.h"
 #include "qemu/sockets.h"
 #include <sys/mman.h>
+#include <libgen.h>
 
 #ifdef CONFIG_LINUX
 #include <sys/syscall.h>
@@ -273,4 +274,48 @@ void qemu_set_tty_echo(int fd, bool echo)
     }
 
     tcsetattr(fd, TCSANOW, &tty);
+}
+
+char *qemu_exec_dir(const char *argv0)
+{
+    char *dir;
+    char *p = NULL;
+    char buf[PATH_MAX];
+
+#if defined(__linux__)
+    {
+        int len;
+        len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+        if (len > 0) {
+            buf[len] = 0;
+            p = buf;
+        }
+    }
+#elif defined(__FreeBSD__)
+    {
+        static int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
+        size_t len = sizeof(buf) - 1;
+
+        *buf = '\0';
+        if (!sysctl(mib, ARRAY_SIZE(mib), buf, &len, NULL, 0) &&
+            *buf) {
+            buf[sizeof(buf) - 1] = '\0';
+            p = buf;
+        }
+    }
+#endif
+    /* If we don't have any way of figuring out the actual executable
+       location then try argv[0].  */
+    if (!p) {
+        if (!argv0) {
+            return NULL;
+        }
+        p = realpath(argv0, buf);
+        if (!p) {
+            return NULL;
+        }
+    }
+    dir = dirname(p);
+
+    return g_strdup(dir);
 }
