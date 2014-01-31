@@ -1132,7 +1132,7 @@ Advanced options (experts only):
   --libdir=PATH            install libraries in PATH
   --sysconfdir=PATH        install config in PATH$confsuffix
   --localstatedir=PATH     install local state in PATH (set at runtime on win32)
-  --with-confsuffix=SUFFIX suffix for QEMU data inside datadir and sysconfdir [$confsuffix]
+  --with-confsuffix=SUFFIX suffix for QEMU data inside datadir/libdir/sysconfdir [$confsuffix]
   --enable-modules         enable modules support
   --enable-debug-tcg       enable TCG debugging
   --disable-debug-tcg      disable TCG debugging (default)
@@ -2348,14 +2348,32 @@ if test "$mingw32" = yes; then
 else
     glib_req_ver=2.12
 fi
-if $pkg_config --atleast-version=$glib_req_ver gthread-2.0; then
-    glib_cflags=`$pkg_config --cflags gthread-2.0`
-    glib_libs=`$pkg_config --libs gthread-2.0`
-    CFLAGS="$glib_cflags $CFLAGS"
-    LIBS="$glib_libs $LIBS"
-    libs_qga="$glib_libs $libs_qga"
-else
-    error_exit "glib-$glib_req_ver required to compile QEMU"
+
+for i in gthread-2.0 gmodule-2.0; do
+    if $pkg_config --atleast-version=$glib_req_ver $i; then
+        glib_cflags=`$pkg_config --cflags $i`
+        glib_libs=`$pkg_config --libs $i`
+        CFLAGS="$glib_cflags $CFLAGS"
+        LIBS="$glib_libs $LIBS"
+        libs_qga="$glib_libs $libs_qga"
+    else
+        error_exit "glib-$glib_req_ver $i is required to compile QEMU"
+    fi
+done
+
+##########################################
+# SHA command probe for modules
+if test "$modules" = yes; then
+    shacmd_probe="sha1sum sha1 shasum"
+    for c in $shacmd_probe; do
+        if which $c &>/dev/null; then
+            shacmd="$c"
+            break
+        fi
+    done
+    if test "$shacmd" = ""; then
+        error_exit "one of the checksum commands is required to enable modules: $shacmd_probe"
+    fi
 fi
 
 ##########################################
@@ -3633,6 +3651,7 @@ if test "$mingw32" = "yes" ; then
 fi
 
 qemu_confdir=$sysconfdir$confsuffix
+qemu_moddir=$libdir$confsuffix
 qemu_datadir=$datadir$confsuffix
 qemu_localedir="$datadir/locale"
 
@@ -3723,6 +3742,7 @@ echo "Install prefix    $prefix"
 echo "BIOS directory    `eval echo $qemu_datadir`"
 echo "binary directory  `eval echo $bindir`"
 echo "library directory `eval echo $libdir`"
+echo "module directory  `eval echo $qemu_moddir`"
 echo "libexec directory `eval echo $libexecdir`"
 echo "include directory `eval echo $includedir`"
 echo "config directory  `eval echo $sysconfdir`"
@@ -3861,6 +3881,7 @@ echo "sysconfdir=$sysconfdir" >> $config_host_mak
 echo "qemu_confdir=$qemu_confdir" >> $config_host_mak
 echo "qemu_datadir=$qemu_datadir" >> $config_host_mak
 echo "qemu_docdir=$qemu_docdir" >> $config_host_mak
+echo "qemu_moddir=$qemu_moddir" >> $config_host_mak
 if test "$mingw32" = "no" ; then
   echo "qemu_localstatedir=$local_statedir" >> $config_host_mak
 fi
@@ -3994,6 +4015,7 @@ if [ "$docs" = "yes" ] ; then
   echo "BUILD_DOCS=yes" >> $config_host_mak
 fi
 if test "$modules" = "yes"; then
+  echo "CONFIG_STAMP=`(echo $qemu_version; echo $pkgversion; cat $0) | $shacmd - | cut -f1 -d\ `" >> $config_host_mak
   echo "CONFIG_MODULES=y" >> $config_host_mak
 fi
 if test "$sdl" = "yes" ; then
