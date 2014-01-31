@@ -64,6 +64,9 @@ fsdev/virtfs-proxy-helper.pod
 *.cp
 *.dvi
 *.exe
+*.dll
+*.so
+*.mo
 *.fn
 *.ky
 *.log
