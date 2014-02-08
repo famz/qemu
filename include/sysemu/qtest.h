@@ -24,7 +24,7 @@ static inline bool qtest_enabled(void)
 }
 
 int qtest_init_accel(void);
-void qtest_init(const char *qtest_chrdev, const char *qtest_log);
+int qtest_init(const char *qtest_chrdev, const char *qtest_log);
 
 static inline int qtest_available(void)
 {

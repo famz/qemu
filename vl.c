@@ -4078,7 +4078,10 @@ int main(int argc, char **argv, char **envp)
     configure_accelerator();
 
     if (qtest_chrdev) {
-        qtest_init(qtest_chrdev, qtest_log);
+        int ret = qtest_init(qtest_chrdev, qtest_log);
+        if (ret) {
+            exit(1);
+        }
     }
 
     machine_opts = qemu_get_machine_opts();
