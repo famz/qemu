@@ -5,6 +5,7 @@
  *
  * Authors:
  *  Anthony Liguori   <aliguori@us.ibm.com>
+ *  Fam Zheng <famz@redhat.com>
  *
  * This work is licensed under the terms of the GNU GPL, version 2.  See
  * the COPYING file in the top-level directory.
@@ -89,14 +90,14 @@ void register_dso_module_init(void (*fn)(void), module_init_type type)
     QTAILQ_INSERT_TAIL(&dso_init_list, e, node);
 }
 
-static void module_load(module_init_type type);
+static void module_load(module_init_type type, const char *argv);
 
-void module_call_init(module_init_type type)
+void module_call_init(module_init_type type, const char *argv)
 {
     ModuleTypeList *l;
     ModuleEntry *e;
 
-    module_load(type);
+    module_load(type, argv);
     l = find_type(type);
 
     QTAILQ_FOREACH(e, l, node) {
@@ -161,7 +162,7 @@ out:
 }
 #endif
 
-void module_load(module_init_type type)
+void module_load(module_init_type type, const char *argv)
 {
 #ifdef CONFIG_MODULES
     char *fname = NULL;
@@ -188,7 +189,7 @@ void module_load(module_init_type type)
         return;
     }
 
-    exec_dir = qemu_exec_dir(NULL);
+    exec_dir = qemu_exec_dir(argv);
     dirs[i++] = g_strdup_printf("%s", CONFIG_QEMU_MODDIR);
     dirs[i++] = g_strdup_printf("%s/..", exec_dir ? : "");
     dirs[i++] = g_strdup_printf("%s", exec_dir ? : "");

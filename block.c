@@ -4586,15 +4586,15 @@ BlockDriverAIOCB *bdrv_aio_discard(BlockDriverState *bs,
     return &acb->common;
 }
 
-void bdrv_init(void)
+void bdrv_init(const char *argv0)
 {
-    module_call_init(MODULE_INIT_BLOCK);
+    module_call_init(MODULE_INIT_BLOCK, argv0);
 }
 
-void bdrv_init_with_whitelist(void)
+void bdrv_init_with_whitelist(const char *argv0)
 {
     use_bdrv_whitelist = 1;
-    bdrv_init();
+    bdrv_init(argv0);
 }
 
 void *qemu_aio_get(const AIOCBInfo *aiocb_info, BlockDriverState *bs,

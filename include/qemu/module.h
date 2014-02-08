@@ -67,6 +67,6 @@ typedef enum {
 void register_module_init(void (*fn)(void), module_init_type type);
 void register_dso_module_init(void (*fn)(void), module_init_type type);
 
-void module_call_init(module_init_type type);
+void module_call_init(module_init_type type, const char *argv0);
 
 #endif

@@ -166,8 +166,8 @@ void bdrv_info_stats(Monitor *mon, QObject **ret_data);
 void bdrv_io_limits_enable(BlockDriverState *bs);
 void bdrv_io_limits_disable(BlockDriverState *bs);
 
-void bdrv_init(void);
-void bdrv_init_with_whitelist(void);
+void bdrv_init(const char *argv0);
+void bdrv_init_with_whitelist(const char *argv0);
 BlockDriver *bdrv_find_protocol(const char *filename,
                                 bool allow_protocol_prefix);
 BlockDriver *bdrv_find_format(const char *format_name);

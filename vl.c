@@ -2891,7 +2891,7 @@ int main(int argc, char **argv, char **envp)
 #endif
     }
 
-    module_call_init(MODULE_INIT_QOM);
+    module_call_init(MODULE_INIT_QOM, argv[0]);
 
     qemu_add_opts(&qemu_drive_opts);
     qemu_add_drive_opts(&qemu_legacy_drive_opts);
@@ -2927,7 +2927,7 @@ int main(int argc, char **argv, char **envp)
     QLIST_INIT (&vm_change_state_head);
     os_setup_early_signal_handling();
 
-    module_call_init(MODULE_INIT_MACHINE);
+    module_call_init(MODULE_INIT_MACHINE, argv[0]);
     machine = find_default_machine();
     cpu_model = NULL;
     ram_size = 0;
@@ -2943,7 +2943,7 @@ int main(int argc, char **argv, char **envp)
     nb_numa_nodes = 0;
     nb_nics = 0;
 
-    bdrv_init_with_whitelist();
+    bdrv_init_with_whitelist(argv[0]);
 
     autostart = 1;
 

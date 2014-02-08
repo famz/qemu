@@ -440,7 +440,7 @@ int main(int argc, char **argv)
     }
 
     qemu_init_main_loop();
-    bdrv_init();
+    bdrv_init(argv[0]);
 
     /* initialize commands */
     qemuio_add_command(&quit_cmd);

@@ -3805,7 +3805,7 @@ int main(int argc, char **argv, char **envp)
     int ret;
     int execfd;
 
-    module_call_init(MODULE_INIT_QOM);
+    module_call_init(MODULE_INIT_QOM, argv0);
 
     qemu_init_auxval(envp);
     qemu_cache_utils_init();

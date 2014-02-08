@@ -166,7 +166,7 @@ int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
 
-    module_call_init(MODULE_INIT_QOM);
+    module_call_init(MODULE_INIT_QOM, argv0);
     type_register_static(&static_prop_type);
     type_register_static(&dynamic_prop_type);
 

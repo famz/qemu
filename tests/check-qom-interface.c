@@ -92,7 +92,7 @@ int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
 
-    module_call_init(MODULE_INIT_QOM);
+    module_call_init(MODULE_INIT_QOM, argv0);
     type_register_static(&test_if_info);
     type_register_static(&direct_impl_info);
     type_register_static(&intermediate_impl_info);

@@ -2721,7 +2721,7 @@ int main(int argc, char **argv)
     error_set_progname(argv[0]);
 
     qemu_init_main_loop();
-    bdrv_init();
+    bdrv_init(argv[0]);
     if (argc < 2)
         help();
     cmdname = argv[1];

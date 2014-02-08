@@ -949,7 +949,7 @@ int main(int argc, char **argv)
     GList *blacklist = NULL;
     GAState *s;
 
-    module_call_init(MODULE_INIT_QAPI);
+    module_call_init(MODULE_INIT_QAPI, argv[0]);
 
     init_dfl_pathnames();
     pid_filepath = dfl_pathnames.pidfile;
