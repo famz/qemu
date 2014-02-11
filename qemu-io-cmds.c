@@ -1346,6 +1346,7 @@ out:
 }
 
 struct aio_ctx {
+    BlockDriverState *bs;
     QEMUIOVector qiov;
     int64_t offset;
     char *buf;
@@ -1353,6 +1354,7 @@ struct aio_ctx {
     int vflag;
     int Cflag;
     int Pflag;
+    BlockAcctCookie acct;
     int pattern;
     struct timeval t1;
 };
@@ -1369,6 +1371,8 @@ static void aio_write_done(void *opaque, int ret)
         printf("aio_write failed: %s\n", strerror(-ret));
         goto out;
     }
+
+    bdrv_acct_done(ctx->bs, &ctx->acct);
 
     if (ctx->qflag) {
         goto out;
@@ -1406,6 +1410,8 @@ static void aio_read_done(void *opaque, int ret)
         }
         g_free(cmp_buf);
     }
+
+    bdrv_acct_done(ctx->bs, &ctx->acct);
 
     if (ctx->qflag) {
         goto out;
@@ -1462,6 +1468,7 @@ static int aio_read_f(BlockDriverState *bs, int argc, char **argv)
     int nr_iov, c;
     struct aio_ctx *ctx = g_new0(struct aio_ctx, 1);
 
+    ctx->bs = bs;
     while ((c = getopt(argc, argv, "CP:qv")) != EOF) {
         switch (c) {
         case 'C':
@@ -1515,6 +1522,7 @@ static int aio_read_f(BlockDriverState *bs, int argc, char **argv)
     }
 
     gettimeofday(&ctx->t1, NULL);
+    bdrv_acct_start(bs, &ctx->acct, ctx->qiov.size, BDRV_ACCT_READ);
     bdrv_aio_readv(bs, ctx->offset >> 9, &ctx->qiov,
                    ctx->qiov.size >> 9, aio_read_done, ctx);
     return 0;
@@ -1558,6 +1566,7 @@ static int aio_write_f(BlockDriverState *bs, int argc, char **argv)
     int pattern = 0xcd;
     struct aio_ctx *ctx = g_new0(struct aio_ctx, 1);
 
+    ctx->bs = bs;
     while ((c = getopt(argc, argv, "CqP:")) != EOF) {
         switch (c) {
         case 'C':
@@ -1607,6 +1616,7 @@ static int aio_write_f(BlockDriverState *bs, int argc, char **argv)
     }
 
     gettimeofday(&ctx->t1, NULL);
+    bdrv_acct_start(bs, &ctx->acct, ctx->qiov.size, BDRV_ACCT_WRITE);
     bdrv_aio_writev(bs, ctx->offset >> 9, &ctx->qiov,
                     ctx->qiov.size >> 9, aio_write_done, ctx);
     return 0;
