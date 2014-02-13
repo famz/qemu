@@ -1077,6 +1077,15 @@ again:
     /* Meanwhile some new dependencies could have accumulated */
     qemu_co_queue_restart_all(&m->dependent_requests);
 
+    {
+        QCowL2Meta *child;
+        QLIST_FOREACH(child, &s->cluster_allocs, next_in_flight) {
+            if (child->parent == m) {
+                child->parent = NULL;
+            }
+        }
+    }
+
     qcow2_delete_kick_l2meta_bh(m->kick_l2meta);
     g_free(m);
 
