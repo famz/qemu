@@ -52,6 +52,47 @@ size=128M
 
 _make_test_img $size
 
+# TODO file.aio is broken, too
+
+echo
+echo === No driver name is set ===
+echo
+
+run_qemu <<EOF
+{ "execute": "qmp_capabilities" }
+{ "execute": "blockdev-add",
+  "arguments": {
+      "options": {
+        "file": {
+            "driver": "file",
+            "filename": "$TEST_IMG"
+        }
+      }
+    }
+  }
+{ "execute": "quit" }
+EOF
+
+echo
+echo === An invalid driver name is set ===
+echo
+
+run_qemu <<EOF
+{ "execute": "qmp_capabilities" }
+{ "execute": "blockdev-add",
+  "arguments": {
+      "options": {
+        "driver": "bogus",
+        "file": {
+            "driver": "file",
+            "filename": "$TEST_IMG"
+        }
+      }
+    }
+  }
+{ "execute": "quit" }
+EOF
+
 echo
 echo === Missing ID ===
 echo
