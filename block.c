@@ -2599,114 +2599,113 @@ BlockDriverState *bdrv_find_overlay(BlockDriverState *active,
     return overlay;
 }
 
-typedef struct BlkIntermediateStates {
-    BlockDriverState *bs;
-    QSIMPLEQ_ENTRY(BlkIntermediateStates) entry;
-} BlkIntermediateStates;
-
-
 /*
- * Drops images above 'base' up to and including 'top', and sets the image
- * above 'top' to have base as its backing file.
+ * Drops images above 'base' up to and including 'top', and sets new 'base' as
+ * backing_hd of top's overlay (the image orignally has 'top' as backing file).
+ * top's overlay may be NULL if 'top' is active, no such update needed.
+ * Requires that the top's overlay to 'top' is opened r/w.
  *
- * Requires that the overlay to 'top' is opened r/w, so that the backing file
- * information in 'bs' can be properly updated.
+ * 1) This will convert the following chain:
  *
- * E.g., this will convert the following chain:
- * bottom <- base <- intermediate <- top <- active
- *
- * to
- *
- * bottom <- base <- active
- *
- * It is allowed for bottom==base, in which case it converts:
- *
- * base <- intermediate <- top <- active
+ *     ... <- base <- ... <- top <- overlay <-... <- active
  *
  * to
  *
- * base <- active
+ *     ... <- base <- overlay <- active
  *
- * Error conditions:
- *  if active == top, that is considered an error
+ * 2) It is allowed for bottom==base, in which case it converts:
+ *
+ *     base <- ... <- top <- overlay <- ... <- active
+ *
+ * to
+ *
+ *     base <- overlay <- active
+ *
+ * 3) It also allows active==top, in which case it converts:
+ *
+ *     ... <- base <- ... <- top (active)
+ *
+ * to
+ *
+ *     ... <- base == active == top
+ *
+ * i.e. only base and lower remains: *top == *base when return.
+ *
+ * 4) If base==NULL, it will drop all the BDS below overlay and set its
+ * backing_hd to NULL. I.e.:
+ *
+ *     base(NULL) <- ... <- overlay <- ... <- active
+ *
+ * to
+ *
+ *     overlay <- ... <- active
  *
  */
 int bdrv_drop_intermediate(BlockDriverState *active, BlockDriverState *top,
                            BlockDriverState *base)
 {
-    BlockDriverState *intermediate;
-    BlockDriverState *base_bs = NULL;
-    BlockDriverState *new_top_bs = NULL;
-    BlkIntermediateStates *intermediate_state, *next;
-    int ret = -EIO;
+    BlockDriverState *drop_start, *overlay, *bs;
+    int ret = -EINVAL;
 
-    QSIMPLEQ_HEAD(states_to_delete, BlkIntermediateStates) states_to_delete;
-    QSIMPLEQ_INIT(&states_to_delete);
-
-    if (!top->drv || !base->drv) {
+    assert(active);
+    assert(top);
+    /* Verify that top is in backing chain of active */
+    bs = active;
+    while (bs && bs != top) {
+        bs = bs->backing_hd;
+    }
+    if (!bs) {
         goto exit;
     }
-
-    new_top_bs = bdrv_find_overlay(active, top);
-
-    if (new_top_bs == NULL) {
-        /* we could not find the image above 'top', this is an error */
-        goto exit;
+    /* Verify that base is in backing chain of top */
+    if (base) {
+        while (bs && bs != base) {
+            bs = bs->backing_hd;
+        }
+        if (bs != base) {
+            goto exit;
+        }
     }
 
-    /* special case of new_top_bs->backing_hd already pointing to base - nothing
-     * to do, no intermediate images */
-    if (new_top_bs->backing_hd == base) {
+    if (!top->drv || (base && !base->drv)) {
+        goto exit;
+    }
+    if (top == base) {
+        ret = 0;
+        goto exit;
+    } else if (top == active) {
+        assert(base);
+        drop_start = active->backing_hd;
+        bdrv_swap(base, active);
+        bdrv_set_backing_hd(base, NULL);
+        bdrv_unref(drop_start);
         ret = 0;
         goto exit;
     }
 
-    intermediate = top;
-
-    /* now we will go down through the list, and add each BDS we find
-     * into our deletion queue, until we hit the 'base'
-     */
-    while (intermediate) {
-        intermediate_state = g_malloc0(sizeof(BlkIntermediateStates));
-        intermediate_state->bs = intermediate;
-        QSIMPLEQ_INSERT_TAIL(&states_to_delete, intermediate_state, entry);
-
-        if (intermediate->backing_hd == base) {
-            base_bs = intermediate->backing_hd;
-            break;
-        }
-        intermediate = intermediate->backing_hd;
-    }
-    if (base_bs == NULL) {
-        /* something went wrong, we did not end at the base. safely
-         * unravel everything, and exit with error */
+    overlay = bdrv_find_overlay(active, top);
+    if (!overlay) {
         goto exit;
     }
-
-    /* success - we can delete the intermediate states, and link top->base */
-    ret = bdrv_change_backing_file(new_top_bs, base_bs->filename,
-                                   base_bs->drv ? base_bs->drv->format_name : "");
+    ret = bdrv_change_backing_file(overlay,
+                                   base ? base->filename : NULL,
+                                   base ? base->drv->format_name : NULL);
     if (ret) {
         goto exit;
     }
-    new_top_bs->backing_hd = base_bs;
 
-    bdrv_refresh_limits(new_top_bs);
-
-    QSIMPLEQ_FOREACH_SAFE(intermediate_state, &states_to_delete, entry, next) {
-        /* so that bdrv_close() does not recursively close the chain */
-        intermediate_state->bs->backing_hd = NULL;
-        bdrv_unref(intermediate_state->bs);
+    bs = overlay->backing_hd;
+    bdrv_set_backing_hd(overlay, base);
+    if (base) {
+        bdrv_ref(base);
+    }
+    if (bs) {
+        bdrv_unref(bs);
     }
     ret = 0;
-
 exit:
-    QSIMPLEQ_FOREACH_SAFE(intermediate_state, &states_to_delete, entry, next) {
-        g_free(intermediate_state);
-    }
     return ret;
 }
-
 
 static int bdrv_check_byte_request(BlockDriverState *bs, int64_t offset,
                                    size_t size)
