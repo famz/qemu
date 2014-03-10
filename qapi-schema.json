@@ -2001,6 +2001,7 @@
   'data': {
        'blockdev-snapshot-sync': 'BlockdevSnapshot',
        'drive-backup': 'DriveBackup',
+       'blockdev-backup': 'BlockdevBackup',
        'abort': 'Abort',
        'blockdev-snapshot-internal-sync': 'BlockdevSnapshotInternal'
    } }
