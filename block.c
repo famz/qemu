@@ -1052,6 +1052,23 @@ fail:
     return ret;
 }
 
+void bdrv_set_backing_hd(BlockDriverState *bs, BlockDriverState *backing_hd)
+{
+
+    bs->backing_hd = backing_hd;
+    if (!backing_hd) {
+        bs->backing_file[0] = '\0';
+        bs->backing_format[0] = '\0';
+        goto out;
+    }
+    bs->open_flags &= ~BDRV_O_NO_BACKING;
+    pstrcpy(bs->backing_file, sizeof(bs->backing_file), backing_hd->filename);
+    pstrcpy(bs->backing_format, sizeof(bs->backing_format),
+            backing_hd->drv ? backing_hd->drv->format_name : "");
+out:
+    bdrv_refresh_limits(bs);
+}
+
 /*
  * Opens the backing file for a BlockDriverState if not yet open
  *
@@ -1065,6 +1082,7 @@ int bdrv_open_backing_file(BlockDriverState *bs, QDict *options, Error **errp)
     char backing_filename[PATH_MAX];
     int back_flags, ret;
     BlockDriver *back_drv = NULL;
+    BlockDriverState *backing_hd;
     Error *local_err = NULL;
 
     if (bs->backing_hd != NULL) {
@@ -1088,6 +1106,8 @@ int bdrv_open_backing_file(BlockDriverState *bs, QDict *options, Error **errp)
                                        sizeof(backing_filename));
     }
 
+    backing_hd = bdrv_new("");
+
     if (bs->backing_format[0] != '\0') {
         back_drv = bdrv_find_format(bs->backing_format);
     }
@@ -1096,23 +1116,19 @@ int bdrv_open_backing_file(BlockDriverState *bs, QDict *options, Error **errp)
     back_flags = bs->open_flags & ~(BDRV_O_RDWR | BDRV_O_SNAPSHOT |
                                     BDRV_O_COPY_ON_READ);
 
-    assert(bs->backing_hd == NULL);
-    ret = bdrv_open(&bs->backing_hd,
+    ret = bdrv_open(&backing_hd,
                     *backing_filename ? backing_filename : NULL, NULL, options,
                     back_flags, back_drv, &local_err);
     if (ret < 0) {
-        bs->backing_hd = NULL;
+        bdrv_unref(backing_hd);
+        backing_hd = NULL;
         bs->open_flags |= BDRV_O_NO_BACKING;
         error_setg(errp, "Could not open backing file: %s",
                    error_get_pretty(local_err));
         error_free(local_err);
         return ret;
     }
-
-    if (bs->backing_hd->file) {
-        pstrcpy(bs->backing_file, sizeof(bs->backing_file),
-                bs->backing_hd->file->filename);
-    }
+    bdrv_set_backing_hd(bs, backing_hd);
 
     /* Recalculate the BlockLimits with the backing file */
     bdrv_refresh_limits(bs);
@@ -1964,12 +1980,7 @@ void bdrv_append(BlockDriverState *bs_new, BlockDriverState *bs_top)
 
     /* The contents of 'tmp' will become bs_top, as we are
      * swapping bs_new and bs_top contents. */
-    bs_top->backing_hd = bs_new;
-    bs_top->open_flags &= ~BDRV_O_NO_BACKING;
-    pstrcpy(bs_top->backing_file, sizeof(bs_top->backing_file),
-            bs_new->filename);
-    pstrcpy(bs_top->backing_format, sizeof(bs_top->backing_format),
-            bs_new->drv ? bs_new->drv->format_name : "");
+    bdrv_set_backing_hd(bs_top, bs_new);
 }
 
 static void bdrv_delete(BlockDriverState *bs)
