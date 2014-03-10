@@ -32,7 +32,6 @@ typedef struct StreamBlockJob {
     RateLimit limit;
     BlockDriverState *base;
     BlockdevOnError on_error;
-    char backing_file_id[1024];
 } StreamBlockJob;
 
 static int coroutine_fn stream_populate(BlockDriverState *bs,
@@ -49,34 +48,6 @@ static int coroutine_fn stream_populate(BlockDriverState *bs,
 
     /* Copy-on-read the unallocated clusters */
     return bdrv_co_copy_on_readv(bs, sector_num, nb_sectors, &qiov);
-}
-
-static void close_unused_images(BlockDriverState *top, BlockDriverState *base,
-                                const char *base_id)
-{
-    BlockDriverState *intermediate;
-    intermediate = top->backing_hd;
-
-    /* Must assign before bdrv_delete() to prevent traversing dangling pointer
-     * while we delete backing image instances.
-     */
-    top->backing_hd = base;
-
-    while (intermediate) {
-        BlockDriverState *unused;
-
-        /* reached base */
-        if (intermediate == base) {
-            break;
-        }
-
-        unused = intermediate;
-        intermediate = intermediate->backing_hd;
-        unused->backing_hd = NULL;
-        bdrv_unref(unused);
-    }
-
-    bdrv_refresh_limits(top);
 }
 
 static void coroutine_fn stream_run(void *opaque)
@@ -184,15 +155,7 @@ wait:
     ret = error;
 
     if (!block_job_is_cancelled(&s->common) && sector_num == end && ret == 0) {
-        const char *base_id = NULL, *base_fmt = NULL;
-        if (base) {
-            base_id = s->backing_file_id;
-            if (base->drv) {
-                base_fmt = base->drv->format_name;
-            }
-        }
-        ret = bdrv_change_backing_file(bs, base_id, base_fmt);
-        close_unused_images(bs, base, base_id);
+        ret = bdrv_drop_intermediate(bs, bs->backing_hd, base);
     }
 
     qemu_vfree(buf);
@@ -237,9 +200,6 @@ void stream_start(BlockDriverState *bs, BlockDriverState *base,
     }
 
     s->base = base;
-    if (base_id) {
-        pstrcpy(s->backing_file_id, sizeof(s->backing_file_id), base_id);
-    }
 
     s->on_error = on_error;
     s->common.co = qemu_coroutine_create(stream_run);
