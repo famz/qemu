@@ -73,6 +73,7 @@ static void coroutine_fn commit_run(void *opaque)
     int bytes_written = 0;
     int64_t base_len;
 
+    overlay_bs = bdrv_find_overlay(active, top);
     ret = s->common.len = bdrv_getlength(top);
 
 
@@ -154,7 +155,6 @@ exit_restore_reopen:
     if (s->base_flags != bdrv_get_flags(base)) {
         bdrv_reopen(base, s->base_flags, NULL);
     }
-    overlay_bs = bdrv_find_overlay(active, top);
     if (overlay_bs && s->orig_overlay_flags != bdrv_get_flags(overlay_bs)) {
         bdrv_reopen(overlay_bs, s->orig_overlay_flags, NULL);
     }
