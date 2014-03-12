@@ -400,3 +400,19 @@ HBitmap *hbitmap_alloc(uint64_t size, int granularity)
     hb->levels[0][0] |= 1UL << (BITS_PER_LONG - 1);
     return hb;
 }
+
+HBitmap *hbitmap_copy(const HBitmap *bitmap)
+{
+    int i;
+    int64_t size;
+    HBitmap *hb = g_memdup(bitmap, sizeof(struct HBitmap));
+
+    size = bitmap->size;
+    for (i = HBITMAP_LEVELS; i-- > 0; ) {
+        size = MAX((size + BITS_PER_LONG - 1) >> BITS_PER_LEVEL, 1);
+        hb->levels[i] = g_memdup(bitmap->levels[i],
+                                 size * sizeof(unsigned long));
+    }
+
+    return hb;
+}

@@ -65,6 +65,14 @@ struct HBitmapIter {
 HBitmap *hbitmap_alloc(uint64_t size, int granularity);
 
 /**
+ * hbitmap_copy:
+ * @bitmap: The original bitmap to copy.
+ *
+ * Copy a HBitmap.
+ */
+HBitmap *hbitmap_copy(const HBitmap *bitmap);
+
+/**
  * hbitmap_empty:
  * @hb: HBitmap to operate on.
  *
