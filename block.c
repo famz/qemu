@@ -52,6 +52,8 @@
 
 struct BdrvDirtyBitmap {
     HBitmap *bitmap;
+    int64_t size;
+    int granularity;
     char *name;
     QLIST_ENTRY(BdrvDirtyBitmap) list;
 };
@@ -5116,6 +5118,26 @@ void bdrv_dirty_bitmap_make_anon(BlockDriverState *bs, BdrvDirtyBitmap *bitmap)
     bitmap->name = NULL;
 }
 
+BdrvDirtyBitmap *bdrv_copy_dirty_bitmap(BlockDriverState *bs,
+                                        const BdrvDirtyBitmap *bitmap,
+                                        const char *name)
+{
+    BdrvDirtyBitmap *new_bitmap;
+
+    new_bitmap = g_malloc0(sizeof(BdrvDirtyBitmap));
+    new_bitmap->bitmap = hbitmap_copy(bitmap->bitmap);
+    new_bitmap->size = bitmap->size;
+    new_bitmap->granularity = bitmap->granularity;
+    new_bitmap->name = name ? g_strdup(name) : NULL;
+    QLIST_INSERT_HEAD(&bs->dirty_bitmaps, new_bitmap, list);
+    return new_bitmap;
+}
+
+void bdrv_reset_dirty_bitmap(BlockDriverState *bs, BdrvDirtyBitmap *bitmap)
+{
+    hbitmap_reset(bitmap->bitmap, 0, bitmap->size);
+}
+
 BdrvDirtyBitmap *bdrv_create_dirty_bitmap(BlockDriverState *bs,
                                           int granularity,
                                           const char *name,
@@ -5137,9 +5159,10 @@ BdrvDirtyBitmap *bdrv_create_dirty_bitmap(BlockDriverState *bs,
         error_setg(errp, "could not get length of device");
         return NULL;
     }
-    bitmap_size >>= BDRV_SECTOR_BITS;
     bitmap = g_malloc0(sizeof(BdrvDirtyBitmap));
-    bitmap->bitmap = hbitmap_alloc(bitmap_size, ffs(granularity) - 1);
+    bitmap->size = bitmap_size >> BDRV_SECTOR_BITS;
+    bitmap->granularity = ffs(granularity) - 1;
+    bitmap->bitmap = hbitmap_alloc(bitmap->size, bitmap->granularity);
     if (name) {
         bitmap->name = g_strdup(name);
     }
