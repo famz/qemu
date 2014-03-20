@@ -209,6 +209,11 @@ uint32_t HELPER(usat16)(CPUARMState *env, uint32_t x, uint32_t shift)
     return res;
 }
 
+void HELPER(setend)(CPUARMState *env)
+{
+    env->uncached_cpsr ^= CPSR_E;
+}
+
 void HELPER(wfi)(CPUARMState *env)
 {
     CPUState *cs = CPU(arm_env_get_cpu(env));
