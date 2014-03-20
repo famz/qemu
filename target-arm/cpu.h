@@ -1136,6 +1136,8 @@ static inline int cpu_mmu_index (CPUARMState *env)
 #define ARM_TBFLAG_SCTLR_B_MASK     (1 << ARM_TBFLAG_SCTLR_B_SHIFT)
 #define ARM_TBFLAG_CPACR_FPEN_SHIFT 17
 #define ARM_TBFLAG_CPACR_FPEN_MASK  (1 << ARM_TBFLAG_CPACR_FPEN_SHIFT)
+#define ARM_TBFLAG_CPSR_E_SHIFT     18
+#define ARM_TBFLAG_CPSR_E_MASK      (1 << ARM_TBFLAG_CPSR_E_SHIFT)
 
 /* Bit usage when in AArch64 state */
 #define ARM_TBFLAG_AA64_EL_SHIFT    0
@@ -1162,6 +1164,8 @@ static inline int cpu_mmu_index (CPUARMState *env)
     (((F) & ARM_TBFLAG_SCTLR_B_MASK) >> ARM_TBFLAG_SCTLR_B_SHIFT)
 #define ARM_TBFLAG_CPACR_FPEN(F) \
     (((F) & ARM_TBFLAG_CPACR_FPEN_MASK) >> ARM_TBFLAG_CPACR_FPEN_SHIFT)
+#define ARM_TBFLAG_CPSR_E(F) \
+    (((F) & ARM_TBFLAG_CPSR_E_MASK) >> ARM_TBFLAG_CPSR_E_SHIFT)
 #define ARM_TBFLAG_AA64_EL(F) \
     (((F) & ARM_TBFLAG_AA64_EL_MASK) >> ARM_TBFLAG_AA64_EL_SHIFT)
 #define ARM_TBFLAG_AA64_FPEN(F) \
@@ -1229,6 +1233,15 @@ static inline bool arm_cpu_bswap_data(CPUARMState *env)
 }
 #endif
 
+static inline bool arm_tbflag_is_data_be(unsigned tbflags)
+{
+    return
+#ifdef CONFIG_USER_ONLY
+        ARM_TBFLAG_SCTLR_B(tbflags) ^
+#endif
+        ARM_TBFLAG_CPSR_E(tbflags);
+}
+
 static inline void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
                                         target_ulong *cs_base, int *flags)
 {
@@ -1263,6 +1276,9 @@ static inline void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
         }
         if (fpen == 3 || (fpen == 1 && arm_current_pl(env) != 0)) {
             *flags |= ARM_TBFLAG_CPACR_FPEN_MASK;
+        }
+        if (env->uncached_cpsr & CPSR_E) {
+            *flags |= ARM_TBFLAG_CPSR_E_MASK;
         }
     }
 
