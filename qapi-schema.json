@@ -1035,10 +1035,13 @@
 #
 # @granularity: granularity of the dirty bitmap in bytes (since 1.4)
 #
+# @enabled: whether the dirty bitmap is enabled (Since 2.1)
+#
 # Since: 1.3
 ##
 { 'type': 'BlockDirtyInfo',
-  'data': {'*name': 'str', 'count': 'int', 'granularity': 'int'} }
+  'data': {'*name': 'str', 'count': 'int', 'granularity': 'int',
+           'enabled': 'bool'} }
 
 ##
 # @BlockInfo:

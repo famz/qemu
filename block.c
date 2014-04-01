@@ -5210,6 +5210,7 @@ BlockDirtyInfoList *bdrv_query_dirty_bitmaps(BlockDriverState *bs)
             ((int64_t) BDRV_SECTOR_SIZE << hbitmap_granularity(bm->bitmap));
         info->has_name = !!bm->name;
         info->name = info->has_name ? g_strdup(bm->name) : NULL;
+        info->enabled = bm->enabled;
         entry->value = info;
         *plist = entry;
         plist = &entry->next;
