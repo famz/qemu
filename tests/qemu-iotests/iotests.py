@@ -54,6 +54,14 @@ def qemu_img_pipe(*args):
     '''Run qemu-img and return its output'''
     return subprocess.Popen(qemu_img_args + list(args), stdout=subprocess.PIPE).communicate()[0]
 
+def qemu_img_map_assert(img, offsets):
+    '''Run qemu-img map on img and check the mapped ranges'''
+    offs = []
+    for line in qemu_img_pipe('map', img).splitlines()[1:]:
+        offset, length, mapped, fname = line.split()
+        offs.append(int(offset, 16))
+    assert set(offs) == set(offsets), "mapped offsets in image '%s' not equal to '%s'" % (str(offs), str(offsets))
+
 def qemu_io(*args):
     '''Run qemu-io and return the stdout data'''
     args = qemu_io_args + list(args)

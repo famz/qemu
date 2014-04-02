@@ -23,17 +23,17 @@
 import time
 import os
 import iotests
-from iotests import qemu_img, qemu_io, create_image
+from iotests import qemu_img, qemu_img_map_assert, qemu_io, create_image
 
 backing_img = os.path.join(iotests.test_dir, 'backing.img')
 test_img = os.path.join(iotests.test_dir, 'test.img')
 target_img = os.path.join(iotests.test_dir, 'target.img')
 
-class TestSyncModesNoneAndTop(iotests.QMPTestCase):
+class TestSyncModes(iotests.QMPTestCase):
     image_len = 64 * 1024 * 1024 # MB
 
     def setUp(self):
-        create_image(backing_img, TestSyncModesNoneAndTop.image_len)
+        create_image(backing_img, TestSyncModes.image_len)
         qemu_img('create', '-f', iotests.imgfmt, '-o', 'backing_file=%s' % backing_img, test_img)
         qemu_io('-c', 'write -P0x41 0 512', test_img)
         qemu_io('-c', 'write -P0xd5 1M 32k', test_img)
@@ -63,6 +63,33 @@ class TestSyncModesNoneAndTop(iotests.QMPTestCase):
         self.vm.shutdown()
         self.assertTrue(iotests.compare_images(test_img, target_img),
                         'target image does not match source after backup')
+
+    def test_sync_dirty_bitmap_missing(self):
+        self.assert_no_active_block_jobs()
+        result = self.vm.qmp('drive-backup', device='drive0', sync='dirty-bitmap',
+                             format=iotests.imgfmt, target=target_img)
+        self.assert_qmp(result, 'error/class', 'GenericError')
+
+    def test_sync_dirty_bitmap_not_found(self):
+        self.assert_no_active_block_jobs()
+        result = self.vm.qmp('drive-backup', device='drive0', sync='dirty-bitmap',
+                             bitmap='unknown',
+                             format=iotests.imgfmt, target=target_img)
+        self.assert_qmp(result, 'error/class', 'GenericError')
+
+    def test_sync_dirty_bitmap(self):
+        self.assert_no_active_block_jobs()
+        result = self.vm.qmp('block-dirty-bitmap-add', device='drive0', name='bitmap0')
+        self.assert_qmp(result, 'return', {})
+        self.vm.hmp_qemu_io('drive0', 'write -P0x5a 0 512')
+        self.vm.hmp_qemu_io('drive0', 'write -P0x5a 48M 512')
+        result = self.vm.qmp('drive-backup', device='drive0', sync='dirty-bitmap',
+                             bitmap='bitmap0',
+                             format=iotests.imgfmt, target=target_img)
+        self.assert_qmp(result, 'return', {})
+        self.wait_until_completed(check_offset=False)
+        self.assert_no_active_block_jobs()
+        qemu_img_map_assert(target_img, [0, 0x3000000])
 
     def test_cancel_sync_none(self):
         self.assert_no_active_block_jobs()
