@@ -493,14 +493,10 @@ immediate_exit:
         if (bdrv_get_flags(s->target) != bdrv_get_flags(s->common.bs)) {
             bdrv_reopen(s->target, bdrv_get_flags(s->common.bs), NULL);
         }
-        bdrv_swap(s->target, s->common.bs);
         if (s->common.driver->job_type == BLOCK_JOB_TYPE_COMMIT) {
-            /* drop the bs loop chain formed by the swap: break the loop then
-             * trigger the unref from the top one */
-            BlockDriverState *p = s->base->backing_hd;
-            s->base->backing_hd = NULL;
-            bdrv_op_unblock_all(p, s->base->backing_blocker);
-            bdrv_unref(p);
+            ret = bdrv_drop_intermediate(s->common.bs, s->common.bs, s->base);
+        } else {
+            bdrv_swap(s->target, s->common.bs);
         }
     }
     bdrv_unref(s->target);
