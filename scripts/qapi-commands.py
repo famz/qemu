@@ -83,16 +83,23 @@ Visitor *v;
 
     return ret.rstrip()
 
-def gen_visitor_input_vars_decl(args):
+def gen_visitor_input_vars_decl(args, default):
     ret = ""
     push_indent()
     for argname, argtype, optional, structured in parse_args(args):
         if optional:
             ret += mcgen('''
-bool has_%(argname)s = false;
+bool has_%(argname)s = %(has_val)s;
 ''',
-                         argname=c_var(argname))
-        if c_type(argtype).endswith("*"):
+                         argname=c_var(argname),
+                         has_val="true" if default.get(argname) else "false")
+        if optional and default.get(argname):
+            ret += mcgen('''
+%(argtype)s %(argname)s = %(argval)s;
+''',
+                         argname=c_var(argname), argtype=c_type(argtype),
+                         argval=c_val(argtype, default[argname]))
+        elif c_type(argtype).endswith("*"):
             ret += mcgen('''
 %(argtype)s %(argname)s = NULL;
 ''',
@@ -194,7 +201,7 @@ def gen_marshal_input_decl(name, args, ret_type, middle_mode):
 
 
 
-def gen_marshal_input(name, args, ret_type, middle_mode):
+def gen_marshal_input(name, args, ret_type, middle_mode, default):
     hdr = gen_marshal_input_decl(name, args, ret_type, middle_mode)
 
     ret = mcgen('''
@@ -229,7 +236,7 @@ def gen_marshal_input(name, args, ret_type, middle_mode):
 
 ''',
                      visitor_input_containers_decl=gen_visitor_input_containers_decl(args),
-                     visitor_input_vars_decl=gen_visitor_input_vars_decl(args),
+                     visitor_input_vars_decl=gen_visitor_input_vars_decl(args, default),
                      visitor_input_block=gen_visitor_input_block(args, "QOBJECT(args)"))
     else:
         ret += mcgen('''
@@ -434,9 +441,12 @@ if dispatch_type == "sync":
 
     for cmd in commands:
         arglist = []
+        default = {}
         ret_type = None
         if cmd.has_key('data'):
             arglist = cmd['data']
+        if cmd.has_key('default'):
+            default = cmd['default']
         if cmd.has_key('returns'):
             ret_type = cmd['returns']
         ret = generate_command_decl(cmd['command'], arglist, ret_type) + "\n"
@@ -448,7 +458,7 @@ if dispatch_type == "sync":
         if middle_mode:
             fdecl.write('%s;\n' % gen_marshal_input_decl(cmd['command'], arglist, ret_type, middle_mode))
 
-        ret = gen_marshal_input(cmd['command'], arglist, ret_type, middle_mode) + "\n"
+        ret = gen_marshal_input(cmd['command'], arglist, ret_type, middle_mode, default) + "\n"
         fdef.write(ret)
 
     fdecl.write("\n#endif\n");
