@@ -1036,6 +1036,7 @@ static int get_cluster_offset(BlockDriverState *bs,
     int min_index, i, j;
     uint32_t min_count, *l2_table;
     bool zeroed = false;
+    int ret;
 
     if (m_data) {
         m_data->valid = 0;
@@ -1110,11 +1111,15 @@ static int get_cluster_offset(BlockDriverState *bs,
 
         /* Avoid the L2 tables update for the images that have snapshots. */
         *cluster_offset = bdrv_getlength(extent->file);
+        assert(0 == (*cluster_offset & (extent->cluster_sectors - 1)));
         if (!extent->compressed) {
-            bdrv_truncate(
-                extent->file,
-                *cluster_offset + (extent->cluster_sectors << 9)
-            );
+            ret = bdrv_write_zeroes(extent->file,
+                                    *cluster_offset >> BDRV_SECTOR_BITS,
+                                    extent->cluster_sectors,
+                                    0);
+            if (ret) {
+                return VMDK_ERROR;
+            }
         }
 
         *cluster_offset >>= 9;
