@@ -71,10 +71,12 @@ static void virtio_scsi_complete_req(VirtIOSCSIReq *req)
     virtio_notify(vdev, vq);
 }
 
-static void virtio_scsi_bad_req(void)
+static void virtio_scsi_bad_req(VirtIOSCSIReq *req)
 {
+    VirtIODevice *vdev = VIRTIO_DEVICE(req->dev);
+
     error_report("wrong size for virtio-scsi headers");
-    exit(1);
+    virtio_set_broken(vdev);
 }
 
 static void qemu_sgl_init_external(VirtIOSCSIReq *req, struct iovec *sg,
@@ -271,11 +273,14 @@ static void virtio_scsi_handle_ctrl(VirtIODevice *vdev, VirtQueue *vq)
     VirtIOSCSI *s = (VirtIOSCSI *)vdev;
     VirtIOSCSIReq *req;
 
+    if (virtio_broken(vdev)) {
+        return;
+    }
     while ((req = virtio_scsi_pop_req(s, vq))) {
         int out_size, in_size;
         if (req->elem.out_num < 1 || req->elem.in_num < 1) {
-            virtio_scsi_bad_req();
-            continue;
+            virtio_scsi_bad_req(req);
+            return;
         }
 
         out_size = req->elem.out_sg[0].iov_len;
@@ -283,7 +288,8 @@ static void virtio_scsi_handle_ctrl(VirtIODevice *vdev, VirtQueue *vq)
         if (req->req.tmf->type == VIRTIO_SCSI_T_TMF) {
             if (out_size < sizeof(VirtIOSCSICtrlTMFReq) ||
                 in_size < sizeof(VirtIOSCSICtrlTMFResp)) {
-                virtio_scsi_bad_req();
+                virtio_scsi_bad_req(req);
+                return;
             }
             virtio_scsi_do_tmf(s, req);
 
@@ -291,7 +297,8 @@ static void virtio_scsi_handle_ctrl(VirtIODevice *vdev, VirtQueue *vq)
                    req->req.tmf->type == VIRTIO_SCSI_T_AN_SUBSCRIBE) {
             if (out_size < sizeof(VirtIOSCSICtrlANReq) ||
                 in_size < sizeof(VirtIOSCSICtrlANResp)) {
-                virtio_scsi_bad_req();
+                virtio_scsi_bad_req(req);
+                return;
             }
             req->resp.an->event_actual = 0;
             req->resp.an->response = VIRTIO_SCSI_S_OK;
@@ -362,18 +369,23 @@ static void virtio_scsi_handle_cmd(VirtIODevice *vdev, VirtQueue *vq)
     VirtIOSCSIReq *req;
     int n;
 
+    if (virtio_broken(vdev)) {
+        return;
+    }
     while ((req = virtio_scsi_pop_req(s, vq))) {
         SCSIDevice *d;
         int out_size, in_size;
         if (req->elem.out_num < 1 || req->elem.in_num < 1) {
-            virtio_scsi_bad_req();
+            virtio_scsi_bad_req(req);
+            return;
         }
 
         out_size = req->elem.out_sg[0].iov_len;
         in_size = req->elem.in_sg[0].iov_len;
         if (out_size < sizeof(VirtIOSCSICmdReq) + vs->cdb_size ||
             in_size < sizeof(VirtIOSCSICmdResp) + vs->sense_size) {
-            virtio_scsi_bad_req();
+            virtio_scsi_bad_req(req);
+            return;
         }
 
         if (req->elem.out_num > 1 && req->elem.in_num > 1) {
@@ -437,7 +449,8 @@ static void virtio_scsi_set_config(VirtIODevice *vdev,
     if ((uint32_t) ldl_raw(&scsiconf->sense_size) >= 65536 ||
         (uint32_t) ldl_raw(&scsiconf->cdb_size) >= 256) {
         error_report("bad data written to virtio-scsi configuration space");
-        exit(1);
+        virtio_set_broken(vdev);
+        return;
     }
 
     vs->sense_size = ldl_raw(&scsiconf->sense_size);
@@ -504,7 +517,8 @@ static void virtio_scsi_push_event(VirtIOSCSI *s, SCSIDevice *dev,
     }
 
     if (req->elem.out_num || req->elem.in_num != 1) {
-        virtio_scsi_bad_req();
+        virtio_scsi_bad_req(req);
+        return;
     }
 
     if (s->events_dropped) {
@@ -514,7 +528,8 @@ static void virtio_scsi_push_event(VirtIOSCSI *s, SCSIDevice *dev,
 
     in_size = req->elem.in_sg[0].iov_len;
     if (in_size < sizeof(VirtIOSCSIEvent)) {
-        virtio_scsi_bad_req();
+        virtio_scsi_bad_req(req);
+        return;
     }
 
     evt = req->resp.event;
@@ -540,6 +555,9 @@ static void virtio_scsi_handle_event(VirtIODevice *vdev, VirtQueue *vq)
 {
     VirtIOSCSI *s = VIRTIO_SCSI(vdev);
 
+    if (virtio_broken(vdev)) {
+        return;
+    }
     if (s->events_dropped) {
         virtio_scsi_push_event(s, NULL, VIRTIO_SCSI_T_NO_EVENT, 0);
     }
