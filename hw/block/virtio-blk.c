@@ -339,20 +339,23 @@ static void virtio_blk_handle_read(VirtIOBlockReq *req)
                    virtio_blk_rw_complete, req);
 }
 
-static void virtio_blk_handle_request(VirtIOBlockReq *req,
-    MultiReqBuffer *mrb)
+static int virtio_blk_handle_request(VirtIOBlockReq *req,
+                                     MultiReqBuffer *mrb)
 {
     uint32_t type;
+    VirtIODevice *vdev = VIRTIO_DEVICE(req->dev);
 
     if (req->elem.out_num < 1 || req->elem.in_num < 1) {
         error_report("virtio-blk missing headers");
-        exit(1);
+        virtio_set_broken(vdev);
+        return -EINVAL;
     }
 
     if (req->elem.out_sg[0].iov_len < sizeof(*req->out) ||
         req->elem.in_sg[req->elem.in_num - 1].iov_len < sizeof(*req->in)) {
         error_report("virtio-blk header not in correct element");
-        exit(1);
+        virtio_set_broken(vdev);
+        return -EINVAL;
     }
 
     req->out = (void *)req->elem.out_sg[0].iov_base;
@@ -389,6 +392,7 @@ static void virtio_blk_handle_request(VirtIOBlockReq *req,
         virtio_blk_req_complete(req, VIRTIO_BLK_S_UNSUPP);
         g_free(req);
     }
+    return 0;
 }
 
 static void virtio_blk_handle_output(VirtIODevice *vdev, VirtQueue *vq)
@@ -398,6 +402,10 @@ static void virtio_blk_handle_output(VirtIODevice *vdev, VirtQueue *vq)
     MultiReqBuffer mrb = {
         .num_writes = 0,
     };
+
+    if (virtio_broken(vdev)) {
+        return;
+    }
 
 #ifdef CONFIG_VIRTIO_BLK_DATA_PLANE
     /* Some guests kick before setting VIRTIO_CONFIG_S_DRIVER_OK so start
@@ -410,7 +418,9 @@ static void virtio_blk_handle_output(VirtIODevice *vdev, VirtQueue *vq)
 #endif
 
     while ((req = virtio_blk_get_request(s))) {
-        virtio_blk_handle_request(req, &mrb);
+        if (virtio_blk_handle_request(req, &mrb) < 0) {
+            return;
+        }
     }
 
     virtio_submit_multiwrite(s->bs, &mrb);
