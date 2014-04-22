@@ -316,6 +316,9 @@ typedef struct CPUARMState {
 #if defined(CONFIG_USER_ONLY)
     /* For usermode syscall translation.  */
     int eabi;
+
+    /* CPSR.E value for signal handlers.  */
+    uint32_t signal_cpsr_e;
 #endif
 
     CPU_COMMON

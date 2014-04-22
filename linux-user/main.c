@@ -4195,7 +4195,8 @@ int main(int argc, char **argv, char **envp)
         /* Enable BE8.  */
         if (EF_ARM_EABI_VERSION(info->elf_flags) >= EF_ARM_EABI_VER4
             && (info->elf_flags & EF_ARM_BE8)) {
-            /* nothing for now, CPSR.E not emulated yet */
+            env->uncached_cpsr |= CPSR_E;
+            env->signal_cpsr_e = CPSR_E;
         } else {
             if (arm_feature(env, ARM_FEATURE_V7)) {
                 fprintf(stderr, "BE32 binaries only supported until ARMv6\n");

@@ -1602,7 +1602,9 @@ setup_return(CPUARMState *env, struct target_sigaction *ka,
     int thumb = handler & 1;
     uint32_t cpsr = cpsr_read(env);
 
-    cpsr &= ~CPSR_IT;
+    cpsr &= ~(CPSR_IT | CPSR_E);
+    cpsr |= env->signal_cpsr_e;
+
     if (thumb) {
         cpsr |= CPSR_T;
     } else {
