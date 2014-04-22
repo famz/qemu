@@ -121,6 +121,7 @@ struct VirtIODevice
     bool vm_running;
     VMChangeStateEntry *vmstate;
     char *bus_name;
+    bool broken;
 };
 
 typedef struct VirtioDeviceClass {
@@ -211,6 +212,8 @@ void virtio_queue_notify(VirtIODevice *vdev, int n);
 uint16_t virtio_queue_vector(VirtIODevice *vdev, int n);
 void virtio_queue_set_vector(VirtIODevice *vdev, int n, uint16_t vector);
 void virtio_set_status(VirtIODevice *vdev, uint8_t val);
+void virtio_set_broken(VirtIODevice *vdev);
+bool virtio_broken(VirtIODevice *vdev);
 void virtio_reset(void *opaque);
 void virtio_update_irq(VirtIODevice *vdev);
 int virtio_set_features(VirtIODevice *vdev, uint32_t val);

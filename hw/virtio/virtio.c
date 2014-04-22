@@ -538,6 +538,16 @@ void virtio_set_status(VirtIODevice *vdev, uint8_t val)
     vdev->status = val;
 }
 
+bool virtio_broken(VirtIODevice *vdev)
+{
+    return vdev->broken;
+}
+
+void virtio_set_broken(VirtIODevice *vdev)
+{
+    vdev->broken = true;
+}
+
 void virtio_reset(void *opaque)
 {
     VirtIODevice *vdev = opaque;
@@ -554,6 +564,7 @@ void virtio_reset(void *opaque)
     vdev->queue_sel = 0;
     vdev->status = 0;
     vdev->isr = 0;
+    vdev->broken = false;
     vdev->config_vector = VIRTIO_NO_VECTOR;
     virtio_notify_vector(vdev, vdev->config_vector);
 
@@ -995,6 +1006,7 @@ void virtio_init(VirtIODevice *vdev, const char *name,
     vdev->status = 0;
     vdev->isr = 0;
     vdev->queue_sel = 0;
+    vdev->broken = 0;
     vdev->config_vector = VIRTIO_NO_VECTOR;
     vdev->vq = g_malloc0(sizeof(VirtQueue) * VIRTIO_PCI_QUEUE_MAX);
     vdev->vm_running = runstate_is_running();
