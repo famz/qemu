@@ -157,6 +157,21 @@ class QAPISchema:
                         return
                     else:
                         string += ch
+            elif self.tok in "-0123456789":
+                val = self.tok
+                while self.src[self.cursor] in "0123456789":
+                    val += self.src[self.cursor]
+                    self.cursor += 1
+                try:
+                    if val.startswith("0") and len(val) > 1:
+                        raise Exception("Leading zero for non-zero integer")
+                    self.val = int(val)
+                    if self.val > 0x7fffffffffffffffL or self.val < -0x7fffffffffffffffL - 1:
+                        raise Exception("Value too big")
+                    return
+                except Exception, e:
+                    raise QAPISchemaError(self, 'Invalid number "%s": %s' % (val, e))
+
             elif self.tok == '\n':
                 if self.cursor == len(self.src):
                     self.tok = None
@@ -196,8 +211,8 @@ class QAPISchema:
         if self.tok == ']':
             self.accept()
             return expr
-        if not self.tok in [ '{', '[', "'" ]:
-            raise QAPISchemaError(self, 'Expected "{", "[", "]" or string')
+        if not self.tok in "{['-0123456789":
+            raise QAPISchemaError(self, 'Expected "{", "[", "]", string or number')
         while True:
             expr.append(self.get_expr(True))
             if self.tok == ']':
@@ -217,6 +232,9 @@ class QAPISchema:
             self.accept()
             expr = self.get_values()
         elif self.tok == "'":
+            expr = self.val
+            self.accept()
+        elif self.tok in "-0123456789":
             expr = self.val
             self.accept()
         else:
