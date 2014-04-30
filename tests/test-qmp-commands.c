@@ -48,6 +48,13 @@ int64_t qmp_user_def_cmd3(int64_t a, bool has_b, int64_t b, Error **errp)
     return a + (has_b ? b : 0);
 }
 
+int64_t qmp_user_def_cmd4(int64_t a, bool has_b, int64_t b,
+                          bool has_c, const char *c,
+                          Error **errp)
+{
+    return has_b && b == 100 && has_c && !strcmp(c, "A string");
+}
+
 /* test commands with no input and no return value */
 static void test_dispatch_cmd(void)
 {

@@ -74,6 +74,9 @@
   'returns': 'UserDefTwo' }
 { 'command': 'user_def_cmd3', 'data': {'a': 'int', '*b': 'int' },
   'returns': 'int' }
+{ 'command': 'user_def_cmd4', 'data': {'a': 'int', '*b': 'int', '*c': 'str' },
+  'defaults': { 'b': 100, 'c': 'A string' },
+  'returns': 'int' }
 
 # For testing integer range flattening in opts-visitor. The following schema
 # corresponds to the option format:
