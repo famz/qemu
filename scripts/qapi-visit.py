@@ -25,7 +25,7 @@ def generate_visit_struct_fields(name, field_prefix, fn_prefix, members, base = 
     else:
         full_name = "%s_%s" % (name, fn_prefix)
 
-    for argname, argentry, optional, structured in parse_args(members):
+    for argname, argentry, optional, structured, default in parse_args(members):
         if structured:
             if not fn_prefix:
                 nested_fn_prefix = argname
@@ -58,7 +58,7 @@ if (!err) {
                      c_prefix=c_var(field_prefix),
                      type=type_name(base), c_name=c_var('base'))
 
-    for argname, argentry, optional, structured in parse_args(members):
+    for argname, argentry, optional, structured, default in parse_args(members):
         if optional:
             ret += mcgen('''
 visit_start_optional(m, &(*obj)->%(c_prefix)shas_%(c_name)s, "%(name)s", &err);

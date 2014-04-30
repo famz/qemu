@@ -325,13 +325,14 @@ def parse_schema(fp):
 
     return exprs
 
-def parse_args(typeinfo):
+def parse_args(typeinfo, defaults={}):
     if isinstance(typeinfo, basestring):
         struct = find_struct(typeinfo)
         assert struct != None
         typeinfo = struct['data']
 
     for member in typeinfo:
+        default = None
         argname = member
         argentry = typeinfo[member]
         optional = False
@@ -341,7 +342,13 @@ def parse_args(typeinfo):
             optional = True
         if isinstance(argentry, OrderedDict):
             structured = True
-        yield (argname, argentry, optional, structured)
+        if argname in defaults:
+            if optional:
+                default = defaults
+            else:
+                raise Exception('default value "%s" given to non-optional value: "%s"' \
+                                % (defaults[argname], argname))
+        yield (argname, argentry, optional, structured, default)
 
 def de_camel_case(name):
     new_name = ''
