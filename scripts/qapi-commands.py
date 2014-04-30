@@ -23,13 +23,13 @@ def type_visitor(name):
     else:
         return 'visit_type_%s' % name
 
-def generate_command_decl(name, args, ret_type):
+def generate_command_decl(name, args, defaults, ret_type):
     arglist=""
-    for argname, argtype, optional, structured, default in parse_args(args):
+    for argname, argtype, optional, structured, default in parse_args(args, defaults):
         argtype = c_type(argtype)
         if argtype == "char *":
             argtype = "const char *"
-        if optional:
+        if optional and not default:
             arglist += "bool has_%s, " % c_var(argname)
         arglist += "%s %s, " % (argtype, c_var(argname))
     return mcgen('''
@@ -37,14 +37,14 @@ def generate_command_decl(name, args, ret_type):
 ''',
                  ret_type=c_type(ret_type), name=c_fun(name), args=arglist).strip()
 
-def gen_sync_call(name, args, ret_type, indent=0):
+def gen_sync_call(name, args, defaults, ret_type, indent=0):
     ret = ""
     arglist=""
     retval=""
     if ret_type:
         retval = "retval = "
-    for argname, argtype, optional, structured, default in parse_args(args):
-        if optional:
+    for argname, argtype, optional, structured, default in parse_args(args, defaults):
+        if optional and not default:
             arglist += "has_%s, " % c_var(argname)
         arglist += "%s, " % (c_var(argname))
     push_indent(indent)
@@ -83,16 +83,22 @@ Visitor *v;
 
     return ret.rstrip()
 
-def gen_visitor_input_vars_decl(args):
+def gen_visitor_input_vars_decl(cmd_name, args, defaults):
     ret = ""
     push_indent()
-    for argname, argtype, optional, structured, default in parse_args(args):
-        if optional:
+    for argname, argtype, optional, structured, default in parse_args(args, defaults):
+        if optional and not default:
             ret += mcgen('''
 bool has_%(argname)s = false;
 ''',
                          argname=c_var(argname))
-        if c_type(argtype).endswith("*"):
+        if default:
+            ret += mcgen('''
+%(argtype)s %(argname)s = %(argval)s;
+''',
+                     argname=c_var(argname), argtype=c_type(argtype),
+                     argval=c_val(argtype, default))
+        elif c_type(argtype).endswith("*"):
             ret += mcgen('''
 %(argtype)s %(argname)s = NULL;
 ''',
@@ -106,7 +112,7 @@ bool has_%(argname)s = false;
     pop_indent()
     return ret.rstrip()
 
-def gen_visitor_input_block(args, obj, dealloc=False):
+def gen_visitor_input_block(args, defaults, obj, dealloc=False):
     ret = ""
     errparg = 'errp'
 
@@ -128,8 +134,8 @@ v = qmp_input_get_visitor(mi);
 ''',
                      obj=obj)
 
-    for argname, argtype, optional, structured, default in parse_args(args):
-        if optional:
+    for argname, argtype, optional, structured, default in parse_args(args, defaults):
+        if optional and not default:
             ret += mcgen('''
 visit_start_optional(v, &has_%(c_name)s, "%(name)s", %(errp)s);
 if (has_%(c_name)s) {
@@ -141,7 +147,7 @@ if (has_%(c_name)s) {
 ''',
                      c_name=c_var(argname), name=argname, argtype=argtype,
                      visitor=type_visitor(argtype), errp=errparg)
-        if optional:
+        if optional and not default:
             pop_indent()
             ret += mcgen('''
 }
@@ -194,7 +200,7 @@ def gen_marshal_input_decl(name, args, ret_type, middle_mode):
 
 
 
-def gen_marshal_input(name, args, ret_type, middle_mode):
+def gen_marshal_input(name, args, defaults, ret_type, middle_mode):
     hdr = gen_marshal_input_decl(name, args, ret_type, middle_mode)
 
     ret = mcgen('''
@@ -229,8 +235,8 @@ def gen_marshal_input(name, args, ret_type, middle_mode):
 
 ''',
                      visitor_input_containers_decl=gen_visitor_input_containers_decl(args),
-                     visitor_input_vars_decl=gen_visitor_input_vars_decl(args),
-                     visitor_input_block=gen_visitor_input_block(args, "QOBJECT(args)"))
+                     visitor_input_vars_decl=gen_visitor_input_vars_decl(name, args, defaults),
+                     visitor_input_block=gen_visitor_input_block(args, defaults, "QOBJECT(args)"))
     else:
         ret += mcgen('''
     (void)args;
@@ -242,7 +248,7 @@ def gen_marshal_input(name, args, ret_type, middle_mode):
     }
 %(sync_call)s
 ''',
-                 sync_call=gen_sync_call(name, args, ret_type, indent=4))
+                 sync_call=gen_sync_call(name, args, defaults, ret_type, indent=4))
     ret += mcgen('''
 
 out:
@@ -250,7 +256,7 @@ out:
     ret += mcgen('''
 %(visitor_input_block_cleanup)s
 ''',
-                 visitor_input_block_cleanup=gen_visitor_input_block(args, None,
+                 visitor_input_block_cleanup=gen_visitor_input_block(args, defaults, None,
                                                                      dealloc=True))
 
     if middle_mode:
@@ -434,12 +440,15 @@ if dispatch_type == "sync":
 
     for cmd in commands:
         arglist = []
+        defaults = {}
         ret_type = None
         if cmd.has_key('data'):
             arglist = cmd['data']
+        if cmd.has_key('defaults'):
+            defaults = cmd['defaults']
         if cmd.has_key('returns'):
             ret_type = cmd['returns']
-        ret = generate_command_decl(cmd['command'], arglist, ret_type) + "\n"
+        ret = generate_command_decl(cmd['command'], arglist, defaults, ret_type) + "\n"
         fdecl.write(ret)
         if ret_type:
             ret = gen_marshal_output(cmd['command'], arglist, ret_type, middle_mode) + "\n"
@@ -448,7 +457,7 @@ if dispatch_type == "sync":
         if middle_mode:
             fdecl.write('%s;\n' % gen_marshal_input_decl(cmd['command'], arglist, ret_type, middle_mode))
 
-        ret = gen_marshal_input(cmd['command'], arglist, ret_type, middle_mode) + "\n"
+        ret = gen_marshal_input(cmd['command'], arglist, defaults, ret_type, middle_mode) + "\n"
         fdef.write(ret)
 
     fdecl.write("\n#endif\n");
