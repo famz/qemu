@@ -497,6 +497,16 @@ def find_enum(name):
 def is_enum(name):
     return find_enum(name) != None
 
+def c_val(t, val):
+    if t == 'str':
+        return 'g_strdup("%s")' % val if val else 'NULL'
+    elif t == 'int':
+        return val
+    elif t == 'bool':
+        return 'true' if val else 'false'
+    else:
+        assert False, "Unknown type: %s" % t
+
 def c_type(name):
     if name == 'str':
         return 'char *'
