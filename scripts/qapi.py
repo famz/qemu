@@ -456,6 +456,14 @@ def find_enum(name):
 def is_enum(name):
     return find_enum(name) != None
 
+def c_val(t, val):
+    if t == 'str':
+        return 'g_strdup("%s")' % val
+    elif t == 'int':
+        return val
+    else:
+        assert False, "Unknown type: %s" % t
+
 def c_type(name):
     if name == 'str':
         return 'char *'
