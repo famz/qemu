@@ -170,14 +170,19 @@ This example allows using both of the following example objects:
 
 === Commands ===
 
-Commands are defined by using a list containing three members.  The first
-member is the command name, the second member is a dictionary containing
-arguments, and the third member is the return type.
+Commands are defined by a dictionary. The name of the command is defined by
+"command" key; arguments are listed in the "data" dictionary; if one or more
+arguments are marked optional by a leading '*' in its name, the optional
+dictionary "defaults" can be used to specify default values for them; the
+return type is defined in "returns".
+
+Non-optional argument names are not allowed in the 'defaults' dictionary.
 
 An example command is:
 
  { 'command': 'my-command',
-   'data': { 'arg1': 'str', '*arg2': 'str' },
+   'data': { 'arg1': 'str', '*arg2': 'str', '*arg3': 'int', '*arg4': 'bool' },
+   'defaults': { 'arg2': 'default value for arg2', 'arg3': 12345 },
    'returns': 'str' }
 
 
