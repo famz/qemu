@@ -190,7 +190,8 @@ check-qapi-schema-y := $(addprefix tests/qapi-schema/, \
         duplicate-key.json union-invalid-base.json flat-union-no-base.json \
         flat-union-invalid-discriminator.json \
         flat-union-invalid-branch-key.json flat-union-reverse-define.json \
-        flat-union-string-discriminator.json)
+        flat-union-string-discriminator.json \
+        integers.json integers-overflow.json integers-leading-zero.json)
 
 GENERATED_HEADERS += tests/test-qapi-types.h tests/test-qapi-visit.h tests/test-qmp-commands.h
 
