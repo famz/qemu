@@ -163,7 +163,20 @@ class QAPISchema:
                     return
                 except Exception, e:
                     raise QAPISchemaError(self, 'Invalid number "%s": %s' % (val, e))
-
+            elif self.tok in "tfn":
+                val = self.src[self.cursor - 1:]
+                if val.startswith("true"):
+                    self.val = True
+                    self.cursor += 3
+                    return
+                elif val.startswith("false"):
+                    self.val = False
+                    self.cursor += 4
+                    return
+                elif val.startswith("null"):
+                    self.val = None
+                    self.cursor += 3
+                    return
             elif self.tok == '\n':
                 if self.cursor == len(self.src):
                     self.tok = None
@@ -203,8 +216,8 @@ class QAPISchema:
         if self.tok == ']':
             self.accept()
             return expr
-        if not self.tok in "{['-0123456789":
-            raise QAPISchemaError(self, 'Expected "{", "[", "]", string or number')
+        if not self.tok in "{['-0123456789tfn":
+            raise QAPISchemaError(self, 'Expected "{", "[", "]", string, number, boolean or "null"')
         while True:
             expr.append(self.get_expr(True))
             if self.tok == ']':
@@ -223,10 +236,7 @@ class QAPISchema:
         elif self.tok == '[':
             self.accept()
             expr = self.get_values()
-        elif self.tok == "'":
-            expr = self.val
-            self.accept()
-        elif self.tok in "-0123456789":
+        elif self.tok in "'0123456789-tfn":
             expr = self.val
             self.accept()
         else:
