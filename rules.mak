@@ -90,6 +90,9 @@ modules:
 %$(EXESUF): %.o
 	$(call LINK,$^)
 
+%.mo:
+	$(call quiet-command,touch $@,"  GEN   $(TARGET_DIR)$@")
+
 %.a:
 	$(call quiet-command,rm -f $@ && $(AR) rcs $@ $^,"  AR    $(TARGET_DIR)$@")
 
