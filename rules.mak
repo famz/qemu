@@ -25,8 +25,8 @@ QEMU_INCLUDES += -I$(<D) -I$(@D)
 maybe-add = $(filter-out $1, $2) $1
 extract-libs = $(strip $(sort $(foreach o,$1,$($o-libs))) \
                   $(foreach o,$(call expand-objs,$1),$($o-libs)))
-expand-objs = $(strip $(sort $(filter %.o,$1)) \
-                  $(foreach o,$(filter %.mo,$1),$($o-objs)) \
+expand-objs = $(strip $(sort $(filter %.o,$1) \
+                  $(foreach o,$(filter %.mo,$1),$($o-objs))) \
                   $(filter-out %.o %.mo,$1))
 
 %.o: %.c
