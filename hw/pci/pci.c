@@ -1488,17 +1488,19 @@ static PciDeviceInfo *qmp_query_pci_device(PCIDevice *dev, PCIBus *bus,
     info->bus = bus_num;
     info->slot = PCI_SLOT(dev->devfn);
     info->function = PCI_FUNC(dev->devfn);
+    info->class_info = g_malloc0(sizeof(*info->class_info));
+    info->id = g_malloc0(sizeof(*info->id));
 
     class = pci_get_word(dev->config + PCI_CLASS_DEVICE);
-    info->class_info.q_class = class;
+    info->class_info->q_class = class;
     desc = get_class_desc(class);
     if (desc->desc) {
-        info->class_info.has_desc = true;
-        info->class_info.desc = g_strdup(desc->desc);
+        info->class_info->has_desc = true;
+        info->class_info->desc = g_strdup(desc->desc);
     }
 
-    info->id.vendor = pci_get_word(dev->config + PCI_VENDOR_ID);
-    info->id.device = pci_get_word(dev->config + PCI_DEVICE_ID);
+    info->id->vendor = pci_get_word(dev->config + PCI_VENDOR_ID);
+    info->id->device = pci_get_word(dev->config + PCI_DEVICE_ID);
     info->regions = qmp_query_pci_regions(dev);
     info->qdev_id = g_strdup(dev->qdev.id ? dev->qdev.id : "");
 

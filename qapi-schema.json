@@ -1459,6 +1459,36 @@
            '*devices': ['PciDeviceInfo']} }
 
 ##
+# @PciClassInfo
+#
+# Information about a PCI Class
+#
+# @desc: #optional a string description of the device's class
+#
+# @class: the class code of the device
+#
+# Since: 2.1
+# Embedded in PciDeviceInfo since: 0.14.0
+##
+{ 'type': 'PciClassInfo',
+  'data': {'*desc': 'str', 'class': 'int'} }
+
+##
+# @PciId
+#
+# Information about a PCI device id
+#
+# @device: the PCI device id
+#
+# @vendor: the PCI vendor id
+#
+# Since: 2.1
+# Embedded in PciDeviceInfo since: 0.14.0
+##
+{ 'type': 'PciId',
+  'data': {'device': 'int', 'vendor': 'int'} }
+
+##
 # @PciDeviceInfo:
 #
 # Information about a PCI device
@@ -1469,13 +1499,9 @@
 #
 # @function: the function of the slot used by the device
 #
-# @class_info.desc: #optional a string description of the device's class
+# @class_info: the class information, see PciClassInfo
 #
-# @class_info.class: the class code of the device
-#
-# @id.device: the PCI device id
-#
-# @id.vendor: the PCI vendor id
+# @id: the PCI id information, see PciId
 #
 # @irq: #optional if an IRQ is assigned to the device, the IRQ number
 #
@@ -1492,8 +1518,7 @@
 ##
 { 'type': 'PciDeviceInfo',
   'data': {'bus': 'int', 'slot': 'int', 'function': 'int',
-           'class_info': {'*desc': 'str', 'class': 'int'},
-           'id': {'device': 'int', 'vendor': 'int'},
+           'class_info': 'PciClassInfo', 'id': 'PciId',
            '*irq': 'int', 'qdev_id': 'str', '*pci_bridge': 'PciBridgeInfo',
            'regions': ['PciMemoryRegion']} }
 
