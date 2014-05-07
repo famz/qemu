@@ -1443,22 +1443,24 @@ static PciBridgeInfo *qmp_query_pci_bridge(PCIDevice *dev, PCIBus *bus,
     PciBridgeInfo *info;
 
     info = g_malloc0(sizeof(*info));
+    info->bus = g_malloc(sizeof(*info->bus));
 
-    info->bus.number = dev->config[PCI_PRIMARY_BUS];
-    info->bus.secondary = dev->config[PCI_SECONDARY_BUS];
-    info->bus.subordinate = dev->config[PCI_SUBORDINATE_BUS];
+    info->bus = g_malloc0(sizeof(*info->bus));
+    info->bus->number = dev->config[PCI_PRIMARY_BUS];
+    info->bus->secondary = dev->config[PCI_SECONDARY_BUS];
+    info->bus->subordinate = dev->config[PCI_SUBORDINATE_BUS];
 
-    info->bus.io_range = g_malloc0(sizeof(*info->bus.io_range));
-    info->bus.io_range->base = pci_bridge_get_base(dev, PCI_BASE_ADDRESS_SPACE_IO);
-    info->bus.io_range->limit = pci_bridge_get_limit(dev, PCI_BASE_ADDRESS_SPACE_IO);
+    info->bus->io_range = g_malloc0(sizeof(*info->bus->io_range));
+    info->bus->io_range->base = pci_bridge_get_base(dev, PCI_BASE_ADDRESS_SPACE_IO);
+    info->bus->io_range->limit = pci_bridge_get_limit(dev, PCI_BASE_ADDRESS_SPACE_IO);
 
-    info->bus.memory_range = g_malloc0(sizeof(*info->bus.memory_range));
-    info->bus.memory_range->base = pci_bridge_get_base(dev, PCI_BASE_ADDRESS_SPACE_MEMORY);
-    info->bus.memory_range->limit = pci_bridge_get_limit(dev, PCI_BASE_ADDRESS_SPACE_MEMORY);
+    info->bus->memory_range = g_malloc0(sizeof(*info->bus->memory_range));
+    info->bus->memory_range->base = pci_bridge_get_base(dev, PCI_BASE_ADDRESS_SPACE_MEMORY);
+    info->bus->memory_range->limit = pci_bridge_get_limit(dev, PCI_BASE_ADDRESS_SPACE_MEMORY);
 
-    info->bus.prefetchable_range = g_malloc0(sizeof(*info->bus.prefetchable_range));
-    info->bus.prefetchable_range->base = pci_bridge_get_base(dev, PCI_BASE_ADDRESS_MEM_PREFETCH);
-    info->bus.prefetchable_range->limit = pci_bridge_get_limit(dev, PCI_BASE_ADDRESS_MEM_PREFETCH);
+    info->bus->prefetchable_range = g_malloc0(sizeof(*info->bus->prefetchable_range));
+    info->bus->prefetchable_range->base = pci_bridge_get_base(dev, PCI_BASE_ADDRESS_MEM_PREFETCH);
+    info->bus->prefetchable_range->limit = pci_bridge_get_limit(dev, PCI_BASE_ADDRESS_MEM_PREFETCH);
 
     if (dev->config[PCI_SECONDARY_BUS] != 0) {
         PCIBus *child_bus = pci_find_bus_nr(bus, dev->config[PCI_SECONDARY_BUS]);
