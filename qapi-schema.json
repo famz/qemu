@@ -1414,35 +1414,48 @@
            '*prefetch': 'bool', '*mem_type_64': 'bool' } }
 
 ##
+# @PciBusInfo
+#
+# Information about a PCI bus
+#
+# @number: primary bus interface number.  This should be the number of the
+#          bus the device resides on.
+#
+# @secondary: secondary bus interface number.  This is the number of the
+#             main bus for the bridge
+#
+# @subordinate: This is the highest number bus that resides below the
+#               bridge.
+#
+# @io_range: The PIO range for all devices on this bridge
+#
+# @memory_range: The MMIO range for all devices on this bridge
+#
+# @prefetchable_range: The range of prefetchable MMIO for all devices on
+#                      this bridge
+#
+# Since: 2.1
+# Embedded in PciBridgeInfo since: 0.14.0
+##
+{ 'type': 'PciBusInfo',
+  'data': { 'number': 'int', 'secondary': 'int', 'subordinate': 'int',
+            'io_range': 'PciMemoryRange',
+            'memory_range': 'PciMemoryRange',
+            'prefetchable_range': 'PciMemoryRange' } }
+
+##
 # @PciBridgeInfo:
 #
 # Information about a PCI Bridge device
 #
-# @bus.number: primary bus interface number.  This should be the number of the
-#              bus the device resides on.
-#
-# @bus.secondary: secondary bus interface number.  This is the number of the
-#                 main bus for the bridge
-#
-# @bus.subordinate: This is the highest number bus that resides below the
-#                   bridge.
-#
-# @bus.io_range: The PIO range for all devices on this bridge
-#
-# @bus.memory_range: The MMIO range for all devices on this bridge
-#
-# @bus.prefetchable_range: The range of prefetchable MMIO for all devices on
-#                          this bridge
+# @bus: bus info, see PciBridgeInfo
 #
 # @devices: a list of @PciDeviceInfo for each device on this bridge
 #
 # Since: 0.14.0
 ##
 { 'type': 'PciBridgeInfo',
-  'data': {'bus': { 'number': 'int', 'secondary': 'int', 'subordinate': 'int',
-                    'io_range': 'PciMemoryRange',
-                    'memory_range': 'PciMemoryRange',
-                    'prefetchable_range': 'PciMemoryRange' },
+  'data': {'bus': 'PciBusInfo',
            '*devices': ['PciDeviceInfo']} }
 
 ##

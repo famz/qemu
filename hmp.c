@@ -560,25 +560,25 @@ static void hmp_info_pci_device(Monitor *mon, const PciDeviceInfo *dev)
 
     if (dev->has_pci_bridge) {
         monitor_printf(mon, "      BUS %" PRId64 ".\n",
-                       dev->pci_bridge->bus.number);
+                       dev->pci_bridge->bus->number);
         monitor_printf(mon, "      secondary bus %" PRId64 ".\n",
-                       dev->pci_bridge->bus.secondary);
+                       dev->pci_bridge->bus->secondary);
         monitor_printf(mon, "      subordinate bus %" PRId64 ".\n",
-                       dev->pci_bridge->bus.subordinate);
+                       dev->pci_bridge->bus->subordinate);
 
         monitor_printf(mon, "      IO range [0x%04"PRIx64", 0x%04"PRIx64"]\n",
-                       dev->pci_bridge->bus.io_range->base,
-                       dev->pci_bridge->bus.io_range->limit);
+                       dev->pci_bridge->bus->io_range->base,
+                       dev->pci_bridge->bus->io_range->limit);
 
         monitor_printf(mon,
                        "      memory range [0x%08"PRIx64", 0x%08"PRIx64"]\n",
-                       dev->pci_bridge->bus.memory_range->base,
-                       dev->pci_bridge->bus.memory_range->limit);
+                       dev->pci_bridge->bus->memory_range->base,
+                       dev->pci_bridge->bus->memory_range->limit);
 
         monitor_printf(mon, "      prefetchable memory range "
                        "[0x%08"PRIx64", 0x%08"PRIx64"]\n",
-                       dev->pci_bridge->bus.prefetchable_range->base,
-                       dev->pci_bridge->bus.prefetchable_range->limit);
+                       dev->pci_bridge->bus->prefetchable_range->base,
+                       dev->pci_bridge->bus->prefetchable_range->limit);
     }
 
     for (region = dev->regions; region; region = region->next) {
