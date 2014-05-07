@@ -384,13 +384,29 @@ def parse_args(typeinfo):
         argname = member
         argentry = typeinfo[member]
         optional = False
+        argtype = argentry
+        default = None
         structured = False
         if member.startswith('*'):
             argname = member[1:]
             optional = True
+        if member.startswith('@'):
+            if not isinstance(argentry, OrderedDict):
+                raise Exception("Expecting property dictionary for argument '%s'" % member)
+            # Parse argument property dict
+            argname = member[1:]
+            argtype = argentry.get("type", None)
+            optional = argentry.get("optional", False)
+            default = argentry.get("default", None)
+            if default is not None:
+                optional = False
         if isinstance(argentry, OrderedDict):
-            structured = True
-        yield (argname, argentry, optional, structured)
+                structured = True
+
+        else:
+            argtype = argentry
+
+        yield (argname, argtype, optional, structured, default)
 
 def de_camel_case(name):
     new_name = ''

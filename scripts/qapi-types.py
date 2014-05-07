@@ -63,7 +63,7 @@ typedef struct %(name)sList
 def generate_struct_fields(members):
     ret = ''
 
-    for argname, argentry, optional, structured in parse_args(members):
+    for argname, argentry, optional, structured, default in parse_args(members):
         if optional:
             ret += mcgen('''
     bool has_%(c_name)s;
