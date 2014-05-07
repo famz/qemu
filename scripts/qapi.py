@@ -348,13 +348,20 @@ def parse_args(typeinfo):
         argname = member
         argentry = typeinfo[member]
         optional = False
-        structured = False
+        default = None
         if member.startswith('*'):
             argname = member[1:]
             optional = True
         if isinstance(argentry, OrderedDict):
-            structured = True
-        yield (argname, argentry, optional, structured)
+            # Argument property dict
+
+            argtype = argentry.get("type", None)
+            optional = optional or "default" in argentry
+            default = argentry.get("default", None)
+        else:
+            argtype = argentry
+
+        yield (argname, argtype, optional, default)
 
 def de_camel_case(name):
     new_name = ''

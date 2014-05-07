@@ -25,17 +25,6 @@ def generate_visit_struct_fields(name, field_prefix, fn_prefix, members, base = 
     else:
         full_name = "%s_%s" % (name, fn_prefix)
 
-    for argname, argentry, optional, structured in parse_args(members):
-        if structured:
-            if not fn_prefix:
-                nested_fn_prefix = argname
-            else:
-                nested_fn_prefix = "%s_%s" % (fn_prefix, argname)
-
-            nested_field_prefix = "%s%s." % (field_prefix, argname)
-            ret += generate_visit_struct_fields(name, nested_field_prefix,
-                                                nested_fn_prefix, argentry)
-
     ret += mcgen('''
 
 static void visit_type_%(full_name)s_fields(Visitor *m, %(name)s ** obj, Error **errp)
@@ -58,7 +47,7 @@ if (!err) {
                      c_prefix=c_var(field_prefix),
                      type=type_name(base), c_name=c_var('base'))
 
-    for argname, argentry, optional, structured in parse_args(members):
+    for argname, argentry, optional, default in parse_args(members):
         if optional:
             ret += mcgen('''
 visit_start_optional(m, &(*obj)->%(c_prefix)shas_%(c_name)s, "%(name)s", &err);
@@ -68,15 +57,12 @@ if ((*obj)->%(prefix)shas_%(c_name)s) {
                          c_name=c_var(argname), name=argname)
             push_indent()
 
-        if structured:
-            ret += generate_visit_struct_body(full_name, argname, argentry)
-        else:
-            ret += mcgen('''
+        ret += mcgen('''
 visit_type_%(type)s(m, &(*obj)->%(c_prefix)s%(c_name)s, "%(name)s", &err);
 ''',
-                         c_prefix=c_var(field_prefix), prefix=field_prefix,
-                         type=type_name(argentry), c_name=c_var(argname),
-                         name=argname)
+                     c_prefix=c_var(field_prefix), prefix=field_prefix,
+                     type=type_name(argentry), c_name=c_var(argname),
+                     name=argname)
 
         if optional:
             pop_indent()

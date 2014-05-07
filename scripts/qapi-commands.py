@@ -25,7 +25,7 @@ def type_visitor(name):
 
 def generate_command_decl(name, args, ret_type):
     arglist=""
-    for argname, argtype, optional, structured in parse_args(args):
+    for argname, argtype, optional, default in parse_args(args):
         argtype = c_type(argtype)
         if argtype == "char *":
             argtype = "const char *"
@@ -43,7 +43,7 @@ def gen_sync_call(name, args, ret_type, indent=0):
     retval=""
     if ret_type:
         retval = "retval = "
-    for argname, argtype, optional, structured in parse_args(args):
+    for argname, argtype, optional, default in parse_args(args):
         if optional:
             arglist += "has_%s, " % c_var(argname)
         arglist += "%s, " % (c_var(argname))
@@ -86,7 +86,7 @@ Visitor *v;
 def gen_visitor_input_vars_decl(args):
     ret = ""
     push_indent()
-    for argname, argtype, optional, structured in parse_args(args):
+    for argname, argtype, optional, default in parse_args(args):
         if optional:
             ret += mcgen('''
 bool has_%(argname)s = false;
@@ -128,7 +128,7 @@ v = qmp_input_get_visitor(mi);
 ''',
                      obj=obj)
 
-    for argname, argtype, optional, structured in parse_args(args):
+    for argname, argtype, optional, default in parse_args(args):
         if optional:
             ret += mcgen('''
 visit_start_optional(v, &has_%(c_name)s, "%(name)s", %(errp)s);
