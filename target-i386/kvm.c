@@ -722,6 +722,15 @@ int kvm_arch_init_vcpu(CPUState *cs)
         env->kvm_xsave_buf = qemu_memalign(4096, sizeof(struct kvm_xsave));
     }
 
+    r = kvm_check_extension(cs->kvm_state, KVM_CAP_X86_CPL);
+    if (r) {
+        r = kvm_vm_enable_cap(cs->kvm_state, KVM_CAP_X86_CPL, 0);
+        if (r < 0) {
+            fprintf(stderr, "KVM_ENABLE_CAP failed\n");
+            return r;
+        }
+    }
+
     return 0;
 }
 
@@ -1068,6 +1077,7 @@ static int kvm_put_xcrs(X86CPU *cpu)
 static int kvm_put_sregs(X86CPU *cpu)
 {
     CPUX86State *env = &cpu->env;
+    CPUState *cs = CPU(cpu);
     struct kvm_sregs sregs;
 
     memset(sregs.interrupt_bitmap, 0, sizeof(sregs.interrupt_bitmap));
@@ -1112,7 +1122,11 @@ static int kvm_put_sregs(X86CPU *cpu)
 
     sregs.efer = env->efer;
 
-    return kvm_vcpu_ioctl(CPU(cpu), KVM_SET_SREGS, &sregs);
+    if (kvm_check_extension(cs->kvm_state, KVM_CAP_X86_CPL)) {
+        sregs.cs.cpl = env->hflags & HF_CPL_MASK;
+    }
+
+    return kvm_vcpu_ioctl(cs, KVM_SET_SREGS, &sregs);
 }
 
 static void kvm_msr_entry_set(struct kvm_msr_entry *entry,
@@ -1380,11 +1394,12 @@ static int kvm_get_xcrs(X86CPU *cpu)
 static int kvm_get_sregs(X86CPU *cpu)
 {
     CPUX86State *env = &cpu->env;
+    CPUState *cs = CPU(cpu);
     struct kvm_sregs sregs;
     uint32_t hflags;
     int bit, i, ret;
 
-    ret = kvm_vcpu_ioctl(CPU(cpu), KVM_GET_SREGS, &sregs);
+    ret = kvm_vcpu_ioctl(cs, KVM_GET_SREGS, &sregs);
     if (ret < 0) {
         return ret;
     }
@@ -1430,7 +1445,11 @@ static int kvm_get_sregs(X86CPU *cpu)
        HF_OSFXSR_MASK | HF_LMA_MASK | HF_CS32_MASK | \
        HF_SS32_MASK | HF_CS64_MASK | HF_ADDSEG_MASK)
 
-    hflags = (env->segs[R_CS].flags >> DESC_DPL_SHIFT) & HF_CPL_MASK;
+    if (kvm_check_extension(cs->kvm_state, KVM_CAP_X86_CPL)) {
+        hflags = sregs.cs.cpl;
+    } else {
+        hflags = (env->segs[R_CS].flags >> DESC_DPL_SHIFT) & HF_CPL_MASK;
+    }
     hflags |= (env->cr[0] & CR0_PE_MASK) << (HF_PE_SHIFT - CR0_PE_SHIFT);
     hflags |= (env->cr[0] << (HF_MP_SHIFT - CR0_MP_SHIFT)) &
                 (HF_MP_MASK | HF_EM_MASK | HF_TS_MASK);

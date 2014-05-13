@@ -126,7 +126,10 @@ struct kvm_segment {
 	__u8  type;
 	__u8  present, dpl, db, s, l, g, avl;
 	__u8  unusable;
-	__u8  padding;
+	union {
+		__u8  cpl;
+		__u8  padding;
+	};
 };
 
 struct kvm_dtable {

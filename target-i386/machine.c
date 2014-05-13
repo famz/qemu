@@ -284,7 +284,6 @@ static void cpu_pre_save(void *opaque)
         env->segs[R_GS].flags &= ~(env->segs[R_GS].flags & DESC_DPL_MASK);
         env->segs[R_SS].flags &= ~(env->segs[R_SS].flags & DESC_DPL_MASK);
     }
-
 }
 
 static int cpu_post_load(void *opaque, int version_id)
@@ -310,6 +309,23 @@ static int cpu_post_load(void *opaque, int version_id)
         env->segs[R_FS].flags &= ~(env->segs[R_FS].flags & DESC_DPL_MASK);
         env->segs[R_GS].flags &= ~(env->segs[R_GS].flags & DESC_DPL_MASK);
         env->segs[R_SS].flags &= ~(env->segs[R_SS].flags & DESC_DPL_MASK);
+    }
+
+    /* Older versions of QEMU also blindly stored the low 2 bits of
+     * CS into hflags.  This is not correct for real mode or VM86 mode,
+     * fix it here because we will use hflags to pass the CPL to KVM.
+     *
+     * There is still a small window where migration is broken, between
+     * the time CR0.PE=1 and the subsequent long jump that reloads CS.
+     * This cannot be fixed.
+     */
+    if (!(env->cr[0] & CR0_PE_MASK)) {
+        /* Force CPL=0 for real mode.  */
+        env->hflags &= ~HF_CPL_MASK;
+    } else if ((env->eflags & VM_MASK) &&
+               !(env->segs[R_CS].flags & DESC_L_MASK)) {
+        /* Force CPL=3 for VM86 mode.  */
+        env->hflags |= HF_CPL_MASK;
     }
 
     /* XXX: restore FPU round state */
