@@ -1,1 +1,1 @@
-<stdin>:1:12: Invalid number "00": Leading zero for non-zero integer
+tests/qapi-schema/integers-leading-zero.json:1:12: Invalid number "00": Leading zero for non-zero integer
