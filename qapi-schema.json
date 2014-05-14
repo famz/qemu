@@ -2166,7 +2166,7 @@
 ##
 { 'command': 'block-commit',
   'data': { 'device': 'str', '*base': 'str', 'top': 'str',
-            '*speed': 'int' } }
+            '@speed': { 'type': 'int', 'optional': true, 'default': 0 } } }
 
 ##
 # @drive-backup

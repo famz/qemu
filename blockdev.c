@@ -1922,7 +1922,7 @@ void qmp_block_stream(const char *device, bool has_base,
 
 void qmp_block_commit(const char *device,
                       bool has_base, const char *base, const char *top,
-                      bool has_speed, int64_t speed,
+                      int64_t speed,
                       Error **errp)
 {
     BlockDriverState *bs;
@@ -1932,10 +1932,6 @@ void qmp_block_commit(const char *device,
      * BlockdevOnError change for blkmirror makes it in
      */
     BlockdevOnError on_error = BLOCKDEV_ON_ERROR_REPORT;
-
-    if (!has_speed) {
-        speed = 0;
-    }
 
     /* drain all i/o before commits */
     bdrv_drain_all();
