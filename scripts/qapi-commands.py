@@ -87,8 +87,8 @@ def gen_visitor_input_containers_decl(args, obj):
     if len(args) > 0:
         ret += mcgen('''
 QmpInputVisitor *mi = qmp_input_visitor_new_strict(%(obj)s);
-QapiDeallocVisitor *md;
-Visitor *v;
+QapiDeallocVisitor *md = qapi_dealloc_visitor_new();
+Visitor *vi, *vd;
 ''',
                      obj=obj)
     pop_indent()
@@ -99,12 +99,19 @@ def gen_visitor_input_vars_decl(args):
     ret = ""
     push_indent()
     for argname, argtype, optional, structured, default in parse_args(args):
-        if optional:
+        has_default = default is not None
+        if optional or has_default:
             ret += mcgen('''
 bool has_%(argname)s = false;
 ''',
                          argname=c_var(argname))
-        if c_type(argtype).endswith("*"):
+        if has_default:
+            ret += mcgen('''
+%(argtype)s %(argname)s = %(argval)s;
+''',
+                         argname=c_var(argname), argtype=c_type(argtype),
+                         argval=c_val(argtype, default))
+        elif c_type(argtype).endswith("*"):
             ret += mcgen('''
 %(argtype)s %(argname)s = NULL;
 ''',
@@ -122,6 +129,7 @@ def gen_visitor_input_block(args, dealloc=False):
     ret = ""
     errparg = '&local_err'
     errarg = 'local_err'
+    vvar = 'vi'
 
     if len(args) == 0:
         return ret
@@ -131,35 +139,41 @@ def gen_visitor_input_block(args, dealloc=False):
     if dealloc:
         errparg = 'NULL'
         errarg = None;
-        ret += mcgen('''
-qmp_input_visitor_cleanup(mi);
-md = qapi_dealloc_visitor_new();
-v = qapi_dealloc_get_visitor(md);
-''')
+        vvar = 'vd'
     else:
         ret += mcgen('''
-v = qmp_input_get_visitor(mi);
+vi = qmp_input_get_visitor(mi);
+vd = qapi_dealloc_get_visitor(md);
 ''')
 
     for argname, argtype, optional, structured, default in parse_args(args):
-        if optional:
+        has_default = default is not None
+        if optional or has_default:
             ret += mcgen('''
-visit_optional(v, &has_%(c_name)s, "%(name)s", %(errp)s);
+visit_optional(%(v)s, &has_%(c_name)s, "%(name)s", %(errp)s);
 ''',
-                         c_name=c_var(argname), name=argname, errp=errparg)
+                         v=vvar, c_name=c_var(argname), name=argname, errp=errparg)
             ret += gen_err_check(errarg)
             ret += mcgen('''
 if (has_%(c_name)s) {
 ''',
                          c_name=c_var(argname))
             push_indent()
-        ret += mcgen('''
-%(visitor)s(v, &%(c_name)s, "%(name)s", %(errp)s);
+            if not dealloc and has_default:
+                # For input block, we should deallocate argument that is
+                # initialized with a defualt value, before reading in from input
+                ret += mcgen('''
+%(visitor)s(vd, &%(c_name)s, "%(name)s", NULL);
 ''',
-                     c_name=c_var(argname), name=argname, argtype=argtype,
+                         c_name=c_var(argname), name=argname, argtype=argtype,
+                         visitor=type_visitor(argtype), errp=errparg)
+        ret += mcgen('''
+%(visitor)s(%(v)s, &%(c_name)s, "%(name)s", %(errp)s);
+''',
+                     v=vvar, c_name=c_var(argname), name=argname, argtype=argtype,
                      visitor=type_visitor(argtype), errp=errparg)
         ret += gen_err_check(errarg)
-        if optional:
+        if optional or has_default:
             pop_indent()
             ret += mcgen('''
 }
@@ -167,6 +181,7 @@ if (has_%(c_name)s) {
 
     if dealloc:
         ret += mcgen('''
+qmp_input_visitor_cleanup(mi);
 qapi_dealloc_visitor_cleanup(md);
 ''')
     pop_indent()
