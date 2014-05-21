@@ -113,20 +113,6 @@ static void test_validate_struct(TestInputVisitorData *data,
     g_free(p);
 }
 
-static void test_validate_struct_nested(TestInputVisitorData *data,
-                                         const void *unused)
-{
-    UserDefNested *udp = NULL;
-    Error *err = NULL;
-    Visitor *v;
-
-    v = validate_test_init(data, "{ 'string0': 'string0', 'dict1': { 'string1': 'string1', 'dict2': { 'userdef1': { 'integer': 42, 'string': 'string' }, 'string2': 'string2'}}}");
-
-    visit_type_UserDefNested(v, &udp, NULL, &err);
-    g_assert(!err);
-    qapi_free_UserDefNested(udp);
-}
-
 static void test_validate_list(TestInputVisitorData *data,
                                 const void *unused)
 {
@@ -204,20 +190,6 @@ static void test_validate_fail_struct(TestInputVisitorData *data,
     g_free(p);
 }
 
-static void test_validate_fail_struct_nested(TestInputVisitorData *data,
-                                              const void *unused)
-{
-    UserDefNested *udp = NULL;
-    Error *err = NULL;
-    Visitor *v;
-
-    v = validate_test_init(data, "{ 'string0': 'string0', 'dict1': { 'string1': 'string1', 'dict2': { 'userdef1': { 'integer': 42, 'string': 'string', 'extra': [42, 23, {'foo':'bar'}] }, 'string2': 'string2'}}}");
-
-    visit_type_UserDefNested(v, &udp, NULL, &err);
-    g_assert(err);
-    qapi_free_UserDefNested(udp);
-}
-
 static void test_validate_fail_list(TestInputVisitorData *data,
                                      const void *unused)
 {
@@ -290,8 +262,6 @@ int main(int argc, char **argv)
 
     validate_test_add("/visitor/input-strict/pass/struct",
                        &testdata, test_validate_struct);
-    validate_test_add("/visitor/input-strict/pass/struct-nested",
-                       &testdata, test_validate_struct_nested);
     validate_test_add("/visitor/input-strict/pass/list",
                        &testdata, test_validate_list);
     validate_test_add("/visitor/input-strict/pass/union",
@@ -302,8 +272,6 @@ int main(int argc, char **argv)
                        &testdata, test_validate_union_anon);
     validate_test_add("/visitor/input-strict/fail/struct",
                        &testdata, test_validate_fail_struct);
-    validate_test_add("/visitor/input-strict/fail/struct-nested",
-                       &testdata, test_validate_fail_struct_nested);
     validate_test_add("/visitor/input-strict/fail/list",
                        &testdata, test_validate_fail_list);
     validate_test_add("/visitor/input-strict/fail/union",

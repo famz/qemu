@@ -32,13 +32,16 @@ UserDefTwo *qmp_user_def_cmd2(UserDefOne *ud1a,
     ud1d->base->integer = has_udb1 ? ud1b->base->integer : 0;
 
     ret = g_malloc0(sizeof(UserDefTwo));
+    ret->dict = g_malloc0(sizeof(UserDefTwoDict));
+    ret->dict->dict1 = g_malloc0(sizeof(UserDefTwoDict1));
+    ret->dict->dict2 = g_malloc0(sizeof(UserDefTwoDict2));
     ret->string = strdup("blah1");
-    ret->dict.string = strdup("blah2");
-    ret->dict.dict.userdef = ud1c;
-    ret->dict.dict.string = strdup("blah3");
-    ret->dict.has_dict2 = true;
-    ret->dict.dict2.userdef = ud1d;
-    ret->dict.dict2.string = strdup("blah4");
+    ret->dict->string = strdup("blah2");
+    ret->dict->dict1->userdef = ud1c;
+    ret->dict->dict1->string = strdup("blah3");
+    ret->dict->has_dict2 = true;
+    ret->dict->dict2->userdef = ud1d;
+    ret->dict->dict2->string = strdup("blah4");
 
     return ret;
 }
@@ -123,7 +126,7 @@ static void test_dispatch_cmd_io(void)
     assert(!strcmp(qdict_get_str(ret, "string"), "blah1"));
     ret_dict = qdict_get_qdict(ret, "dict");
     assert(!strcmp(qdict_get_str(ret_dict, "string"), "blah2"));
-    ret_dict_dict = qdict_get_qdict(ret_dict, "dict");
+    ret_dict_dict = qdict_get_qdict(ret_dict, "dict1");
     ret_dict_dict_userdef = qdict_get_qdict(ret_dict_dict, "userdef");
     assert(qdict_get_int(ret_dict_dict_userdef, "integer") == 42);
     assert(!strcmp(qdict_get_str(ret_dict_dict_userdef, "string"), "hello"));
@@ -204,7 +207,7 @@ static void test_dealloc_partial(void)
     assert(ud2 != NULL);
     assert(ud2->string != NULL);
     assert(strcmp(ud2->string, text) == 0);
-    assert(ud2->dict.dict.userdef == NULL);
+    assert(ud2->dict == NULL);
 
     /* confirm & release construction error */
     assert(err != NULL);

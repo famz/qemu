@@ -239,35 +239,6 @@ static void test_visitor_in_struct(TestInputVisitorData *data,
     g_free(p);
 }
 
-static void check_and_free_str(char *str, const char *cmp)
-{
-    g_assert_cmpstr(str, ==, cmp);
-    g_free(str);
-}
-
-static void test_visitor_in_struct_nested(TestInputVisitorData *data,
-                                          const void *unused)
-{
-    UserDefNested *udp = NULL;
-    Error *err = NULL;
-    Visitor *v;
-
-    v = visitor_input_test_init(data, "{ 'string0': 'string0', 'dict1': { 'string1': 'string1', 'dict2': { 'userdef1': { 'integer': 42, 'string': 'string' }, 'string2': 'string2'}}}");
-
-    visit_type_UserDefNested(v, &udp, NULL, &err);
-    g_assert(!err);
-
-    check_and_free_str(udp->string0, "string0");
-    check_and_free_str(udp->dict1.string1, "string1");
-    g_assert_cmpint(udp->dict1.dict2.userdef1->base->integer, ==, 42);
-    check_and_free_str(udp->dict1.dict2.userdef1->string, "string");
-    check_and_free_str(udp->dict1.dict2.string2, "string2");
-    g_assert(udp->dict1.has_dict3 == false);
-
-    g_free(udp->dict1.dict2.userdef1);
-    g_free(udp);
-}
-
 static void test_visitor_in_list(TestInputVisitorData *data,
                                  const void *unused)
 {
@@ -675,8 +646,6 @@ int main(int argc, char **argv)
                             &in_visitor_data, test_visitor_in_enum);
     input_visitor_test_add("/visitor/input/struct",
                             &in_visitor_data, test_visitor_in_struct);
-    input_visitor_test_add("/visitor/input/struct-nested",
-                            &in_visitor_data, test_visitor_in_struct_nested);
     input_visitor_test_add("/visitor/input/list",
                             &in_visitor_data, test_visitor_in_list);
     input_visitor_test_add("/visitor/input/union",

@@ -14,17 +14,20 @@
   'base': 'UserDefZero',
   'data': { 'string': 'str', '*enum1': 'EnumOne' } }
 
+{ 'type': 'UserDefTwoDict1',
+  'data': { 'userdef': 'UserDefOne', 'string': 'str' } }
+
+{ 'type': 'UserDefTwoDict2',
+  'data': { 'userdef': 'UserDefOne', 'string': 'str' } }
+
+{ 'type': 'UserDefTwoDict',
+  'data': { 'string': 'str',
+            'dict1': 'UserDefTwoDict1',
+            '*dict2': 'UserDefTwoDict2' } }
+
 { 'type': 'UserDefTwo',
   'data': { 'string': 'str',
-            'dict': { 'string': 'str',
-                      'dict': { 'userdef': 'UserDefOne', 'string': 'str' },
-                      '*dict2': { 'userdef': 'UserDefOne', 'string': 'str' } } } }
-
-{ 'type': 'UserDefNested',
-  'data': { 'string0': 'str',
-            'dict1': { 'string1': 'str',
-                       'dict2': { 'userdef1': 'UserDefOne', 'string2': 'str' },
-                       '*dict3': { 'userdef2': 'UserDefOne', 'string3': 'str' } } } }
+            'dict': 'UserDefTwoDict' } }
 
 # for testing unions
 { 'type': 'UserDefA',

@@ -197,7 +197,7 @@ check-qapi-schema-y := $(addprefix tests/qapi-schema/, \
         flat-union-string-discriminator.json \
         include-simple.json include-relpath.json include-format-err.json \
         include-non-file.json include-no-file.json include-before-err.json \
-        include-nested-err.json include-self-cycle.json include-cycle.json \
+        include-self-cycle.json include-cycle.json \
         include-repetition.json)
 
 GENERATED_HEADERS += tests/test-qapi-types.h tests/test-qapi-visit.h tests/test-qmp-commands.h
@@ -420,9 +420,9 @@ $(patsubst %, check-%, $(check-qapi-schema-y)): check-%.json: $(SRC_PATH)/%.json
 		$^ >$*.test.out 2>$*.test.err; \
 		echo $$? >$*.test.exit, \
 		"  TEST  $*.out")
-	@diff -q $(SRC_PATH)/$*.out $*.test.out
+	@diff -u $(SRC_PATH)/$*.out $*.test.out
 	@# Sanitize error messages (make them independent of build directory)
-	@perl -p -e 's|\Q$(SRC_PATH)\E/||g' $*.test.err | diff -q $(SRC_PATH)/$*.err -
+	@perl -p -e 's|\Q$(SRC_PATH)\E/||g' $*.test.err | diff -u $(SRC_PATH)/$*.err -
 	@diff -q $(SRC_PATH)/$*.exit $*.test.exit
 
 # Consolidated targets
