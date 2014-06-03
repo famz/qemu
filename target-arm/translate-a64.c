@@ -10786,7 +10786,7 @@ static void disas_a64_insn(CPUARMState *env, DisasContext *s)
 {
     uint32_t insn;
 
-    insn = arm_ldl_code(env, s->pc, s->bswap_code);
+    insn = arm_ldl_code(env, s->pc, s->sctlr_b);
     s->insn = insn;
     s->pc += 4;
 
@@ -10853,7 +10853,7 @@ void gen_intermediate_code_internal_a64(ARMCPU *cpu,
 
     dc->aarch64 = 1;
     dc->thumb = 0;
-    dc->bswap_code = 0;
+    dc->sctlr_b = 0;
     dc->condexec_mask = 0;
     dc->condexec_cond = 0;
 #if !defined(CONFIG_USER_ONLY)
@@ -10988,7 +10988,7 @@ done_generating:
         qemu_log("----------------\n");
         qemu_log("IN: %s\n", lookup_symbol(pc_start));
         log_target_disas(env, pc_start, dc->pc - pc_start,
-                         4 | (dc->bswap_code << 1));
+                         4 | (bswap_code(dc->sctlr_b) ? 2 : 0));
         qemu_log("\n");
     }
 #endif

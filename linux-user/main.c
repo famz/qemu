@@ -435,7 +435,7 @@ void cpu_loop(CPUX86State *env)
 
 #define get_user_code_u32(x, gaddr, env)                \
     ({ abi_long __r = get_user_u32((x), (gaddr));       \
-        if (!__r && (env)->bswap_code) {                \
+        if (!__r && bswap_code(arm_sctlr_b(env))) {     \
             (x) = bswap32(x);                           \
         }                                               \
         __r;                                            \
@@ -443,7 +443,7 @@ void cpu_loop(CPUX86State *env)
 
 #define get_user_code_u16(x, gaddr, env)                \
     ({ abi_long __r = get_user_u16((x), (gaddr));       \
-        if (!__r && (env)->bswap_code) {                \
+        if (!__r && bswap_code(arm_sctlr_b(env))) {     \
             (x) = bswap16(x);                           \
         }                                               \
         __r;                                            \
@@ -4191,11 +4191,19 @@ int main(int argc, char **argv, char **envp)
         for(i = 0; i < 16; i++) {
             env->regs[i] = regs->uregs[i];
         }
+#ifdef TARGET_WORDS_BIGENDIAN
         /* Enable BE8.  */
         if (EF_ARM_EABI_VERSION(info->elf_flags) >= EF_ARM_EABI_VER4
             && (info->elf_flags & EF_ARM_BE8)) {
-            env->bswap_code = 1;
+            /* nothing for now, CPSR.E not emulated yet */
+        } else {
+            if (arm_feature(env, ARM_FEATURE_V7)) {
+                fprintf(stderr, "BE32 binaries only supported until ARMv6\n");
+                exit(1);
+            }
+            env->cp15.c1_sys |= SCTLR_B;
         }
+#endif
     }
 #elif defined(TARGET_UNICORE32)
     {
