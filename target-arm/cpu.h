@@ -1197,9 +1197,8 @@ static inline bool bswap_code(bool sctlr_b)
 #endif
         sctlr_b;
 #else
-    /* We do not implement BE32 mode for system-mode emulation, but
-     * anyway it would always do little-endian accesses with
-     * TARGET_WORDS_BIGENDIAN = 0.
+    /* BE32 mode is word-invariant.  In system-mode emulation,
+     * always do little-endian accesses with no swaps.
      */
     return 0;
 #endif

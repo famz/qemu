@@ -838,16 +838,39 @@ static inline void store_reg_from_load(CPUARMState *env, DisasContext *s,
 #if TARGET_LONG_BITS == 32
 
 static inline void gen_aa32_ld(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index,
-                               TCGMemOp opc)
+                               TCGMemOp opc, int be32_xor)
 {
     opc |= s->mo_endianness;
+#ifndef CONFIG_USER_ONLY
+    /* Not needed for user-mode BE32 emulation, where we use MO_BE
+     * instead.
+     */
+    if (s->sctlr_b && be32_xor) {
+        TCGv addr_be = tcg_temp_new();
+        tcg_gen_xori_i32(addr_be, addr, be32_xor);
+        tcg_gen_qemu_ld_i32(val, addr_be, index, opc);
+        tcg_temp_free(addr_be);
+        return;
+    }
+#endif
     tcg_gen_qemu_ld_i32(val, addr, index, opc);
 }
 
 static inline void gen_aa32_st(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index,
-                               TCGMemOp opc)
+                               TCGMemOp opc, int be32_xor)
 {
     opc |= s->mo_endianness;
+#ifndef CONFIG_USER_ONLY
+    /* Not needed for user-mode BE32 emulation, where we use MO_BE
+     * instead.
+     */
+    if (s->sctlr_b && be32_xor) {
+        TCGv addr_be = tcg_temp_new();
+        tcg_gen_xori_i32(addr_be, addr, be32_xor);
+        tcg_gen_qemu_st_i32(val, addr_be, index, opc);
+        tcg_temp_free(addr_be);
+    }
+#endif
     tcg_gen_qemu_st_i32(val, addr, index, opc);
 }
 
@@ -855,32 +878,68 @@ static inline void gen_aa32_ld64(DisasContext *s, TCGv_i64 val, TCGv_i32 addr, i
 {
     TCGMemOp opc = MO_Q | s->mo_endianness;
     tcg_gen_qemu_ld_i64(val, addr, index, opc);
+#ifndef CONFIG_USER_ONLY
+    /* Not needed for user-mode BE32 emulation, where we use MO_BE
+     * instead.
+     */
+    if (s->sctlr_b) {
+        tcg_gen_rotri_i64(val, val, 32);
+    }
+#endif
 }
 
 static inline void gen_aa32_st64(DisasContext *s, TCGv_i64 val, TCGv_i32 addr, int index)
 {
     TCGMemOp opc = MO_Q | s->mo_endianness;
+#ifndef CONFIG_USER_ONLY
+    /* Not needed for user-mode BE32 emulation, where we use MO_BE
+     * instead.
+     */
+    if (s->sctlr_b) {
+        TCGv tmp = tcg_temp_new();
+        tcg_gen_rotri_i64(tmp, val, 32);
+        tcg_gen_qemu_st_i64(tmp, addr, index, opc);
+        tcg_temp_free(tmp);
+        return;
+    }
+#endif
     tcg_gen_qemu_st_i64(val, addr, index, opc);
 }
 
 #else
 
 static inline void gen_aa32_ld(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index,
-                               TCGMemOp opc)
+                               TCGMemOp opc, int be32_xor)
 {
     TCGv addr64 = tcg_temp_new();
     opc |= s->mo_endianness;
     tcg_gen_extu_i32_i64(addr64, addr);
+#ifndef CONFIG_USER_ONLY
+    /* Not needed for user-mode BE32 emulation, where we use MO_BE
+     * instead.
+     */
+    if (s->sctlr_b && be32_xor) {
+        tcg_gen_xori_i64(addr64, addr64, be32_xor);
+    }
+#endif
     tcg_gen_qemu_ld_i32(val, addr64, index, opc);
     tcg_temp_free(addr64);
 }
 
 static inline void gen_aa32_st(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index,
-                               TCGMemOp opc)
+                               TCGMemOp opc, int be32_xor)
 {
     TCGv addr64 = tcg_temp_new();
     opc |= s->mo_endianness;
     tcg_gen_extu_i32_i64(addr64, addr);
+#ifndef CONFIG_USER_ONLY
+    /* Not needed for user-mode BE32 emulation, where we use MO_BE
+     * instead.
+     */
+    if (s->sctlr_b && be32_xor) {
+        tcg_gen_xori_i64(addr64, addr64, be32_xor);
+    }
+#endif
     tcg_gen_qemu_st_i32(val, addr64, index, opc);
     tcg_temp_free(addr64);
 }
@@ -891,6 +950,14 @@ static inline void gen_aa32_ld64(DisasContext *s, TCGv_i64 val, TCGv_i32 addr, i
     TCGv addr64 = tcg_temp_new();
     tcg_gen_extu_i32_i64(addr64, addr);
     tcg_gen_qemu_ld_i64(val, addr64, index, opc);
+#ifndef CONFIG_USER_ONLY
+    /* Not needed for user-mode BE32 emulation, where we use MO_BE
+     * instead.
+     */
+    if (s->sctlr_b) {
+        tcg_gen_rotri_i64(val, val, 32);
+    }
+#endif
     tcg_temp_free(addr64);
 }
 
@@ -899,32 +966,45 @@ static inline void gen_aa32_st64(DisasContext *s, TCGv_i64 val, TCGv_i32 addr, i
     TCGMemOp opc = MO_Q | s->mo_endianness;
     TCGv addr64 = tcg_temp_new();
     tcg_gen_extu_i32_i64(addr64, addr);
-    tcg_gen_qemu_st_i64(val, addr64, index, opc);
+#ifndef CONFIG_USER_ONLY
+    /* Not needed for user-mode BE32 emulation, where we use MO_BE
+     * instead.
+     */
+    if (s->sctlr_b) {
+        TCGv tmp = tcg_temp_new();
+        tcg_gen_rotri_i64(tmp, val, 32);
+        tcg_gen_qemu_st_i64(tmp, addr64, index, opc);
+        tcg_temp_free(tmp);
+    } else
+#endif
+    {
+        tcg_gen_qemu_st_i64(val, addr64, index, opc);
+    }
     tcg_temp_free(addr64);
 }
 
 #endif
 
-#define DO_GEN_LD(SUFF, OPC)                                             \
+#define DO_GEN_LD(SUFF, OPC, BE32_XOR)                                   \
 static inline void gen_aa32_ld##SUFF(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index) \
 {                                                                        \
-    gen_aa32_ld(s, val, addr, index, OPC);                               \
+    gen_aa32_ld(s, val, addr, index, OPC, BE32_XOR);                     \
 }
 
-#define DO_GEN_ST(SUFF, OPC)                                             \
+#define DO_GEN_ST(SUFF, OPC, BE32_XOR)                                   \
 static inline void gen_aa32_st##SUFF(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index) \
 {                                                                        \
-    gen_aa32_st(s, val, addr, index, OPC);                               \
+    gen_aa32_st(s, val, addr, index, OPC, BE32_XOR);                     \
 }
 
-DO_GEN_LD(8s, MO_SB)
-DO_GEN_LD(8u, MO_UB)
-DO_GEN_LD(16s, MO_SW)
-DO_GEN_LD(16u, MO_UW)
-DO_GEN_LD(32u, MO_UL)
-DO_GEN_ST(8, MO_UB)
-DO_GEN_ST(16, MO_UW)
-DO_GEN_ST(32, MO_UL)
+DO_GEN_LD(8s, MO_SB, 3)
+DO_GEN_LD(8u, MO_UB, 3)
+DO_GEN_LD(16s, MO_SW, 2)
+DO_GEN_LD(16u, MO_UW, 2)
+DO_GEN_LD(32u, MO_UL, 0)
+DO_GEN_ST(8, MO_UB, 3)
+DO_GEN_ST(16, MO_UW, 2)
+DO_GEN_ST(32, MO_UL, 0)
 
 static inline void gen_set_pc_im(DisasContext *s, target_ulong val)
 {
