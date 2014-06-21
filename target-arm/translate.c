@@ -837,18 +837,18 @@ static inline void store_reg_from_load(CPUARMState *env, DisasContext *s,
  */
 #if TARGET_LONG_BITS == 32
 
-#define DO_GEN_LD(SUFF, OPC)                                             \
-static inline void gen_aa32_ld##SUFF(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index) \
-{                                                                        \
-    TCGMemOp opc = (OPC) | s->mo_endianness;                             \
-    tcg_gen_qemu_ld_i32(val, addr, index, opc);                          \
+static inline void gen_aa32_ld(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index,
+                               TCGMemOp opc)
+{
+    opc |= s->mo_endianness;
+    tcg_gen_qemu_ld_i32(val, addr, index, opc);
 }
 
-#define DO_GEN_ST(SUFF, OPC)                                             \
-static inline void gen_aa32_st##SUFF(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index) \
-{                                                                        \
-    TCGMemOp opc = (OPC) | s->mo_endianness;                             \
-    tcg_gen_qemu_st_i32(val, addr, index, opc);                          \
+static inline void gen_aa32_st(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index,
+                               TCGMemOp opc)
+{
+    opc |= s->mo_endianness;
+    tcg_gen_qemu_st_i32(val, addr, index, opc);
 }
 
 static inline void gen_aa32_ld64(DisasContext *s, TCGv_i64 val, TCGv_i32 addr, int index)
@@ -865,24 +865,24 @@ static inline void gen_aa32_st64(DisasContext *s, TCGv_i64 val, TCGv_i32 addr, i
 
 #else
 
-#define DO_GEN_LD(SUFF, OPC)                                             \
-static inline void gen_aa32_ld##SUFF(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index) \
-{                                                                        \
-    TCGMemOp opc = (OPC) | s->mo_endianness;                             \
-    TCGv addr64 = tcg_temp_new();                                        \
-    tcg_gen_extu_i32_i64(addr64, addr);                                  \
-    tcg_gen_qemu_ld_i32(val, addr64, index, opc);                        \
-    tcg_temp_free(addr64);                                               \
+static inline void gen_aa32_ld(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index,
+                               TCGMemOp opc)
+{
+    TCGv addr64 = tcg_temp_new();
+    opc |= s->mo_endianness;
+    tcg_gen_extu_i32_i64(addr64, addr);
+    tcg_gen_qemu_ld_i32(val, addr64, index, opc);
+    tcg_temp_free(addr64);
 }
 
-#define DO_GEN_ST(SUFF, OPC)                                             \
-static inline void gen_aa32_st##SUFF(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index) \
-{                                                                        \
-    TCGMemOp opc = (OPC) | s->mo_endianness;                             \
-    TCGv addr64 = tcg_temp_new();                                        \
-    tcg_gen_extu_i32_i64(addr64, addr);                                  \
-    tcg_gen_qemu_st_i32(val, addr64, index, opc);                        \
-    tcg_temp_free(addr64);                                               \
+static inline void gen_aa32_st(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index,
+                               TCGMemOp opc)
+{
+    TCGv addr64 = tcg_temp_new();
+    opc |= s->mo_endianness;
+    tcg_gen_extu_i32_i64(addr64, addr);
+    tcg_gen_qemu_st_i32(val, addr64, index, opc);
+    tcg_temp_free(addr64);
 }
 
 static inline void gen_aa32_ld64(DisasContext *s, TCGv_i64 val, TCGv_i32 addr, int index)
@@ -904,6 +904,18 @@ static inline void gen_aa32_st64(DisasContext *s, TCGv_i64 val, TCGv_i32 addr, i
 }
 
 #endif
+
+#define DO_GEN_LD(SUFF, OPC)                                             \
+static inline void gen_aa32_ld##SUFF(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index) \
+{                                                                        \
+    gen_aa32_ld(s, val, addr, index, OPC);                               \
+}
+
+#define DO_GEN_ST(SUFF, OPC)                                             \
+static inline void gen_aa32_st##SUFF(DisasContext *s, TCGv_i32 val, TCGv_i32 addr, int index) \
+{                                                                        \
+    gen_aa32_st(s, val, addr, index, OPC);                               \
+}
 
 DO_GEN_LD(8s, MO_SB)
 DO_GEN_LD(8u, MO_UB)
