@@ -105,8 +105,12 @@ static bool all_cpu_threads_idle(void)
 /* Compensate for varying guest execution speed.  */
 static int64_t qemu_icount_bias;
 static int64_t vm_clock_warp_start;
-/* Conversion factor from emulated instructions to virtual clock ticks.  */
-static int icount_time_shift;
+/* Conversion factor from emulated instructions to virtual clock ticks.
+ * icount_time_shift is defined as extern in include/qemu-common.h because
+ * it is used (in cpu-exec.c) for calculating the delay for sleeping
+ * qemu in order to align the host and virtual clocks.
+ */
+int icount_time_shift;
 /* Arbitrarily pick 1MIPS as the minimum allowable speed.  */
 #define MAX_ICOUNT_SHIFT 10
 
