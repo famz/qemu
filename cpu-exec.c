@@ -22,6 +22,89 @@
 #include "tcg.h"
 #include "qemu/atomic.h"
 #include "sysemu/qtest.h"
+#include "qemu/timer.h"
+
+/* -icount align implementation.  */
+
+typedef struct SyncClocks SyncClocks;
+struct SyncClocks {
+    int64_t diff_clk;
+    int64_t original_instr_counter;
+};
+
+#if !defined(CONFIG_USER_ONLY) && defined(CONFIG_POSIX)
+/* Allow the guest to have a max 3ms advance.
+ * The difference between the 2 clocks could therefore
+ * oscillate around 0.
+ */
+#define VM_CLOCK_ADVANCE 3000000
+
+static int64_t delay_host(int64_t diff_clk)
+{
+    struct timespec sleep_delay, rem_delay;
+    if (diff_clk > VM_CLOCK_ADVANCE) {
+        sleep_delay.tv_sec = diff_clk / 1000000000LL;
+        sleep_delay.tv_nsec = diff_clk % 1000000000LL;
+        if (nanosleep(&sleep_delay, &rem_delay) < 0) {
+            diff_clk -= (sleep_delay.tv_sec - rem_delay.tv_sec) * 1000000000LL;
+            diff_clk -= sleep_delay.tv_nsec - rem_delay.tv_nsec;
+        } else {
+            diff_clk = 0;
+        }
+    }
+    return diff_clk;
+}
+
+static int64_t instr_to_vtime(int64_t instr_counter, const CPUState *cpu)
+{
+    int64_t instr_exec_time;
+    instr_exec_time = instr_counter -
+                      (cpu->icount_extra +
+                       cpu->icount_decr.u16.low);
+    instr_exec_time = instr_exec_time << icount_time_shift;
+
+    return instr_exec_time;
+}
+
+static void align_clocks(SyncClocks *sc, const CPUState *cpu)
+{
+    if (!icount_align_option) {
+        return;
+    }
+    sc->diff_clk += instr_to_vtime(sc->original_instr_counter, cpu);
+    sc->original_instr_counter = cpu->icount_extra + cpu->icount_decr.u16.low;
+    sc->diff_clk = delay_host(sc->diff_clk);
+}
+
+static void init_delay_params(SyncClocks *sc, const CPUState *cpu)
+{
+    static int64_t clocks_offset = -1;
+    int64_t realtime_clock_value, virtual_clock_value;
+    if (!icount_align_option) {
+        return;
+    }
+
+    /* Impose that the first time we run the cpu the host and
+     * virtual clocks should be aligned; we don't alter any of
+     * the clocks, we just calculate the difference between them.
+     */
+    realtime_clock_value = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
+    virtual_clock_value = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    if (clocks_offset == -1) {
+        clocks_offset = realtime_clock_value - virtual_clock_value;
+    }
+    sc->diff_clk = virtual_clock_value - realtime_clock_value + clocks_offset;
+    sc->original_instr_counter = cpu->icount_extra + cpu->icount_decr.u16.low;
+}
+#else
+static void align_clocks(SyncClocks *sc, const CPUState *cpu)
+{
+}
+
+static void init_delay_params(SyncClocks *sc, const CPUState *cpu)
+{
+}
+#endif /* CONFIG USER ONLY */
 
 void cpu_loop_exit(CPUState *cpu)
 {
@@ -227,6 +310,8 @@ int cpu_exec(CPUArchState *env)
     TranslationBlock *tb;
     uint8_t *tc_ptr;
     uintptr_t next_tb;
+    SyncClocks sc;
+
     /* This must be volatile so it is not trashed by longjmp() */
     volatile bool have_tb_lock = false;
 
@@ -282,6 +367,13 @@ int cpu_exec(CPUArchState *env)
 #error unsupported target CPU
 #endif
     cpu->exception_index = -1;
+
+    /* Calculate difference between guest clock and host clock.
+     * This delay includes the delay of the last cycle, so
+     * what we have to do is sleep until it is 0. As for the
+     * advance/delay we gain here, we try to fix it next time.
+     */
+    init_delay_params(&sc, cpu);
 
     /* prepare setjmp context for exception handling */
     for(;;) {
@@ -672,6 +764,7 @@ int cpu_exec(CPUArchState *env)
                             if (insns_left > 0) {
                                 /* Execute remaining instructions.  */
                                 cpu_exec_nocache(env, insns_left, tb);
+                                align_clocks(&sc, cpu);
                             }
                             cpu->exception_index = EXCP_INTERRUPT;
                             next_tb = 0;
@@ -684,6 +777,9 @@ int cpu_exec(CPUArchState *env)
                     }
                 }
                 cpu->current_tb = NULL;
+                /* Try to align the host and virtual clocks
+                   if the guest is in advance */
+                align_clocks(&sc, cpu);
                 /* reset soft MMU for next block (it can currently
                    only be set by a memory fault) */
             } /* for(;;) */
