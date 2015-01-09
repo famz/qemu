@@ -137,6 +137,8 @@ matrix:
         - git submodule update --init --recursive
       before_script:
         - ./configure ${CONFIG} || cat config.log
+    - env: CONFIG="--disable-modules"
+      compiler: gcc
     # Trusty Linux User build with latest stable clang & python 3.6
     - sudo: required
       addons:
