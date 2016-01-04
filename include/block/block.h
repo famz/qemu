@@ -579,4 +579,11 @@ void bdrv_drained_begin(BlockDriverState *bs);
  */
 void bdrv_drained_end(BlockDriverState *bs);
 
+/**
+ * bio_trace_create:
+ *
+ * Create a sequence number for block I/O tracing.
+ */
+uint64_t bio_trace_create(const char *creator);
+
 #endif

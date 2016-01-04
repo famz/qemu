@@ -990,6 +990,7 @@ static int bdrv_open_common(BlockDriverState *bs, BdrvChild *file,
     bs->opaque = g_malloc0(drv->instance_size);
 
     /* Apply cache mode options */
+    update_flags_from_options(&open_flags, opts);
     update_flags_from_options(&bs->open_flags, opts);
     bdrv_set_enable_write_cache(bs, bs->open_flags & BDRV_O_CACHE_WB);
 

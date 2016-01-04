@@ -61,6 +61,7 @@ static void virtio_blk_complete_request(VirtIOBlockReq *req,
 
 static void virtio_blk_req_complete(VirtIOBlockReq *req, unsigned char status)
 {
+    trace_bio_complete(req->bio_tag);
     req->dev->complete_request(req, status);
 }
 
@@ -193,11 +194,14 @@ out:
 static VirtIOBlockReq *virtio_blk_get_request(VirtIOBlock *s)
 {
     VirtIOBlockReq *req = virtio_blk_alloc_request(s);
+    VirtIODevice *vdev = VIRTIO_DEVICE(req->dev);
 
     if (!virtqueue_pop(s->vq, &req->elem)) {
         virtio_blk_free_request(req);
         return NULL;
     }
+
+    req->bio_tag = bio_trace_create(vdev->name);
 
     return req;
 }
@@ -359,6 +363,7 @@ static inline void submit_requests(BlockBackend *blk, MultiReqBuffer *mrb,
                               num_reqs - 1);
     }
 
+    trace_bio_event(mrb->reqs[start]->bio_tag, "submit");
     if (is_write) {
         blk_aio_writev(blk, sector_num, qiov, nb_sectors,
                        virtio_blk_rw_complete, mrb->reqs[start]);
