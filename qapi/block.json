@@ -223,3 +223,34 @@
 ##
 { 'enum': 'QuorumOpType',
   'data': [ 'read', 'write', 'flush' ] }
+
+##
+# @tcmu-start:
+#
+# Start the TCMU handler
+#
+# @subtype: The subtype to identify TCMU handler.
+#
+# Returns: error if the handler is already running.
+#
+# Since: 2.7
+##
+{ 'command': 'tcmu-start',
+  'data': {'subtype': 'str' } }
+
+##
+# @tcmu-add:
+#
+# Export a device to QEMU's embedded TCMU handler.
+#
+# @device: Block device to be exported
+#
+# @writable: Whether clients should be able to write to the device via the
+#     NBD connection (default false). #optional
+#
+# Returns: error if the device is already marked for export.
+#
+# Since: 2.7
+##
+{ 'command': 'tcmu-add', 'data': {'device': 'str', '*writable': 'bool'} }
+
