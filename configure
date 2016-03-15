@@ -209,6 +209,7 @@ netmap="no"
 pixman=""
 sdl=""
 sdlabi=""
+tcmu=""
 virtfs=""
 vnc="yes"
 sparse="no"
@@ -828,6 +829,10 @@ for opt do
   --without-system-pixman) pixman="internal"
   ;;
   --without-pixman) pixman="none"
+  ;;
+  --enable-tcmu) tcmu="yes"
+  ;;
+  --disable-tcmu) tcmu="no"
   ;;
   --disable-sdl) sdl="no"
   ;;
@@ -3108,6 +3113,31 @@ else
 fi
 
 ##########################################
+# tcmu support probe
+
+if test "$tcmu" != "no"; then
+  cat > $TMPC <<EOF
+#include <stdio.h>
+#include <libtcmu.h>
+
+int main(int argc, char **argv)
+{
+  struct tcmulib_context *ctx = tcmulib_initialize(NULL, 0, NULL);
+  return ctx != NULL;
+}
+EOF
+  if compile_prog "" "-ltcmu" ; then
+    tcmu=yes
+    tcmu_cflags=""
+    tcmu_libs="-ltcmu"
+  elif test "$tcmu" == "yes"; then
+    feature_not_found "libtcmu" "Install libtcmu devel"
+  else
+    tcmu=no
+  fi
+fi
+
+##########################################
 # libcap probe
 
 if test "$cap" != "no" ; then
@@ -4960,6 +4990,7 @@ echo "tcmalloc support  $tcmalloc"
 echo "jemalloc support  $jemalloc"
 echo "avx2 optimization $avx2_opt"
 echo "replication support $replication"
+echo "tcmu support      $tcmu"
 
 if test "$sdl_too_old" = "yes"; then
 echo "-> Your SDL version is too old - please upgrade to have SDL support"
@@ -5478,6 +5509,12 @@ if test "$libssh2" = "yes" ; then
   echo "CONFIG_LIBSSH2=m" >> $config_host_mak
   echo "LIBSSH2_CFLAGS=$libssh2_cflags" >> $config_host_mak
   echo "LIBSSH2_LIBS=$libssh2_libs" >> $config_host_mak
+fi
+
+if test "$tcmu" = "yes" ; then
+  echo "CONFIG_TCMU=m" >> $config_host_mak
+  echo "TCMU_CFLAGS=$tcmu_cflags" >> $config_host_mak
+  echo "TCMU_LIBS=$tcmu_libs" >> $config_host_mak
 fi
 
 # USB host support
