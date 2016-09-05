@@ -43,6 +43,7 @@ void qmp_tcmu_add(const char *device, bool has_writable, bool writable,
         error_setg(errp, "TCMU driver module not found");
         return;
     }
+    assert(tcmu_handler->add);
     blk = blk_by_name(device);
     if (!blk) {
         error_setg(errp, "Block device not found: %s", device);

@@ -3128,15 +3128,15 @@ if test "$tcmu" != "no"; then
 int main(int argc, char **argv)
 {
   struct tcmulib_context *ctx = tcmulib_initialize(NULL, 0, NULL);
+  tcmulib_register(ctx);
   return ctx != NULL;
 }
 EOF
   if compile_prog "" "-ltcmu" ; then
     tcmu=yes
-    tcmu_cflags="$($pkg_config gio-unix-2.0 --cflags)"
-    tcmu_libs="-ltcmu $($pkg_config gio-unix-2.0 --libs)"
+    tcmu_libs="-ltcmu"
   elif test "$tcmu" == "yes"; then
-    feature_not_found "libtcmu" "Install libtcmu devel"
+    feature_not_found "libtcmu" "Install libtcmu devel (>=1.0.5)"
   else
     tcmu=no
   fi
