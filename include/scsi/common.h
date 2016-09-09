@@ -313,4 +313,10 @@ const char *scsi_command_name(uint8_t cmd);
 #define MMC_PROFILE_HDDVD_RW_DL         0x005A
 #define MMC_PROFILE_INVALID             0xFFFF
 
+uint64_t scsi_cmd_lba(uint8_t *cdb);
+int scsi_cdb_length(uint8_t *buf);
+uint32_t scsi_data_cdb_xfer(uint8_t *buf);
+uint32_t scsi_cdb_xfer(uint8_t *buf);
+int scsi_get_performance_length(int num_desc, int type, int data_type);
+
 #endif

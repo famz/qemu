@@ -1,1 +1,1 @@
-common-obj-y += debug.o sense.o
+common-obj-y += debug.o sense.o common.o
