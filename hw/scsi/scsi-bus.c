@@ -793,31 +793,6 @@ static void scsi_req_dequeue(SCSIRequest *req)
     }
 }
 
-static int scsi_get_performance_length(int num_desc, int type, int data_type)
-{
-    /* MMC-6, paragraph 6.7.  */
-    switch (type) {
-    case 0:
-        if ((data_type & 3) == 0) {
-            /* Each descriptor is as in Table 295 - Nominal performance.  */
-            return 16 * num_desc + 8;
-        } else {
-            /* Each descriptor is as in Table 296 - Exceptions.  */
-            return 6 * num_desc + 8;
-        }
-    case 1:
-    case 4:
-    case 5:
-        return 8 * num_desc + 8;
-    case 2:
-        return 2048 * num_desc + 8;
-    case 3:
-        return 16 * num_desc + 8;
-    default:
-        return 8;
-    }
-}
-
 static int ata_passthrough_xfer_unit(SCSIDevice *dev, uint8_t *buf)
 {
     int byte_block = (buf[2] >> 2) & 0x1;
@@ -884,36 +859,6 @@ static int ata_passthrough_16_xfer(SCSIDevice *dev, uint8_t *buf)
     }
 
     return xfer * unit;
-}
-
-uint32_t scsi_data_cdb_xfer(uint8_t *buf)
-{
-    if ((buf[0] >> 5) == 0 && buf[4] == 0) {
-        return 256;
-    } else {
-        return scsi_cdb_xfer(buf);
-    }
-}
-
-uint32_t scsi_cdb_xfer(uint8_t *buf)
-{
-    switch (buf[0] >> 5) {
-    case 0:
-        return buf[4];
-        break;
-    case 1:
-    case 2:
-        return lduw_be_p(&buf[7]);
-        break;
-    case 4:
-        return ldl_be_p(&buf[10]) & 0xffffffffULL;
-        break;
-    case 5:
-        return ldl_be_p(&buf[6]) & 0xffffffffULL;
-        break;
-    default:
-        return -1;
-    }
 }
 
 static int scsi_req_xfer(SCSICommand *cmd, SCSIDevice *dev, uint8_t *buf)
@@ -1228,53 +1173,6 @@ static void scsi_cmd_xfer_mode(SCSICommand *cmd)
     }
 }
 
-static uint64_t scsi_cmd_lba(SCSICommand *cmd)
-{
-    uint8_t *buf = cmd->buf;
-    uint64_t lba;
-
-    switch (buf[0] >> 5) {
-    case 0:
-        lba = ldl_be_p(&buf[0]) & 0x1fffff;
-        break;
-    case 1:
-    case 2:
-    case 5:
-        lba = ldl_be_p(&buf[2]) & 0xffffffffULL;
-        break;
-    case 4:
-        lba = ldq_be_p(&buf[2]);
-        break;
-    default:
-        lba = -1;
-
-    }
-    return lba;
-}
-
-int scsi_cdb_length(uint8_t *buf) {
-    int cdb_len;
-
-    switch (buf[0] >> 5) {
-    case 0:
-        cdb_len = 6;
-        break;
-    case 1:
-    case 2:
-        cdb_len = 10;
-        break;
-    case 4:
-        cdb_len = 16;
-        break;
-    case 5:
-        cdb_len = 12;
-        break;
-    default:
-        cdb_len = -1;
-    }
-    return cdb_len;
-}
-
 int scsi_req_parse_cdb(SCSIDevice *dev, SCSICommand *cmd, uint8_t *buf)
 {
     int rc;
@@ -1307,7 +1205,7 @@ int scsi_req_parse_cdb(SCSIDevice *dev, SCSICommand *cmd, uint8_t *buf)
 
     memcpy(cmd->buf, buf, cmd->len);
     scsi_cmd_xfer_mode(cmd);
-    cmd->lba = scsi_cmd_lba(cmd);
+    cmd->lba = scsi_cmd_lba(cmd->buf);
     return 0;
 }
 

@@ -168,10 +168,6 @@ SCSIDevice *scsi_bus_legacy_add_drive(SCSIBus *bus, BlockBackend *blk,
                                       const char *serial, Error **errp);
 void scsi_bus_legacy_handle_cmdline(SCSIBus *bus, Error **errp);
 
-uint32_t scsi_data_cdb_xfer(uint8_t *buf);
-uint32_t scsi_cdb_xfer(uint8_t *buf);
-int scsi_cdb_length(uint8_t *buf);
-
 SCSIRequest *scsi_req_alloc(const SCSIReqOps *reqops, SCSIDevice *d,
                             uint32_t tag, uint32_t lun, void *hba_private);
 SCSIRequest *scsi_req_new(SCSIDevice *d, uint32_t tag, uint32_t lun,
