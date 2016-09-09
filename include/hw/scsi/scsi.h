@@ -115,10 +115,6 @@ extern const VMStateDescription vmstate_scsi_device;
     .offset     = vmstate_offset_value(_state, _field, SCSIDevice),  \
 }
 
-/* cdrom.c */
-int cdrom_read_toc(int nb_sectors, uint8_t *buf, int msf, int start_track);
-int cdrom_read_toc_raw(int nb_sectors, uint8_t *buf, int msf, int session_num);
-
 /* scsi-bus.c */
 struct SCSIReqOps {
     size_t size;
