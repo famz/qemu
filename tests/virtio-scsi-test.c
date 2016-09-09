@@ -10,7 +10,7 @@
 
 #include "qemu/osdep.h"
 #include "libqtest.h"
-#include "block/scsi.h"
+#include "scsi/common.h"
 #include "libqos/virtio.h"
 #include "libqos/virtio-pci.h"
 #include "libqos/pci-pc.h"

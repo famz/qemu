@@ -34,7 +34,7 @@ do { printf("scsi-generic: " fmt , ## __VA_ARGS__); } while (0)
 do { fprintf(stderr, "scsi-generic: " fmt , ## __VA_ARGS__); } while (0)
 
 #include <scsi/sg.h>
-#include "block/scsi.h"
+#include "scsi/common.h"
 
 #define SG_ERR_DRIVER_TIMEOUT  0x06
 #define SG_ERR_DRIVER_SENSE    0x08
