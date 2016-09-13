@@ -65,9 +65,10 @@ void scsi_disk_em_finalize(SCSIDiskEm *s)
     blk_unref(s->conf->blk);
 }
 
-static int scsi_disk_em_inquiry(SCSIDiskEm *s, uint8_t *cdb, uint8_t *outbuf,
-                                int outbuflen)
+static int scsi_disk_em_inquiry(SCSIDiskEmReq *req, uint8_t *cdb,
+                                uint8_t *outbuf, int outbuflen)
 {
+    SCSIDiskEm *s = req->em;
     int buflen = 0;
     int start;
 
@@ -458,9 +459,11 @@ static int mode_sense_page(SCSIDiskEm *s, int page, uint8_t **p_outbuf,
     return length + 2;
 }
 
-static int scsi_disk_em_mode_sense(SCSIDiskEm *s, uint8_t *cdb, uint8_t *outbuf,
-                                   int outbuflen, const SCSISense **sense)
+static int scsi_disk_em_mode_sense(SCSIDiskEmReq *req,
+                                   uint8_t *cdb, uint8_t *outbuf,
+                                   int outbuflen)
 {
+    SCSIDiskEm *s = req->em;
     uint64_t nb_sectors;
     bool dbd;
     int page, buflen, ret, page_control;
@@ -523,7 +526,7 @@ static int scsi_disk_em_mode_sense(SCSIDiskEm *s, uint8_t *cdb, uint8_t *outbuf,
 
     if (page_control == 3) {
         /* Saved Values */
-        *sense = &SENSE_CODE(SAVING_PARAMS_NOT_SUPPORTED);
+        req->sense = &SENSE_CODE(SAVING_PARAMS_NOT_SUPPORTED);
         return -1;
     }
 
@@ -586,9 +589,9 @@ static int scsi_disk_em_read_toc(SCSIDiskEm *s, uint8_t *cdb, uint8_t *outbuf)
     return toclen;
 }
 
-static int scsi_disk_em_start_stop(SCSIDiskEm *s, uint8_t *cdb,
-                                   const SCSISense **sense)
+static int scsi_disk_em_start_stop(SCSIDiskEmReq *req, uint8_t *cdb)
 {
+    SCSIDiskEm *s = req->em;
     bool start = cdb[4] & 1;
     bool loej = cdb[4] & 2; /* load on start, eject on !start */
     int pwrcnd = cdb[4] & 0xf0;
@@ -600,7 +603,7 @@ static int scsi_disk_em_start_stop(SCSIDiskEm *s, uint8_t *cdb,
 
     if ((s->features & (1 << SCSI_DISK_F_REMOVABLE)) && loej) {
         if (!start && !s->tray_open && s->tray_locked) {
-            *sense = blk_is_inserted(s->conf->blk) ?
+            req->sense = blk_is_inserted(s->conf->blk) ?
                 &SENSE_CODE(ILLEGAL_REQ_REMOVAL_PREVENTED) :
                 &SENSE_CODE(NOT_READY_REMOVAL_PREVENTED);
             return -1;
@@ -757,11 +760,11 @@ static int scsi_disk_em_get_event_status_notification(SCSIDiskEm *s,
     return size;
 }
 
-static int scsi_disk_em_read_disc_information(SCSIDiskEm *s,
+static int scsi_disk_em_read_disc_information(SCSIDiskEmReq *req,
                                               uint8_t *cdb,
-                                              uint8_t *outbuf,
-                                              const SCSISense **sense)
+                                              uint8_t *outbuf)
 {
+    SCSIDiskEm *s = req->em;
     uint8_t type = cdb[1] & 7;
 
     if (s->scsi_type != TYPE_ROM) {
@@ -770,7 +773,7 @@ static int scsi_disk_em_read_disc_information(SCSIDiskEm *s,
 
     /* Types 1/2 are only defined for Blu-Ray.  */
     if (type != 0) {
-        *sense = &SENSE_CODE(INVALID_FIELD);
+        req->sense = &SENSE_CODE(INVALID_FIELD);
         return -1;
     }
 
@@ -792,9 +795,8 @@ static int scsi_disk_em_read_disc_information(SCSIDiskEm *s,
     return 34;
 }
 
-static int scsi_disk_em_read_dvd_structure(SCSIDiskEm *s, uint8_t *cdb,
-                                           uint8_t *outbuf,
-                                           const SCSISense **sense)
+static int scsi_disk_em_read_dvd_structure(SCSIDiskEmReq *req, uint8_t *cdb,
+                                           uint8_t *outbuf)
 {
     static const int rds_caps_size[5] = {
         [0] = 2048 + 4,
@@ -802,7 +804,7 @@ static int scsi_disk_em_read_dvd_structure(SCSIDiskEm *s, uint8_t *cdb,
         [3] = 188 + 4,
         [4] = 2048 + 4,
     };
-
+    SCSIDiskEm *s = req->em;
     uint8_t media = cdb[1];
     uint8_t layer = cdb[6];
     uint8_t format = cdb[7];
@@ -812,17 +814,17 @@ static int scsi_disk_em_read_dvd_structure(SCSIDiskEm *s, uint8_t *cdb,
         return -1;
     }
     if (media != 0) {
-        *sense = &SENSE_CODE(INVALID_FIELD);
+        req->sense = &SENSE_CODE(INVALID_FIELD);
         return -1;
     }
 
     if (format != 0xff) {
         if (s->tray_open || !blk_is_inserted(s->conf->blk)) {
-            *sense = &SENSE_CODE(NO_MEDIUM);
+            req->sense = &SENSE_CODE(NO_MEDIUM);
             return -1;
         }
         if (media_is_cd(s)) {
-            *sense = &SENSE_CODE(INCOMPATIBLE_FORMAT);
+            req->sense = &SENSE_CODE(INCOMPATIBLE_FORMAT);
             return -1;
         }
         if (format >= ARRAY_SIZE(rds_caps_size)) {
@@ -887,17 +889,26 @@ fail:
     return -1;
 }
 
-int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
-                             uint8_t *outbuf, int buflen,
-                             int cmd_xfer,
-                             BlockAcctCookie *acct,
-                             const SCSISense **sense,
-                             BlockCompletionFunc *cb, void *opaque)
+typedef struct {
+    BlockCompletionFunc *cb;
+    void *opaque;
+} SCSIDiskAioCBData;
+
+static void scsi_disk_em_aio_complete(void *opaque, int ret)
+{
+    SCSIDiskAioCBData *data = opaque;
+
+    data->cb(data->opaque, ret);
+    g_free(data);
+}
+
+int scsi_disk_em_start_req(SCSIDiskEmReq *req, SCSIDiskEm *s, uint8_t *cdb,
+                           uint8_t *outbuf, int buflen, int cmd_xfer,
+                           BlockCompletionFunc *cb, void *opaque)
 {
     uint64_t nb_sectors;
     int ret;
-
-    assert(sense && !*sense);
+    SCSIDiskAioCBData *data;
 
     switch (cdb[0]) {
     case INQUIRY:
@@ -917,7 +928,7 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
 
     default:
         if (s->tray_open || !blk_is_inserted(s->conf->blk)) {
-            *sense = &SENSE_CODE(NO_MEDIUM);
+            req->sense = &SENSE_CODE(NO_MEDIUM);
             return 0;
         }
         break;
@@ -928,14 +939,14 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
         assert(!s->tray_open && blk_is_inserted(s->conf->blk));
         break;
     case INQUIRY:
-        ret = scsi_disk_em_inquiry(s, cdb, outbuf, cmd_xfer);
+        ret = scsi_disk_em_inquiry(req, cdb, outbuf, cmd_xfer);
         if (ret < 0) {
             goto error;
         }
         break;
     case MODE_SENSE:
     case MODE_SENSE_10:
-        ret = scsi_disk_em_mode_sense(s, cdb, outbuf, cmd_xfer, sense);
+        ret = scsi_disk_em_mode_sense(req, cdb, outbuf, cmd_xfer);
         if (ret < 0) {
             goto error;
         }
@@ -967,8 +978,8 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
         }
         break;
     case START_STOP:
-        if (scsi_disk_em_start_stop(s, cdb, sense) < 0) {
-            assert(*sense);
+        if (scsi_disk_em_start_stop(req, cdb) < 0) {
+            assert(req->sense);
             return 0;
         }
         break;
@@ -981,7 +992,7 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
         memset(outbuf, 0, 8);
         blk_get_geometry(s->conf->blk, &nb_sectors);
         if (!nb_sectors) {
-            *sense = &SENSE_CODE(LUN_NOT_READY);
+            req->sense = &SENSE_CODE(LUN_NOT_READY);
             return 0;
         }
         if ((cdb[8] & 1) == 0 && scsi_cmd_lba(cdb)) {
@@ -1032,16 +1043,16 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
         }
         break;
     case READ_DISC_INFORMATION:
-        ret = scsi_disk_em_read_disc_information(s, cdb, outbuf, sense);
+        ret = scsi_disk_em_read_disc_information(req, cdb, outbuf);
         if (ret < 0) {
-            if (*sense) {
+            if (req->sense) {
                 return 0;
             }
             goto error;
         }
         break;
     case READ_DVD_STRUCTURE:
-        ret = scsi_disk_em_read_dvd_structure(s, cdb, outbuf, sense);
+        ret = scsi_disk_em_read_dvd_structure(req, cdb, outbuf);
         if (ret < 0) {
             goto error;
         }
@@ -1053,7 +1064,7 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
             memset(outbuf, 0, cmd_xfer);
             blk_get_geometry(s->conf->blk, &nb_sectors);
             if (!nb_sectors) {
-                *sense = &SENSE_CODE(LUN_NOT_READY);
+                req->sense = &SENSE_CODE(LUN_NOT_READY);
                 return 0;
             }
             if ((cdb[14] & 1) == 0 && scsi_cmd_lba(cdb)) {
@@ -1092,9 +1103,12 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
     case SYNCHRONIZE_CACHE:
         /* The request is used as the AIO opaque value, so add a ref.  */
         /* XXX: caller hold ref to r->req */
-        block_acct_start(blk_get_stats(s->conf->blk), acct, 0,
+        block_acct_start(blk_get_stats(s->conf->blk), &req->acct, 0,
                          BLOCK_ACCT_FLUSH);
-        blk_aio_flush(s->conf->blk, cb, opaque);
+        data = g_new(SCSIDiskAioCBData, 1);
+        data->cb = cb;
+        data->opaque = opaque;
+        blk_aio_flush(s->conf->blk, scsi_disk_em_aio_complete, data);
         return 0;
     case SEEK_10:
         DPRINTF("Seek(10) (sector %" PRId64 ")\n", scsi_cmd_lba(cdb));
@@ -1128,14 +1142,14 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
     default:
         DPRINTF("Unknown SCSI command (%2.2x=%s)\n", cdb[0],
                 scsi_command_name(cdb[0]));
-        *sense = &SENSE_CODE(INVALID_OPCODE);
+        req->sense = &SENSE_CODE(INVALID_OPCODE);
         return 0;
     }
 error:
-    *sense = *sense ? : &SENSE_CODE(INVALID_FIELD);
+    req->sense = req->sense ? : &SENSE_CODE(INVALID_FIELD);
     return 0;
 
 illegal_lba:
-    *sense = &SENSE_CODE(LBA_OUT_OF_RANGE);
+    req->sense = &SENSE_CODE(LBA_OUT_OF_RANGE);
     return 0;
 }

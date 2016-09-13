@@ -58,6 +58,7 @@ typedef struct {
 } SCSIDiskEm;
 
 typedef struct {
+    SCSIDiskEm *em;
     /* Both sector and sector_count are in terms of qemu 512 byte blocks.  */
     uint64_t sector;
     uint32_t sector_count;
@@ -68,17 +69,17 @@ typedef struct {
     QEMUIOVector qiov;
     BlockAcctCookie acct;
     unsigned char *status;
-} SCSIDiskEmuReq;
+    const SCSISense *sense;
+} SCSIDiskEmReq;
 
 void scsi_disk_em_init(SCSIDiskEm *s, BlockConf *conf,
                        int scsi_type, bool tcq, uint64_t *max_lba);
 void scsi_disk_em_reset(SCSIDiskEm *s);
 void scsi_disk_em_finalize(SCSIDiskEm *s);
-int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
-                             uint8_t *outbuf, int buflen,
-                             int cmd_xfer,
-                             BlockAcctCookie *acct,
-                             const SCSISense **sense,
-                             BlockCompletionFunc *cb, void *opaque);
+
+int scsi_disk_em_start_req(SCSIDiskEmReq *req, SCSIDiskEm *s, uint8_t *cdb,
+                           uint8_t *outbuf, int buflen, int cmd_xfer,
+                           BlockCompletionFunc *cb, void *opaque);
+void scsi_disk_em_destroy_req(SCSIDiskEmReq *req);
 
 #endif
