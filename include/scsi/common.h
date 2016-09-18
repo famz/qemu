@@ -318,5 +318,6 @@ int scsi_cdb_length(uint8_t *buf);
 uint32_t scsi_data_cdb_xfer(uint8_t *buf);
 uint32_t scsi_cdb_xfer(uint8_t *buf);
 int scsi_get_performance_length(int num_desc, int type, int data_type);
+bool scsi_is_cmd_fua(uint8_t *cdb);
 
 #endif
