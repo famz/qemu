@@ -313,11 +313,18 @@ const char *scsi_command_name(uint8_t cmd);
 #define MMC_PROFILE_HDDVD_RW_DL         0x005A
 #define MMC_PROFILE_INVALID             0xFFFF
 
+typedef enum SCSIXferMode {
+    QEMU_SCSI_XFER_NONE,      /*  TEST_UNIT_READY, ...            */
+    QEMU_SCSI_XFER_FROM_DEV,  /*  READ, INQUIRY, MODE_SENSE, ...  */
+    QEMU_SCSI_XFER_TO_DEV,    /*  WRITE, MODE_SELECT, ...         */
+} SCSIXferMode;
+
 uint64_t scsi_cmd_lba(uint8_t *cdb);
 int scsi_cdb_length(uint8_t *buf);
 uint32_t scsi_data_cdb_xfer(uint8_t *buf);
 uint32_t scsi_cdb_xfer(uint8_t *buf);
 int scsi_get_performance_length(int num_desc, int type, int data_type);
 bool scsi_is_cmd_fua(uint8_t *cdb);
+SCSIXferMode scsi_cmd_xfer_mode(uint8_t *cdb);
 
 #endif

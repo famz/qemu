@@ -524,13 +524,13 @@ static void usb_uas_start_next_transfer(UASDevice *uas)
         if (req->active || req->complete) {
             continue;
         }
-        if (req->req->cmd.mode == SCSI_XFER_FROM_DEV && uas->datain2 == NULL) {
+        if (req->req->cmd.mode == QEMU_SCSI_XFER_FROM_DEV && uas->datain2 == NULL) {
             uas->datain2 = req;
             usb_uas_queue_read_ready(req);
             req->active = true;
             return;
         }
-        if (req->req->cmd.mode == SCSI_XFER_TO_DEV && uas->dataout2 == NULL) {
+        if (req->req->cmd.mode == QEMU_SCSI_XFER_TO_DEV && uas->dataout2 == NULL) {
             uas->dataout2 = req;
             usb_uas_queue_write_ready(req);
             req->active = true;

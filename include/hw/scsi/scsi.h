@@ -5,6 +5,7 @@
 #include "hw/block/block.h"
 #include "sysemu/sysemu.h"
 #include "qemu/notify.h"
+#include "scsi/common.h"
 #include "scsi/sense.h"
 
 #define MAX_SCSI_DEVS	255
@@ -18,12 +19,6 @@ typedef struct SCSICommand SCSICommand;
 typedef struct SCSIDevice SCSIDevice;
 typedef struct SCSIRequest SCSIRequest;
 typedef struct SCSIReqOps SCSIReqOps;
-
-enum SCSIXferMode {
-    SCSI_XFER_NONE,      /*  TEST_UNIT_READY, ...            */
-    SCSI_XFER_FROM_DEV,  /*  READ, INQUIRY, MODE_SENSE, ...  */
-    SCSI_XFER_TO_DEV,    /*  WRITE, MODE_SELECT, ...         */
-};
 
 #define SCSI_SENSE_BUF_SIZE_OLD 96
 #define SCSI_SENSE_BUF_SIZE 252

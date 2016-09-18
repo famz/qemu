@@ -1702,7 +1702,7 @@ static int megasas_handle_scsi(MegasasState *s, MegasasCmd *cmd,
         return MFI_STAT_SCSI_DONE_WITH_ERROR;
     }
 
-    is_write = (cmd->req->cmd.mode == SCSI_XFER_TO_DEV);
+    is_write = (cmd->req->cmd.mode == QEMU_SCSI_XFER_TO_DEV);
     if (cmd->iov_size) {
         if (is_write) {
             trace_megasas_scsi_write_start(cmd->index, cmd->iov_size);

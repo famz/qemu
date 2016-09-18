@@ -61,7 +61,7 @@ static void scsi_generic_save_request(QEMUFile *f, SCSIRequest *req)
     SCSIGenericReq *r = DO_UPCAST(SCSIGenericReq, req, req);
 
     qemu_put_sbe32s(f, &r->buflen);
-    if (r->buflen && r->req.cmd.mode == SCSI_XFER_TO_DEV) {
+    if (r->buflen && r->req.cmd.mode == QEMU_SCSI_XFER_TO_DEV) {
         assert(!r->req.sg);
         qemu_put_buffer(f, r->buf, r->req.cmd.xfer);
     }
@@ -72,7 +72,7 @@ static void scsi_generic_load_request(QEMUFile *f, SCSIRequest *req)
     SCSIGenericReq *r = DO_UPCAST(SCSIGenericReq, req, req);
 
     qemu_get_sbe32s(f, &r->buflen);
-    if (r->buflen && r->req.cmd.mode == SCSI_XFER_TO_DEV) {
+    if (r->buflen && r->req.cmd.mode == QEMU_SCSI_XFER_TO_DEV) {
         assert(!r->req.sg);
         qemu_get_buffer(f, r->buf, r->req.cmd.xfer);
     }
@@ -361,7 +361,7 @@ static int32_t scsi_send_command(SCSIRequest *req, uint8_t *cmd)
 
     memset(r->buf, 0, r->buflen);
     r->len = r->req.cmd.xfer;
-    if (r->req.cmd.mode == SCSI_XFER_TO_DEV) {
+    if (r->req.cmd.mode == QEMU_SCSI_XFER_TO_DEV) {
         r->len = 0;
         return -r->req.cmd.xfer;
     } else {

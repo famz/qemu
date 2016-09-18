@@ -160,9 +160,9 @@ static int virtio_scsi_parse_req(VirtIOSCSIReq *req,
     }
 
     if (out_size) {
-        req->mode = SCSI_XFER_TO_DEV;
+        req->mode = QEMU_SCSI_XFER_TO_DEV;
     } else if (in_size) {
-        req->mode = SCSI_XFER_FROM_DEV;
+        req->mode = QEMU_SCSI_XFER_FROM_DEV;
     }
 
     return 0;
@@ -213,7 +213,7 @@ static void *virtio_scsi_load_request(QEMUFile *f, SCSIRequest *sreq)
 
     scsi_req_ref(sreq);
     req->sreq = sreq;
-    if (req->sreq->cmd.mode != SCSI_XFER_NONE) {
+    if (req->sreq->cmd.mode != QEMU_SCSI_XFER_NONE) {
         assert(req->sreq->cmd.mode == req->mode);
     }
     return req;
@@ -549,7 +549,7 @@ static bool virtio_scsi_handle_cmd_req_prepare(VirtIOSCSI *s, VirtIOSCSIReq *req
                              virtio_scsi_get_lun(req->req.cmd.lun),
                              req->req.cmd.cdb, req);
 
-    if (req->sreq->cmd.mode != SCSI_XFER_NONE
+    if (req->sreq->cmd.mode != QEMU_SCSI_XFER_NONE
         && (req->sreq->cmd.mode != req->mode ||
             req->sreq->cmd.xfer > req->qsgl.size)) {
         req->resp.cmd.response = VIRTIO_SCSI_S_OVERRUN;

@@ -688,14 +688,14 @@ pvscsi_process_request_descriptor(PVSCSIState *s,
     }
 
     r->sreq = scsi_req_new(d, descr->context, r->lun, descr->cdb, r);
-    if (r->sreq->cmd.mode == SCSI_XFER_FROM_DEV &&
+    if (r->sreq->cmd.mode == QEMU_SCSI_XFER_FROM_DEV &&
         (descr->flags & PVSCSI_FLAG_CMD_DIR_TODEVICE)) {
         r->cmp.hostStatus = BTSTAT_BADMSG;
         trace_pvscsi_process_req_descr_invalid_dir();
         scsi_req_cancel(r->sreq);
         return;
     }
-    if (r->sreq->cmd.mode == SCSI_XFER_TO_DEV &&
+    if (r->sreq->cmd.mode == QEMU_SCSI_XFER_TO_DEV &&
         (descr->flags & PVSCSI_FLAG_CMD_DIR_TOHOST)) {
         r->cmp.hostStatus = BTSTAT_BADMSG;
         trace_pvscsi_process_req_descr_invalid_dir();

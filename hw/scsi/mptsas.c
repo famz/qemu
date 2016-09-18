@@ -329,19 +329,19 @@ static int mptsas_process_scsi_io_request(MPTSASState *s,
     }
     switch (scsi_io->Control & MPI_SCSIIO_CONTROL_DATADIRECTION_MASK) {
     case MPI_SCSIIO_CONTROL_NODATATRANSFER:
-        if (req->sreq->cmd.mode != SCSI_XFER_NONE) {
+        if (req->sreq->cmd.mode != QEMU_SCSI_XFER_NONE) {
             goto overrun;
         }
         break;
 
     case MPI_SCSIIO_CONTROL_WRITE:
-        if (req->sreq->cmd.mode != SCSI_XFER_TO_DEV) {
+        if (req->sreq->cmd.mode != QEMU_SCSI_XFER_TO_DEV) {
             goto overrun;
         }
         break;
 
     case MPI_SCSIIO_CONTROL_READ:
-        if (req->sreq->cmd.mode != SCSI_XFER_FROM_DEV) {
+        if (req->sreq->cmd.mode != QEMU_SCSI_XFER_FROM_DEV) {
             goto overrun;
         }
         break;

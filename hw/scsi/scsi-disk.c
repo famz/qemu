@@ -145,7 +145,7 @@ static void scsi_disk_save_request(QEMUFile *f, SCSIRequest *req)
     qemu_put_be32s(f, &r->sector_count);
     qemu_put_be32s(f, &r->buflen);
     if (r->buflen) {
-        if (r->req.cmd.mode == SCSI_XFER_TO_DEV) {
+        if (r->req.cmd.mode == QEMU_SCSI_XFER_TO_DEV) {
             qemu_put_buffer(f, r->iov.iov_base, r->iov.iov_len);
         } else if (!req->retry) {
             uint32_t len = r->iov.iov_len;
@@ -164,7 +164,7 @@ static void scsi_disk_load_request(QEMUFile *f, SCSIRequest *req)
     qemu_get_be32s(f, &r->buflen);
     if (r->buflen) {
         scsi_init_iovec(r, r->buflen);
-        if (r->req.cmd.mode == SCSI_XFER_TO_DEV) {
+        if (r->req.cmd.mode == QEMU_SCSI_XFER_TO_DEV) {
             qemu_get_buffer(f, r->iov.iov_base, r->iov.iov_len);
         } else if (!r->req.retry) {
             uint32_t len;
@@ -246,7 +246,7 @@ static void scsi_dma_complete_noio(SCSIDiskReq *r, int ret)
 
     r->sector += r->sector_count;
     r->sector_count = 0;
-    if (r->req.cmd.mode == SCSI_XFER_TO_DEV) {
+    if (r->req.cmd.mode == QEMU_SCSI_XFER_TO_DEV) {
         scsi_write_do_fua(r);
         return;
     } else {
@@ -365,7 +365,7 @@ static void scsi_read_data(SCSIRequest *req)
 
     /* The request is used as the AIO opaque value, so add a ref.  */
     scsi_req_ref(&r->req);
-    if (r->req.cmd.mode == SCSI_XFER_TO_DEV) {
+    if (r->req.cmd.mode == QEMU_SCSI_XFER_TO_DEV) {
         DPRINTF("Data transfer direction invalid\n");
         scsi_read_complete(r, -EINVAL);
         return;
@@ -396,7 +396,7 @@ static void scsi_read_data(SCSIRequest *req)
  */
 static int scsi_handle_rw_error(SCSIDiskReq *r, int error, bool acct_failed)
 {
-    bool is_read = (r->req.cmd.mode == SCSI_XFER_FROM_DEV);
+    bool is_read = (r->req.cmd.mode == QEMU_SCSI_XFER_FROM_DEV);
     SCSIDiskState *s = DO_UPCAST(SCSIDiskState, qdev, r->req.dev);
     BlockErrorAction action = blk_get_error_action(s->qdev.conf.blk,
                                                    is_read, error);
@@ -482,7 +482,7 @@ static void scsi_write_data(SCSIRequest *req)
 
     /* The request is used as the AIO opaque value, so add a ref.  */
     scsi_req_ref(&r->req);
-    if (r->req.cmd.mode != SCSI_XFER_TO_DEV) {
+    if (r->req.cmd.mode != QEMU_SCSI_XFER_TO_DEV) {
         DPRINTF("Data transfer direction invalid\n");
         scsi_write_complete_noio(r, -EINVAL);
         return;
@@ -2062,7 +2062,7 @@ static int32_t scsi_disk_emulate_command(SCSIRequest *req, uint8_t *buf)
     if (r->iov.iov_len == 0) {
         scsi_req_complete(&r->req, GOOD);
     }
-    if (r->req.cmd.mode == SCSI_XFER_TO_DEV) {
+    if (r->req.cmd.mode == QEMU_SCSI_XFER_TO_DEV) {
         assert(r->iov.iov_len == req->cmd.xfer);
         return -r->iov.iov_len;
     } else {
@@ -2153,7 +2153,7 @@ static int32_t scsi_disk_dma_command(SCSIRequest *req, uint8_t *buf)
         scsi_req_complete(&r->req, GOOD);
     }
     assert(r->iov.iov_len == 0);
-    if (r->req.cmd.mode == SCSI_XFER_TO_DEV) {
+    if (r->req.cmd.mode == QEMU_SCSI_XFER_TO_DEV) {
         return -r->sector_count * 512;
     } else {
         return r->sector_count * 512;
