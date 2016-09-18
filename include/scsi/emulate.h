@@ -27,6 +27,7 @@
 #include "sysemu/block-backend.h"
 #include "scsi/sense.h"
 #include "hw/block/block.h"
+#include "sysemu/dma.h"
 
 #define SCSI_MAX_INQUIRY_LEN        256
 
@@ -55,30 +56,43 @@ typedef struct {
     uint32_t features;
     uint64_t *max_lba;
     bool tcq;
-} SCSIDiskEm;
+    bool skip_fua;
+} SCSIEmu;
 
 typedef struct {
+    SCSIEmu *s;
     /* Both sector and sector_count are in terms of qemu 512 byte blocks.  */
     uint64_t sector;
     uint32_t sector_count;
     uint32_t buflen;
     bool started;
     bool need_fua_emulation;
+    bool no_account_failed;
     struct iovec iov;
     QEMUIOVector qiov;
     BlockAcctCookie acct;
     unsigned char *status;
-} SCSIDiskEmuReq;
+    BlockCompletionFunc *cb;
+    void *opaque;
+    bool is_read;
+    int error;
+    uint8_t command;
+} SCSIEmuReq;
 
-void scsi_disk_em_init(SCSIDiskEm *s, BlockConf *conf,
-                       int scsi_type, bool tcq, uint64_t *max_lba);
-void scsi_disk_em_reset(SCSIDiskEm *s);
-void scsi_disk_em_finalize(SCSIDiskEm *s);
-int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
-                             uint8_t *outbuf, int buflen,
-                             int cmd_xfer,
-                             BlockAcctCookie *acct,
-                             const SCSISense **sense,
-                             BlockCompletionFunc *cb, void *opaque);
+SCSIEmu *scsi_emu_new(BlockConf *conf, int scsi_type,
+                      bool tcq, uint64_t *max_lba,
+                      const char *version, const char *serial,
+                      const char *vendor, const char *product);
+void scsi_emu_free(SCSIEmu *s);
+void scsi_emu_reset(SCSIEmu *s);
+void scsi_emu_sync_cmd(SCSIEmu *s, uint8_t *cdb,
+                       uint8_t *outbuf, int buflen,
+                       const SCSISense **sense);
+SCSIEmuReq *scsi_emu_async_cmd_begin(SCSIEmu *s, uint8_t *cdb,
+                                     const SCSISense **sense);
+BlockAIOCB *scsi_emu_req_continue(SCSIEmuReq *r, DMAIOFunc iofunc,
+                                  void *iofunc_opaque,
+                                  QEMUIOVector *qiov, QEMUSGList *sg,
+                                  BlockCompletionFunc *cb, void *opaque);
 
 #endif

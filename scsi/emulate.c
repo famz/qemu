@@ -41,32 +41,46 @@ do { \
     if (DEBUG_SCSI_PRINT) { printf("scsi-disk-em: " fmt , ## __VA_ARGS__); } \
 } while (0)
 
-void scsi_disk_em_init(SCSIDiskEm *s, BlockConf *conf,
-                       int scsi_type, bool tcq, uint64_t *max_lba)
+SCSIEmu *scsi_emu_new(BlockConf *conf, int scsi_type,
+                      bool tcq, uint64_t *max_lba,
+                      const char *version, const char *serial,
+                      const char *vendor, const char *product)
 {
-    *s = (SCSIDiskEm) {
-        .conf = conf,
+    SCSIEmu *s = g_new0(SCSIEmu, 1);
+    *s = (SCSIEmu) {
+        .conf      = conf,
+        .blocksize = conf->logical_block_size,
         .scsi_type = scsi_type,
-        .tcq = tcq,
-        .max_lba = max_lba,
+        .tcq       = tcq,
+        .max_lba   = max_lba,
+        .version   = g_strdup(version),
+        .serial    = g_strdup(serial),
+        .vendor    = g_strdup(vendor),
+        .product   = g_strdup(product),
     };
     blk_ref(conf->blk);
+    return s;
 }
 
-void scsi_disk_em_reset(SCSIDiskEm *s)
+void scsi_emu_reset(SCSIEmu *s)
 {
     /* reset tray statuses */
     s->tray_locked = 0;
     s->tray_open = 0;
 }
 
-void scsi_disk_em_finalize(SCSIDiskEm *s)
+void scsi_emu_free(SCSIEmu *s)
 {
     blk_unref(s->conf->blk);
+    g_free(s->version);
+    g_free(s->serial);
+    g_free(s->vendor);
+    g_free(s->product);
+    g_free(s);
 }
 
-static int scsi_disk_em_inquiry(SCSIDiskEm *s, uint8_t *cdb, uint8_t *outbuf,
-                                int outbuflen)
+static int scsi_emu_inquiry(SCSIEmu *s, uint8_t *cdb, uint8_t *outbuf,
+                            int outbuflen)
 {
     int buflen = 0;
     int start;
@@ -294,7 +308,7 @@ static int scsi_disk_em_inquiry(SCSIDiskEm *s, uint8_t *cdb, uint8_t *outbuf,
     return buflen;
 }
 
-static int mode_sense_page(SCSIDiskEm *s, int page, uint8_t **p_outbuf,
+static int mode_sense_page(SCSIEmu *s, int page, uint8_t **p_outbuf,
                            int page_control)
 {
     static const int mode_sense_valid[0x3f] = {
@@ -458,7 +472,7 @@ static int mode_sense_page(SCSIDiskEm *s, int page, uint8_t **p_outbuf,
     return length + 2;
 }
 
-static int scsi_disk_em_mode_sense(SCSIDiskEm *s, uint8_t *cdb, uint8_t *outbuf,
+static int scsi_emu_mode_sense(SCSIEmu *s, uint8_t *cdb, uint8_t *outbuf,
                                    int outbuflen, const SCSISense **sense)
 {
     uint64_t nb_sectors;
@@ -553,7 +567,7 @@ static int scsi_disk_em_mode_sense(SCSIDiskEm *s, uint8_t *cdb, uint8_t *outbuf,
     return buflen;
 }
 
-static int scsi_disk_em_read_toc(SCSIDiskEm *s, uint8_t *cdb, uint8_t *outbuf)
+static int scsi_emu_read_toc(SCSIEmu *s, uint8_t *cdb, uint8_t *outbuf)
 {
     int start_track, format, msf, toclen;
     uint64_t nb_sectors;
@@ -586,7 +600,7 @@ static int scsi_disk_em_read_toc(SCSIDiskEm *s, uint8_t *cdb, uint8_t *outbuf)
     return toclen;
 }
 
-static int scsi_disk_em_start_stop(SCSIDiskEm *s, uint8_t *cdb,
+static int scsi_emu_start_stop(SCSIEmu *s, uint8_t *cdb,
                                    const SCSISense **sense)
 {
     bool start = cdb[4] & 1;
@@ -614,7 +628,7 @@ static int scsi_disk_em_start_stop(SCSIDiskEm *s, uint8_t *cdb,
     return 0;
 }
 
-static int scsi_disk_em_mechanism_status(SCSIDiskEm *s, uint8_t *outbuf)
+static int scsi_emu_mechanism_status(SCSIEmu *s, uint8_t *outbuf)
 {
     if (s->scsi_type != TYPE_ROM) {
         return -1;
@@ -624,7 +638,7 @@ static int scsi_disk_em_mechanism_status(SCSIDiskEm *s, uint8_t *outbuf)
     return 8;
 }
 
-static inline bool media_is_dvd(SCSIDiskEm *s)
+static inline bool media_is_dvd(SCSIEmu *s)
 {
     uint64_t nb_sectors;
     if (s->scsi_type != TYPE_ROM) {
@@ -640,7 +654,7 @@ static inline bool media_is_dvd(SCSIDiskEm *s)
     return nb_sectors > CD_MAX_SECTORS;
 }
 
-static inline bool media_is_cd(SCSIDiskEm *s)
+static inline bool media_is_cd(SCSIEmu *s)
 {
     uint64_t nb_sectors;
     if (s->scsi_type != TYPE_ROM) {
@@ -656,7 +670,7 @@ static inline bool media_is_cd(SCSIDiskEm *s)
     return nb_sectors <= CD_MAX_SECTORS;
 }
 
-static int scsi_disk_em_get_configuration(SCSIDiskEm *s, uint8_t *outbuf)
+static int scsi_emu_get_configuration(SCSIEmu *s, uint8_t *outbuf)
 {
     int current;
 
@@ -698,7 +712,7 @@ static int scsi_disk_em_get_configuration(SCSIDiskEm *s, uint8_t *outbuf)
     return 40;
 }
 
-static int scsi_event_status_media(SCSIDiskEm *s, uint8_t *outbuf)
+static int scsi_event_status_media(SCSIEmu *s, uint8_t *outbuf)
 {
     uint8_t event_code, media_status;
 
@@ -730,7 +744,7 @@ static int scsi_event_status_media(SCSIDiskEm *s, uint8_t *outbuf)
     return 4;
 }
 
-static int scsi_disk_em_get_event_status_notification(SCSIDiskEm *s,
+static int scsi_emu_get_event_status_notification(SCSIEmu *s,
                                                       uint8_t *cdb,
                                                       uint8_t *outbuf)
 {
@@ -757,7 +771,7 @@ static int scsi_disk_em_get_event_status_notification(SCSIDiskEm *s,
     return size;
 }
 
-static int scsi_disk_em_read_disc_information(SCSIDiskEm *s,
+static int scsi_emu_read_disc_information(SCSIEmu *s,
                                               uint8_t *cdb,
                                               uint8_t *outbuf,
                                               const SCSISense **sense)
@@ -792,7 +806,7 @@ static int scsi_disk_em_read_disc_information(SCSIDiskEm *s,
     return 34;
 }
 
-static int scsi_disk_em_read_dvd_structure(SCSIDiskEm *s, uint8_t *cdb,
+static int scsi_emu_read_dvd_structure(SCSIEmu *s, uint8_t *cdb,
                                            uint8_t *outbuf,
                                            const SCSISense **sense)
 {
@@ -887,12 +901,10 @@ fail:
     return -1;
 }
 
-int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
-                             uint8_t *outbuf, int buflen,
-                             int cmd_xfer,
-                             BlockAcctCookie *acct,
-                             const SCSISense **sense,
-                             BlockCompletionFunc *cb, void *opaque)
+/* Emulate a "synchronous" command that can be completed right away. */
+void scsi_emu_sync_cmd(SCSIEmu *s, uint8_t *cdb,
+                       uint8_t *outbuf, int buflen,
+                       const SCSISense **sense)
 {
     uint64_t nb_sectors;
     int ret;
@@ -918,7 +930,7 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
     default:
         if (s->tray_open || !blk_is_inserted(s->conf->blk)) {
             *sense = &SENSE_CODE(NO_MEDIUM);
-            return 0;
+            return;
         }
         break;
     }
@@ -928,20 +940,20 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
         assert(!s->tray_open && blk_is_inserted(s->conf->blk));
         break;
     case INQUIRY:
-        ret = scsi_disk_em_inquiry(s, cdb, outbuf, cmd_xfer);
+        ret = scsi_emu_inquiry(s, cdb, outbuf, buflen);
         if (ret < 0) {
             goto error;
         }
         break;
     case MODE_SENSE:
     case MODE_SENSE_10:
-        ret = scsi_disk_em_mode_sense(s, cdb, outbuf, cmd_xfer, sense);
+        ret = scsi_emu_mode_sense(s, cdb, outbuf, buflen, sense);
         if (ret < 0) {
             goto error;
         }
         break;
     case READ_TOC:
-        ret = scsi_disk_em_read_toc(s, cdb, outbuf);
+        ret = scsi_emu_read_toc(s, cdb, outbuf);
         if (ret < 0) {
             goto error;
         }
@@ -967,9 +979,9 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
         }
         break;
     case START_STOP:
-        if (scsi_disk_em_start_stop(s, cdb, sense) < 0) {
+        if (scsi_emu_start_stop(s, cdb, sense) < 0) {
             assert(*sense);
-            return 0;
+            return;
         }
         break;
     case ALLOW_MEDIUM_REMOVAL:
@@ -982,7 +994,7 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
         blk_get_geometry(s->conf->blk, &nb_sectors);
         if (!nb_sectors) {
             *sense = &SENSE_CODE(LUN_NOT_READY);
-            return 0;
+            return;
         }
         if ((cdb[8] & 1) == 0 && scsi_cmd_lba(cdb)) {
             goto error;
@@ -1014,34 +1026,34 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
         }
         break;
     case MECHANISM_STATUS:
-        ret = scsi_disk_em_mechanism_status(s, outbuf);
+        ret = scsi_emu_mechanism_status(s, outbuf);
         if (ret < 0) {
             goto error;
         }
         break;
     case GET_CONFIGURATION:
-        ret = scsi_disk_em_get_configuration(s, outbuf);
+        ret = scsi_emu_get_configuration(s, outbuf);
         if (ret < 0) {
             goto error;
         }
         break;
     case GET_EVENT_STATUS_NOTIFICATION:
-        ret = scsi_disk_em_get_event_status_notification(s, cdb, outbuf);
+        ret = scsi_emu_get_event_status_notification(s, cdb, outbuf);
         if (ret < 0) {
             goto error;
         }
         break;
     case READ_DISC_INFORMATION:
-        ret = scsi_disk_em_read_disc_information(s, cdb, outbuf, sense);
+        ret = scsi_emu_read_disc_information(s, cdb, outbuf, sense);
         if (ret < 0) {
             if (*sense) {
-                return 0;
+                return;
             }
             goto error;
         }
         break;
     case READ_DVD_STRUCTURE:
-        ret = scsi_disk_em_read_dvd_structure(s, cdb, outbuf, sense);
+        ret = scsi_emu_read_dvd_structure(s, cdb, outbuf, sense);
         if (ret < 0) {
             goto error;
         }
@@ -1050,11 +1062,11 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
         /* Service Action In subcommands. */
         if ((cdb[1] & 31) == SAI_READ_CAPACITY_16) {
             DPRINTF("SAI READ CAPACITY(16)\n");
-            memset(outbuf, 0, cmd_xfer);
+            memset(outbuf, 0, buflen);
             blk_get_geometry(s->conf->blk, &nb_sectors);
             if (!nb_sectors) {
                 *sense = &SENSE_CODE(LUN_NOT_READY);
-                return 0;
+                return;
             }
             if ((cdb[14] & 1) == 0 && scsi_cmd_lba(cdb)) {
                 goto error;
@@ -1089,13 +1101,6 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
         }
         DPRINTF("Unsupported Service Action In\n");
         goto error;
-    case SYNCHRONIZE_CACHE:
-        /* The request is used as the AIO opaque value, so add a ref.  */
-        /* XXX: caller hold ref to r->req */
-        block_acct_start(blk_get_stats(s->conf->blk), acct, 0,
-                         BLOCK_ACCT_FLUSH);
-        blk_aio_flush(s->conf->blk, cb, opaque);
-        return 0;
     case SEEK_10:
         DPRINTF("Seek(10) (sector %" PRId64 ")\n", scsi_cmd_lba(cdb));
         if (scsi_cmd_lba(cdb) > *s->max_lba) {
@@ -1103,39 +1108,189 @@ int32_t scsi_disk_em_command(SCSIDiskEm *s, uint8_t *cdb,
         }
         break;
     case MODE_SELECT:
-        DPRINTF("Mode Select(6) (len %lu)\n", (unsigned long)cmd_xfer);
+        DPRINTF("Mode Select(6) (len %lu)\n", (unsigned long)buflen);
         break;
     case MODE_SELECT_10:
-        DPRINTF("Mode Select(10) (len %lu)\n", (unsigned long)cmd_xfer);
-        break;
-    case UNMAP:
-        DPRINTF("Unmap (len %lu)\n", (unsigned long)cmd_xfer);
-        break;
-    case VERIFY_10:
-    case VERIFY_12:
-    case VERIFY_16:
-        DPRINTF("Verify (bytchk %d)\n", (cdb[1] >> 1) & 3);
-        if (cdb[1] & 6) {
-            goto error;
-        }
-        break;
-    case WRITE_SAME_10:
-    case WRITE_SAME_16:
-        DPRINTF("WRITE SAME %d (len %lu)\n",
-                cdb[0] == WRITE_SAME_10 ? 10 : 16,
-                (unsigned long)cmd_xfer);
+        DPRINTF("Mode Select(10) (len %lu)\n", (unsigned long)buflen);
         break;
     default:
         DPRINTF("Unknown SCSI command (%2.2x=%s)\n", cdb[0],
                 scsi_command_name(cdb[0]));
         *sense = &SENSE_CODE(INVALID_OPCODE);
-        return 0;
+        return;
     }
 error:
     *sense = *sense ? : &SENSE_CODE(INVALID_FIELD);
-    return 0;
+    return;
 
 illegal_lba:
     *sense = &SENSE_CODE(LBA_OUT_OF_RANGE);
-    return 0;
+}
+
+static inline bool check_lba_range(SCSIEmu *s,
+                                   uint64_t sector_num, uint32_t nb_sectors)
+{
+    /*
+     * The first line tests that no overflow happens when computing the last
+     * sector.  The second line tests that the last accessed sector is in
+     * range.
+     *
+     * Careful, the computations should not underflow for nb_sectors == 0,
+     * and a 0-block read to the first LBA beyond the end of device is
+     * valid.
+     */
+    return (sector_num <= sector_num + nb_sectors &&
+            sector_num + nb_sectors <= *s->max_lba + 1);
+}
+
+/* Parse and initialize an asynchronous command from cdb.
+ * If error is found in the command, *sense is set;
+ * otherwise if NULL is returned, the command is completed as GOOD;
+ * otherwise, a SCSIEmuReq is allocated and returned, which contains the
+ * extracted information of the request.
+ */
+SCSIEmuReq *scsi_emu_async_cmd_begin(SCSIEmu *s, uint8_t *cdb,
+                                     const SCSISense **sense)
+{
+    uint32_t len;
+    uint64_t lba = scsi_cmd_lba(cdb);
+    SCSIEmuReq *r = g_new0(SCSIEmuReq, 1);
+
+    if (!blk_is_available(s->conf->blk)) {
+        *sense = &SENSE_CODE(NO_MEDIUM);
+        return 0;
+    }
+
+    r->s = s;
+    r->command = cdb[0];
+    r->is_read = scsi_cmd_xfer_mode(cdb) == QEMU_SCSI_XFER_FROM_DEV;
+    len = scsi_data_cdb_xfer(cdb);
+    switch (cdb[0]) {
+    case READ_6:
+    case READ_10:
+    case READ_12:
+    case READ_16:
+        DPRINTF("Read (sector %" PRId64 ", count %u)\n", lba, len);
+        if (cdb[1] & 0xe0) {
+            goto illegal_request;
+        }
+        if (!check_lba_range(s, lba, len)) {
+            goto illegal_lba;
+        }
+        r->sector = lba * (s->blocksize / 512);
+        r->sector_count = len * (s->blocksize / 512);
+        break;
+    case WRITE_6:
+    case WRITE_10:
+    case WRITE_12:
+    case WRITE_16:
+    case WRITE_VERIFY_10:
+    case WRITE_VERIFY_12:
+    case WRITE_VERIFY_16:
+        if (blk_is_read_only(s->conf->blk)) {
+            *sense = &SENSE_CODE(WRITE_PROTECTED);
+            g_free(r);
+            return NULL;
+        }
+        DPRINTF("Write %s(sector %" PRId64 ", count %u)\n",
+                (cdb[0] & 0xe) == 0xe ? "And Verify " : "",
+                lba, len);
+        if (cdb[1] & 0xe0) {
+            goto illegal_request;
+        }
+        if (!check_lba_range(s, lba, len)) {
+            goto illegal_lba;
+        }
+        r->sector = lba * (s->blocksize / 512);
+        r->sector_count = len * (s->blocksize / 512);
+        break;
+    case SYNCHRONIZE_CACHE:
+    case VERIFY_10:
+    case VERIFY_12:
+    case VERIFY_16:
+    case UNMAP:
+    case WRITE_SAME_10:
+    case WRITE_SAME_16:
+    case MODE_SELECT:
+    case MODE_SELECT_10:
+        /* XXX */
+        break;
+    default:
+        abort();
+    }
+    r->need_fua_emulation = !s->skip_fua && scsi_is_cmd_fua(cdb);
+    if (r->sector_count == 0) {
+        g_free(r);
+        return NULL;
+    }
+    return r;
+illegal_request:
+    *sense = &SENSE_CODE(INVALID_FIELD);
+    g_free(r);
+    return NULL;
+illegal_lba:
+    *sense = &SENSE_CODE(LBA_OUT_OF_RANGE);
+    g_free(r);
+    return NULL;
+}
+
+static void scsi_emu_io_complete(void *opaque, int ret)
+{
+    SCSIEmuReq *r = opaque;
+
+    if (!ret) {
+        block_acct_done(blk_get_stats(r->s->conf->blk), &r->acct);
+    } else if (!r->no_account_failed) {
+        block_acct_failed(blk_get_stats(r->s->conf->blk), &r->acct);
+    }
+    r->cb(r->opaque, ret);
+}
+
+BlockAIOCB *scsi_emu_req_continue(SCSIEmuReq *r, DMAIOFunc iofunc,
+                                  void *iofunc_opaque,
+                                  QEMUIOVector *qiov, QEMUSGList *sg,
+                                  BlockCompletionFunc *cb, void *opaque)
+{
+    bool first;
+    assert((qiov == NULL) != (sg == NULL));
+
+    if (!blk_is_available(r->s->conf->blk)) {
+        r->error = -ENOMEDIUM;
+        return NULL;
+    }
+
+    r->cb = cb;
+    r->opaque = opaque;
+
+    first = !r->started;
+    r->started = true;
+
+    if (r->command == VERIFY_10 || r->command == VERIFY_12 ||
+        r->command == VERIFY_16) {
+        if (r->need_fua_emulation) {
+            block_acct_start(blk_get_stats(r->s->conf->blk), &r->acct, 0,
+                             BLOCK_ACCT_FLUSH);
+            return blk_aio_flush(r->s->conf->blk, scsi_emu_io_complete, r);
+        } else {
+            return NULL;
+        }
+    }
+    if (first && r->is_read && r->need_fua_emulation) {
+        block_acct_start(blk_get_stats(r->s->conf->blk), &r->acct, 0,
+                         BLOCK_ACCT_FLUSH);
+        return blk_aio_flush(r->s->conf->blk, scsi_emu_io_complete, r);
+    } else if (qiov) {
+        block_acct_start(blk_get_stats(r->s->conf->blk), &r->acct,
+                         qiov->size,
+                         r->is_read ? BLOCK_ACCT_READ : BLOCK_ACCT_WRITE);
+        return iofunc(r->sector << BDRV_SECTOR_BITS, &r->qiov,
+                      scsi_emu_io_complete, r, r);
+    } else {
+        dma_acct_start(r->s->conf->blk, &r->acct, sg, BLOCK_ACCT_READ);
+        return dma_blk_io(blk_get_aio_context(r->s->conf->blk),
+                          sg, r->sector << BDRV_SECTOR_BITS,
+                          iofunc, iofunc_opaque, scsi_emu_io_complete, r,
+                          r->is_read ? DMA_DIRECTION_FROM_DEVICE :
+                                       DMA_DIRECTION_TO_DEVICE);
+    }
 }
