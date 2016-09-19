@@ -97,16 +97,21 @@ static coroutine_fn int null_co_common(BlockDriverState *bs)
     return 0;
 }
 
+static void null_handle_read(BDRVNullState *s, uint64_t offset,
+                             uint64_t bytes, QEMUIOVector *qiov)
+{
+    if (s->read_zeroes) {
+        qemu_iovec_memset(qiov, 0, 0, bytes);
+    }
+}
+
 static int coroutine_fn null_co_preadv(BlockDriverState *bs, uint64_t offset,
                                        uint64_t bytes, QEMUIOVector *qiov,
                                        int flags)
 {
     BDRVNullState *s = bs->opaque;
 
-    if (s->read_zeroes) {
-        qemu_iovec_memset(qiov, 0, 0, bytes);
-    }
-
+    null_handle_read(s, offset, bytes, qiov);
     return null_co_common(bs);
 }
 
@@ -175,9 +180,8 @@ static BlockAIOCB *null_aio_readv(BlockDriverState *bs,
 {
     BDRVNullState *s = bs->opaque;
 
-    if (s->read_zeroes) {
-        qemu_iovec_memset(qiov, 0, 0, nb_sectors * BDRV_SECTOR_SIZE);
-    }
+    null_handle_read(s, sector_num << BDRV_SECTOR_BITS,
+                     nb_sectors << BDRV_SECTOR_BITS, qiov);
 
     return null_aio_common(bs, cb, opaque);
 }
