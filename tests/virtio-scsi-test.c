@@ -35,17 +35,20 @@ typedef struct {
     QVirtQueue *vq[MAX_NUM_QUEUES + 2];
 } QVirtIOSCSI;
 
-static void qvirtio_scsi_start(const char *extra_opts)
+static void GCC_FMT_ATTR(1, 2)
+qvirtio_scsi_start(const char *extra_opts, ...)
 {
-    char *cmdline;
+    char *cmdline, *cmdline1;
+    va_list ap;
 
-    cmdline = g_strdup_printf(
-                "-drive id=drv0,if=none,file=/dev/null,format=raw "
-                "-device virtio-scsi-pci,id=vs0 "
-                "-device scsi-hd,bus=vs0.0,drive=drv0 %s",
-                extra_opts ? : "");
+    va_start(ap, extra_opts);
+    cmdline1 = g_strdup_vprintf(extra_opts, ap);
+    va_end(ap);
+
+    cmdline = g_strdup_printf("-device virtio-scsi-pci %s", cmdline1);
     qtest_start(cmdline);
     g_free(cmdline);
+    g_free(cmdline1);
 }
 
 static void qvirtio_scsi_stop(void)
@@ -184,7 +187,8 @@ static QVirtIOSCSI *qvirtio_scsi_pci_init(int slot)
 /* Tests only initialization so far. TODO: Replace with functional tests */
 static void pci_nop(void)
 {
-    qvirtio_scsi_start(NULL);
+    qvirtio_scsi_start("-drive id=drv0,if=none,file=/dev/null,format=raw "
+                       "-device scsi-hd,drive=drv0");
     qvirtio_scsi_stop();
 }
 
