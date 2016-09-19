@@ -18,11 +18,13 @@
 
 #define NULL_OPT_LATENCY "latency-ns"
 #define NULL_OPT_ZEROES  "read-zeroes"
+#define NULL_OPT_SYN     "read-synthetic"
 
 typedef struct {
     int64_t length;
     int64_t latency_ns;
     bool read_zeroes;
+    bool read_syn;
 } BDRVNullState;
 
 static QemuOptsList runtime_opts = {
@@ -50,6 +52,13 @@ static QemuOptsList runtime_opts = {
             .type = QEMU_OPT_BOOL,
             .help = "return zeroes when read",
         },
+        {
+            .name = NULL_OPT_SYN,
+            .type = QEMU_OPT_BOOL,
+            .help = "return synthetic data when read (in each sector, the "
+                    "first 8 bytes are sector number in BE, the last 8 bytes "
+                    "are ASCII \"NULLDATA\")",
+        },
         { /* end of list */ }
     },
 };
@@ -72,6 +81,12 @@ static int null_file_open(BlockDriverState *bs, QDict *options, int flags,
         ret = -EINVAL;
     }
     s->read_zeroes = qemu_opt_get_bool(opts, NULL_OPT_ZEROES, false);
+    s->read_syn = qemu_opt_get_bool(opts, NULL_OPT_SYN, false);
+    if (s->read_zeroes && s->read_syn) {
+        error_setg(errp, NULL_OPT_ZEROES " and " NULL_OPT_SYN
+                         "cannot be used together");
+        ret = -EINVAL;
+    }
     qemu_opts_del(opts);
     return ret;
 }
@@ -97,11 +112,37 @@ static coroutine_fn int null_co_common(BlockDriverState *bs)
     return 0;
 }
 
+static void null_syn_fill(uint8_t *buf, uint64_t offset, uint64_t bytes)
+{
+    uint64_t pos = QEMU_ALIGN_UP(offset, BDRV_SECTOR_SIZE);
+
+    /* Advance buf to next sector boundary */
+    buf = buf + (pos - offset);
+
+    while (pos < offset + bytes) {
+        *(uint64_t *)buf = cpu_to_be64(pos >> BDRV_SECTOR_BITS);
+        if (pos + BDRV_SECTOR_SIZE - 8 < offset + bytes) {
+            /* No need to worry about buffer overflow because we always have
+             * 8 bytes in extra. */
+            *(uint64_t *)(buf + BDRV_SECTOR_SIZE - 8) =
+                    cpu_to_be64(0x4e554c4c44415441ULL);
+        }
+        pos += BDRV_SECTOR_SIZE;
+        buf += BDRV_SECTOR_SIZE;
+    }
+}
+
 static void null_handle_read(BDRVNullState *s, uint64_t offset,
                              uint64_t bytes, QEMUIOVector *qiov)
 {
     if (s->read_zeroes) {
         qemu_iovec_memset(qiov, 0, 0, bytes);
+    } else if (s->read_syn) {
+        /* additional tail padding to make null_syn_fill simpler */
+        uint8_t *buf = g_malloc0(bytes + 8);
+        null_syn_fill(buf, offset, bytes);
+        qemu_iovec_from_buf(qiov, 0, buf, bytes);
+        g_free(buf);
     }
 }
 
@@ -221,6 +262,8 @@ static int64_t coroutine_fn null_co_get_block_status(BlockDriverState *bs,
 
     if (s->read_zeroes) {
         return BDRV_BLOCK_OFFSET_VALID | start | BDRV_BLOCK_ZERO;
+    } else if (s->read_syn) {
+        return BDRV_BLOCK_OFFSET_VALID | start | BDRV_BLOCK_DATA;
     } else {
         return BDRV_BLOCK_OFFSET_VALID | start;
     }
