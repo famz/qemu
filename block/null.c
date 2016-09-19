@@ -97,22 +97,22 @@ static coroutine_fn int null_co_common(BlockDriverState *bs)
     return 0;
 }
 
-static coroutine_fn int null_co_readv(BlockDriverState *bs,
-                                      int64_t sector_num, int nb_sectors,
-                                      QEMUIOVector *qiov)
+static int coroutine_fn null_co_preadv(BlockDriverState *bs, uint64_t offset,
+                                       uint64_t bytes, QEMUIOVector *qiov,
+                                       int flags)
 {
     BDRVNullState *s = bs->opaque;
 
     if (s->read_zeroes) {
-        qemu_iovec_memset(qiov, 0, 0, nb_sectors * BDRV_SECTOR_SIZE);
+        qemu_iovec_memset(qiov, 0, 0, bytes);
     }
 
     return null_co_common(bs);
 }
 
-static coroutine_fn int null_co_writev(BlockDriverState *bs,
-                                       int64_t sector_num, int nb_sectors,
-                                       QEMUIOVector *qiov)
+static int coroutine_fn null_co_pwritev(BlockDriverState *bs, uint64_t offset,
+                                        uint64_t bytes, QEMUIOVector *qiov,
+                                        int flags)
 {
     return null_co_common(bs);
 }
@@ -245,8 +245,8 @@ static BlockDriver bdrv_null_co = {
     .bdrv_close             = null_close,
     .bdrv_getlength         = null_getlength,
 
-    .bdrv_co_readv          = null_co_readv,
-    .bdrv_co_writev         = null_co_writev,
+    .bdrv_co_preadv         = null_co_preadv,
+    .bdrv_co_pwritev        = null_co_pwritev,
     .bdrv_co_flush_to_disk  = null_co_flush,
     .bdrv_reopen_prepare    = null_reopen_prepare,
 
