@@ -20,12 +20,14 @@
 #define NULL_OPT_LATENCY "latency-ns"
 #define NULL_OPT_ZEROES  "read-zeroes"
 #define NULL_OPT_SYN     "read-synthetic"
+#define NULL_OPT_VERIFY  "write-verify"
 
 typedef struct {
     int64_t length;
     int64_t latency_ns;
     bool read_zeroes;
     bool read_syn;
+    bool write_verify;
 } BDRVNullState;
 
 static QemuOptsList runtime_opts = {
@@ -60,6 +62,13 @@ static QemuOptsList runtime_opts = {
                     "first 8 bytes are sector number in BE, the last 8 bytes "
                     "are ASCII \"NULLDATA\")",
         },
+        {
+            .name = NULL_OPT_VERIFY,
+            .type = QEMU_OPT_BOOL,
+            .help = "verify write requests against synthetic data pattern, and "
+                    "fail request if not match"
+                    "(see read-synthetic for data pattern)",
+        },
         { /* end of list */ }
     },
 };
@@ -83,6 +92,7 @@ static int null_file_open(BlockDriverState *bs, QDict *options, int flags,
     }
     s->read_zeroes = qemu_opt_get_bool(opts, NULL_OPT_ZEROES, false);
     s->read_syn = qemu_opt_get_bool(opts, NULL_OPT_SYN, false);
+    s->write_verify = qemu_opt_get_bool(opts, NULL_OPT_VERIFY, false);
     if (s->read_zeroes && s->read_syn) {
         error_setg(errp, NULL_OPT_ZEROES " and " NULL_OPT_SYN
                          "cannot be used together");
@@ -163,11 +173,40 @@ static int coroutine_fn null_co_preadv(BlockDriverState *bs, uint64_t offset,
     return null_co_common(bs);
 }
 
+static int null_handle_write(BDRVNullState *s, uint64_t offset,
+                              uint64_t bytes, QEMUIOVector *qiov)
+{
+    int ret = 0;
+
+    if (s->write_verify) {
+        QEMUIOVector qiov1;
+        /* additional tail padding to make null_syn_fill simpler */
+        uint8_t *buf = g_malloc0(bytes + 8);
+
+        qemu_iovec_init(&qiov1, 1);
+        null_syn_fill(buf, offset, bytes);
+        qemu_iovec_add(&qiov1, buf, bytes);
+        if (qemu_iovec_compare(&qiov1, qiov) != -1) {
+            ret = -EIO;
+        }
+        qemu_iovec_destroy(&qiov1);
+        g_free(buf);
+    }
+    return ret;
+}
+
 static int coroutine_fn null_co_pwritev(BlockDriverState *bs, uint64_t offset,
                                         uint64_t bytes, QEMUIOVector *qiov,
                                         int flags)
 {
+    int r;
+    BDRVNullState *s = bs->opaque;
+
     trace_null_co_pwritev(bs, offset, bytes, flags);
+    r = null_handle_write(s, offset, bytes, qiov);
+    if (r < 0) {
+        return r;
+    }
     return null_co_common(bs);
 }
 
@@ -180,6 +219,7 @@ static coroutine_fn int null_co_flush(BlockDriverState *bs)
 typedef struct {
     BlockAIOCB common;
     QEMUTimer timer;
+    int ret;
 } NullAIOCB;
 
 static const AIOCBInfo null_aiocb_info = {
@@ -189,14 +229,14 @@ static const AIOCBInfo null_aiocb_info = {
 static void null_bh_cb(void *opaque)
 {
     NullAIOCB *acb = opaque;
-    acb->common.cb(acb->common.opaque, 0);
+    acb->common.cb(acb->common.opaque, acb->ret);
     qemu_aio_unref(acb);
 }
 
 static void null_timer_cb(void *opaque)
 {
     NullAIOCB *acb = opaque;
-    acb->common.cb(acb->common.opaque, 0);
+    acb->common.cb(acb->common.opaque, acb->ret);
     timer_deinit(&acb->timer);
     qemu_aio_unref(acb);
 }
@@ -209,6 +249,7 @@ static inline BlockAIOCB *null_aio_common(BlockDriverState *bs,
     BDRVNullState *s = bs->opaque;
 
     acb = qemu_aio_get(&null_aiocb_info, bs, cb, opaque);
+    acb->ret = 0;
     /* Only emulate latency after vcpu is running. */
     if (s->latency_ns) {
         aio_timer_init(bdrv_get_aio_context(bs), &acb->timer,
@@ -243,7 +284,20 @@ static BlockAIOCB *null_aio_writev(BlockDriverState *bs,
                                    BlockCompletionFunc *cb,
                                    void *opaque)
 {
+    int r;
+    BDRVNullState *s = bs->opaque;
+
     trace_null_aio_writev(bs, sector_num, nb_sectors);
+    r = null_handle_write(s, sector_num << BDRV_SECTOR_BITS,
+                          nb_sectors << BDRV_SECTOR_BITS,
+                          qiov);
+    if (r < 0) {
+        NullAIOCB *acb = qemu_aio_get(&null_aiocb_info, bs, cb, opaque);
+        acb->ret = r;
+        aio_bh_schedule_oneshot(bdrv_get_aio_context(bs), null_bh_cb, acb);
+        return &acb->common;
+    }
+
     return null_aio_common(bs, cb, opaque);
 }
 
