@@ -15,6 +15,7 @@
 #include "qapi/qmp/qdict.h"
 #include "qapi/qmp/qstring.h"
 #include "block/block_int.h"
+#include "trace.h"
 
 #define NULL_OPT_LATENCY "latency-ns"
 #define NULL_OPT_ZEROES  "read-zeroes"
@@ -87,17 +88,22 @@ static int null_file_open(BlockDriverState *bs, QDict *options, int flags,
                          "cannot be used together");
         ret = -EINVAL;
     }
+    trace_null_file_open(bs, flags, s->length, s->latency_ns, s->read_zeroes,
+                         s->read_syn);
     qemu_opts_del(opts);
     return ret;
 }
 
 static void null_close(BlockDriverState *bs)
 {
+    trace_null_close(bs);
 }
 
 static int64_t null_getlength(BlockDriverState *bs)
 {
     BDRVNullState *s = bs->opaque;
+
+    trace_null_getlength(bs);
     return s->length;
 }
 
@@ -152,6 +158,7 @@ static int coroutine_fn null_co_preadv(BlockDriverState *bs, uint64_t offset,
 {
     BDRVNullState *s = bs->opaque;
 
+    trace_null_co_preadv(bs, offset, bytes, flags);
     null_handle_read(s, offset, bytes, qiov);
     return null_co_common(bs);
 }
@@ -160,11 +167,13 @@ static int coroutine_fn null_co_pwritev(BlockDriverState *bs, uint64_t offset,
                                         uint64_t bytes, QEMUIOVector *qiov,
                                         int flags)
 {
+    trace_null_co_pwritev(bs, offset, bytes, flags);
     return null_co_common(bs);
 }
 
 static coroutine_fn int null_co_flush(BlockDriverState *bs)
 {
+    trace_null_co_flush(bs);
     return null_co_common(bs);
 }
 
@@ -221,6 +230,7 @@ static BlockAIOCB *null_aio_readv(BlockDriverState *bs,
 {
     BDRVNullState *s = bs->opaque;
 
+    trace_null_aio_readv(bs, sector_num, nb_sectors);
     null_handle_read(s, sector_num << BDRV_SECTOR_BITS,
                      nb_sectors << BDRV_SECTOR_BITS, qiov);
 
@@ -233,6 +243,7 @@ static BlockAIOCB *null_aio_writev(BlockDriverState *bs,
                                    BlockCompletionFunc *cb,
                                    void *opaque)
 {
+    trace_null_aio_writev(bs, sector_num, nb_sectors);
     return null_aio_common(bs, cb, opaque);
 }
 
@@ -240,12 +251,14 @@ static BlockAIOCB *null_aio_flush(BlockDriverState *bs,
                                   BlockCompletionFunc *cb,
                                   void *opaque)
 {
+    trace_null_aio_flush(bs);
     return null_aio_common(bs, cb, opaque);
 }
 
 static int null_reopen_prepare(BDRVReopenState *reopen_state,
                                BlockReopenQueue *queue, Error **errp)
 {
+    trace_null_reopen_prepare(reopen_state->bs);
     return 0;
 }
 
@@ -257,6 +270,7 @@ static int64_t coroutine_fn null_co_get_block_status(BlockDriverState *bs,
     BDRVNullState *s = bs->opaque;
     off_t start = sector_num * BDRV_SECTOR_SIZE;
 
+    trace_null_co_get_block_status(bs, sector_num, nb_sectors);
     *pnum = nb_sectors;
     *file = bs;
 
@@ -274,6 +288,7 @@ static void null_refresh_filename(BlockDriverState *bs, QDict *opts)
     QINCREF(opts);
     qdict_del(opts, "filename");
 
+    trace_null_refresh_filename(bs);
     if (!qdict_size(opts)) {
         snprintf(bs->exact_filename, sizeof(bs->exact_filename), "%s://",
                  bs->drv->format_name);

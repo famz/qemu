@@ -114,3 +114,17 @@ qed_aio_write_data(void *s, void *acb, int ret, uint64_t offset, size_t len) "s 
 qed_aio_write_prefill(void *s, void *acb, uint64_t start, size_t len, uint64_t offset) "s %p acb %p start %"PRIu64" len %zu offset %"PRIu64
 qed_aio_write_postfill(void *s, void *acb, uint64_t start, size_t len, uint64_t offset) "s %p acb %p start %"PRIu64" len %zu offset %"PRIu64
 qed_aio_write_main(void *s, void *acb, int ret, uint64_t offset, size_t len) "s %p acb %p ret %d offset %"PRIu64" len %zu"
+
+# block/null.c
+null_file_open(void *bs, int flags, int64_t size, int64_t latency_ns, bool read_zeroes, bool read_syn) "bs %p flags %d size %"PRId64" latency_ns %"PRId64" zero %d syn %d"
+null_close(void *bs) "bs %p"
+null_getlength(void *bs) "bs %p"
+null_co_preadv(void *bs, uint64_t off, uint64_t len, int flags) "bs %p off %"PRIu64" len %"PRIu64" len flags %d"
+null_co_pwritev(void *bs, uint64_t off, uint64_t len, int flags) "bs %p off %"PRIu64" len %"PRIu64" len flags %d"
+null_co_flush(void *bs) "bs %p"
+null_aio_readv(void *bs, int64_t sector, int nb_sectors) "bs %p sector %"PRId64" nsectors %d"
+null_aio_writev(void *bs, int64_t sector, int nb_sectors) "bs %p sector %"PRId64" nsectors %d"
+null_aio_flush(void *bs) "bs %p"
+null_reopen_prepare(void *bs) "bs %p"
+null_co_get_block_status(void *bs, int64_t sector, int nb_sectors) "bs %p sector %"PRId64" nsectors %d"
+null_refresh_filename(void *bs) "bs %p"
