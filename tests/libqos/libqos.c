@@ -270,3 +270,52 @@ void generate_pattern(void *buffer, size_t len, size_t cycle_len)
         }
     }
 }
+
+static bool handle_line(int idx, char *line, QParseTraceFileCB cb, void *opaque)
+{
+    char *event;
+    char *params;
+
+    for (event = line; *event && *event != ':'; ) {
+        event++;
+    }
+    event++;
+    g_assert(*event);
+    for (params = event + 1; *params && *params != ' '; ) {
+        params++;
+    }
+    *params++ = '\0';
+    return cb(idx, event, params, opaque);
+}
+
+void parse_trace_file(const char *filename, QParseTraceFileCB cb, void *opaque)
+{
+    int fd;
+    char line[4096];
+    int count = 0;
+    char c;
+    int idx = 0;
+
+    fd = open(filename, O_RDONLY);
+    g_assert_cmpint(fd, >=, 0);
+
+    while (read(fd, &c, 1)) {
+        if (c == '\n' && count) {
+            line[count] = '\0';
+            if (!handle_line(idx, line, cb, opaque)) {
+                goto out;
+            }
+            idx++;
+            count = 0;
+        } else {
+            g_assert_cmpint(count, <, ARRAY_SIZE(line) - 1);
+            line[count++] = c;
+        }
+    }
+    if (count) {
+        line[count] = '\0';
+        handle_line(idx, line, cb, opaque);
+    }
+out:
+    close(fd);
+}

@@ -34,6 +34,11 @@ void migrate(QOSState *from, QOSState *to, const char *uri);
 void prepare_blkdebug_script(const char *debug_fn, const char *event);
 void generate_pattern(void *buffer, size_t len, size_t cycle_len);
 
+typedef bool (*QParseTraceFileCB)(int idx, const char *event,
+                                  const char *params,
+                                  void *opaque);
+void parse_trace_file(const char *filename, QParseTraceFileCB cb, void *opaque);
+
 static inline uint64_t qmalloc(QOSState *q, size_t bytes)
 {
     return guest_alloc(q->alloc, bytes);
