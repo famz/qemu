@@ -2,7 +2,7 @@
  * QTest testcase for VirtIO SCSI
  *
  * Copyright (c) 2014 SUSE LINUX Products GmbH
- * Copyright (c) 2015 Red Hat Inc.
+ * Copyright (c) 2015, 2016 Red Hat Inc.
  *
  * This work is licensed under the terms of the GNU GPL, version 2 or later.
  * See the COPYING file in the top-level directory.
@@ -20,6 +20,9 @@
 #include "standard-headers/linux/virtio_ids.h"
 #include "standard-headers/linux/virtio_pci.h"
 #include "standard-headers/linux/virtio_scsi.h"
+#include "hw/scsi/scsi.h"
+
+#define IMG_SIZE (1ULL << 40)
 
 #define HEXDUMP 0
 #define DEBUG_QTEST 0
@@ -41,6 +44,28 @@ static inline GCC_FMT_ATTR(1, 2) int DPRINTF(const char *fmt, ...)
 #define QVIRTIO_SCSI_TIMEOUT_US (1 * 1000 * 1000)
 
 #define MAX_NUM_QUEUES 64
+
+#define MAKE_LBA3(lba) (((lba) >> 16) & 0xFF), \
+                       (((lba) >> 8) & 0xFF), \
+                       (((lba)) & 0xFF)
+
+#define MAKE_LBA4(lba) ((lba) >> 24), \
+                 (((lba) >> 16) & 0xFF), \
+                 (((lba) >> 8) & 0xFF), \
+                 (((lba)) & 0xFF)
+
+#define MAKE_LBA8(lba) ((lba) >> 56), \
+                 (((lba) >> 48) & 0xFF), \
+                 (((lba) >> 40) & 0xFF), \
+                 (((lba) >> 32) & 0xFF), \
+                 (((lba) >> 24) & 0xFF), \
+                 (((lba) >> 16) & 0xFF), \
+                 (((lba) >> 8) & 0xFF), \
+                 (((lba)) & 0xFF)
+
+static char trace_file[] = "/var/tmp/qtest.virtio-scsi-test.XXXXXX";
+
+typedef struct QSCSIDiskTestData QSCSIDiskTestData;
 
 typedef struct {
     QVirtioDevice *dev;
@@ -295,6 +320,341 @@ static void run_cmd(QVirtIOSCSI *vs, const uint8_t *cdb,
     g_free(readbuf);
 }
 
+struct QSCSIDiskTestData {
+    const char *name;           /* The name of the test. */
+    uint8_t cdb[VIRTIO_SCSI_CDB_SIZE];
+    uint64_t sector;            /* Sector number to be looked up in get_data
+                                   callback. */
+    int response;               /* Expected response code. */
+    int status;                 /* Expected status code. */
+    bool is_write;              /* Is this a write command (xfer to device)? */
+    bool restart;               /* Should QEMU be start/stop for the case?  */
+    const char *extra_opts;     /* Extra options to run QEMU if restart is
+                                   true. */
+    SCSISense sense;            /* If non-zero, compare with the result sense
+                                   data. */
+
+    /* If non-NULL, fill payload data used to write or verify read, depending
+     * on is_write. */
+    void (*verify)(QVirtIOSCSI *vs, const QSCSIDiskTestData *data);
+
+    int data_len;               /* Data buffer length in bytes. */
+    /* Custom method to verify after command has completed. */
+    void (*get_data)(uint8_t *buf, int len, const QSCSIDiskTestData *data);
+};
+
+static void zero_data(uint8_t *buf, int len, const QSCSIDiskTestData *data)
+{
+    memset(buf, 0, len);
+}
+
+static void sector_data(uint8_t *buf, int len, const QSCSIDiskTestData *data)
+{
+    uint64_t sector = data->sector;
+    while (len) {
+        g_assert_cmpint(len % 512, ==, 0);
+        g_assert(QEMU_PTR_IS_ALIGNED(buf, 8));
+        *(int64_t *)buf = cpu_to_be64(sector);
+        *(int64_t *)&buf[504] = cpu_to_be64(0x4e554c4c44415441ULL);
+        sector += 1;
+        buf += 512;
+        len -= 512;
+    }
+}
+
+static const QSCSIDiskTestData scsi_disk_test_data[] = {
+    /* Generic invalid cases */
+    {
+        .name = "overrun",
+        .cdb = { 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00 },
+        .data_len = 512,
+        .sector = 0,
+        .response = VIRTIO_SCSI_S_OVERRUN,
+    },
+
+    /* READ (6) */
+    {
+        .name = "read_6.second_sector",
+        .cdb = { 0x08, 0x00, 0x00, 0x01, 0x01, 0x00 },
+        .data_len = 512,
+        .sector = 1,
+        .get_data = sector_data,
+    }, {
+        .name = "read_6.largest_lba",
+        .cdb = { 0x08, MAKE_LBA3(0x1FFFFF / 512),
+                 0x01 },
+        .data_len = 512,
+        .sector = 0x1FFFFF / 512,
+        .get_data = sector_data,
+    },
+
+    /* READ (10) */
+    {
+        .name = "read_10.0blocks",
+        .cdb = { 0x28, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 },
+        .data_len = 512,
+        .get_data = zero_data,
+    }, {
+        .name = "read_10.first_sector",
+        .cdb = { 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00 },
+        .data_len = 512,
+        .sector = 0,
+        .get_data = sector_data,
+    }, {
+        .name = "read_10.second_sector",
+        .cdb = { 0x28, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00 },
+        .data_len = 512,
+        .sector = 1,
+        .get_data = sector_data,
+    }, {
+        .name = "read_10.last_sector",
+        .cdb = { 0x28, 0x00,
+                 MAKE_LBA4(IMG_SIZE / 512 - 1),
+                 0x00, 0x00, 0x01, 0x00 },
+        .data_len = 512,
+        .sector = IMG_SIZE / 512 - 1,
+        .get_data = sector_data,
+    }, {
+        .name = "read_10.4k",
+        .cdb = { 0x28, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x08, 0x00 },
+        .data_len = 512 * 8,
+        .sector = 8,
+        .get_data = sector_data,
+    }, {
+        .name = "read_10.unaligned_4k",
+        .cdb = { 0x28, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x08, 0x00 },
+        .data_len = 512 * 8,
+        .sector = 1,
+        .get_data = sector_data,
+    }, {
+        .name = "read_10.big",
+        .cdb = { 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8, 0x00, 0x00 },
+        .data_len = 512 * 0x800,
+        .sector = 0,
+        .get_data = sector_data,
+    }, {
+        .name = "read_10.buffer_larger_than_xfer",
+        .cdb = { 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00 },
+        .data_len = 1024,
+        .sector = 0,
+        .get_data = sector_data,
+    }, {
+        .name = "read_10.beyond_eol",
+        .cdb = { 0x28, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00 },
+        .data_len = 512,
+        .status = CHECK_CONDITION,
+        .sense = { .key = ILLEGAL_REQUEST, .asc = 0x21 },
+    }, {
+        .name = "read_10.rdprotect",
+        .cdb = { 0x28, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00 },
+        .data_len = 512,
+        .status = CHECK_CONDITION,
+        .sense = { .key = ILLEGAL_REQUEST, .asc = 0x24 },
+    },
+
+    /* READ (12) */
+    {
+        .name = "read_12.0blocks",
+        .cdb = { 0xA8, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 },
+        .data_len = 512,
+        .get_data = zero_data,
+    }, {
+        .name = "read_12.first_sector",
+        .cdb = { 0xA8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .sector = 0,
+        .get_data = sector_data,
+    }, {
+        .name = "read_12.second_sector",
+        .cdb = { 0xA8, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .sector = 1,
+        .get_data = sector_data,
+    }, {
+        .name = "read_12.last_sector",
+        .cdb = { 0xA8, 0x00, MAKE_LBA4(IMG_SIZE / 512 - 1),
+                 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .sector = IMG_SIZE / 512 - 1,
+        .get_data = sector_data,
+    }, {
+        .name = "read_12.4k",
+        .cdb = { 0xA8, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08 },
+        .data_len = 512 * 8,
+        .sector = 8,
+        .get_data = sector_data,
+    }, {
+        .name = "read_12.unaligned_4k",
+        .cdb = { 0xA8, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08 },
+        .data_len = 512 * 8,
+        .sector = 1,
+        .get_data = sector_data,
+    }, {
+        .name = "read_12.big",
+        .cdb = { 0xA8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00 },
+        .data_len = 512 * 0x800,
+        .sector = 0,
+        .get_data = sector_data,
+    }, {
+        .name = "read_12.buffer_larger_than_xfer",
+        .cdb = { 0xA8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 1024,
+        .sector = 0,
+        .get_data = sector_data,
+    }, {
+        .name = "read_12.beyond_eol",
+        .cdb = { 0xA8, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .status = CHECK_CONDITION,
+        .sense = { .key = ILLEGAL_REQUEST, .asc = 0x21 },
+    }, {
+        .name = "read_12.rdprotect",
+        .cdb = { 0xA8, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .status = CHECK_CONDITION,
+        .sense = { .key = ILLEGAL_REQUEST, .asc = 0x24 },
+    },
+
+    /* READ (16) */
+    {
+        .name = "read_16.0blocks",
+        .cdb = { 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                 0x00, 0x00, 0x00, 0x00 },
+        .data_len = 512,
+        .get_data = zero_data,
+    }, {
+        .name = "read_16.first_sector",
+        .cdb = { 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .sector = 0,
+        .get_data = sector_data,
+    }, {
+        .name = "read_16.second_sector",
+        .cdb = { 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+                 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .sector = 1,
+        .get_data = sector_data,
+    }, {
+        .name = "read_16.last_sector",
+        .cdb = { 0x88, 0x00, MAKE_LBA8(IMG_SIZE / 512 - 1),
+                 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .sector = IMG_SIZE / 512 - 1,
+        .get_data = sector_data,
+    }, {
+        .name = "read_16.4k",
+        .cdb = { 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+                 0x00, 0x00, 0x00, 0x08 },
+        .data_len = 512 * 8,
+        .sector = 8,
+        .get_data = sector_data,
+    }, {
+        .name = "read_16.unaligned_4k",
+        .cdb = { 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+                 0x00, 0x00, 0x00, 0x08 },
+        .data_len = 512 * 8,
+        .sector = 1,
+        .get_data = sector_data,
+    }, {
+        .name = "read_16.big",
+        .cdb = { 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                 0x00, 0x00, 0x08, 0x00 },
+        .data_len = 512 * 0x800,
+        .sector = 0,
+        .get_data = sector_data,
+    }, {
+        .name = "read_16.buffer_larger_than_xfer",
+        .cdb = { 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 1024,
+        .sector = 0,
+        .get_data = sector_data,
+    }, {
+        .name = "read_16.beyond_eol",
+        .cdb = { 0x88, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .status = CHECK_CONDITION,
+        .sense = { .key = ILLEGAL_REQUEST, .asc = 0x21 },
+    }, {
+        .name = "read_16.rdprotect",
+        .cdb = { 0x88, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .status = CHECK_CONDITION,
+        .sense = { .key = ILLEGAL_REQUEST, .asc = 0x24 },
+    },
+};
+
+static void test_one_command(QVirtIOSCSI *vs, const QSCSIDiskTestData *data)
+{
+    uint8_t *buf;
+    const SCSISense *sense = data->sense.key ? &data->sense : NULL;
+
+    buf = g_malloc0(data->data_len);
+    if (data->get_data) {
+        data->get_data(buf, data->data_len, data);
+    }
+    if (data->is_write) {
+        run_cmd(vs, data->cdb, NULL, 0, buf, data->data_len,
+                data->response, data->status, sense);
+    } else {
+        run_cmd(vs, data->cdb, buf, data->data_len, NULL, 0,
+                data->response, data->status, sense);
+    }
+    g_free(buf);
+}
+
+static void test_scsi_disk_commands(void)
+{
+    QVirtIOSCSI *vs = NULL;
+    int fd, i;
+
+    fd = mkstemp(trace_file);
+    g_assert_cmpint(fd, >=, 0);
+    close(fd);
+
+    for (i = 0; i < ARRAY_SIZE(scsi_disk_test_data); i++) {
+        const QSCSIDiskTestData *p = &scsi_disk_test_data[i];
+
+        if (p->restart && vs) {
+            unlink(trace_file);
+            qvirtio_scsi_pci_free(vs);
+            qvirtio_scsi_stop();
+            vs = NULL;
+        }
+
+        if (!vs) {
+            qvirtio_scsi_start("-drive file=null-co://,if=none,id=dr1,format=raw,"
+                               "file.read-synthetic=on,file.size=1T "
+                               "-device scsi-disk,drive=dr1,lun=0,scsi-id=1 "
+                               "-d trace:null_* -D %s %s",
+                               trace_file,
+                               p->extra_opts ? : "");
+            vs = qvirtio_scsi_pci_init(PCI_SLOT);
+        }
+
+        DPRINTF("TEST: %s\n", p->name);
+        test_one_command(vs, p);
+
+        if (p->restart) {
+            qvirtio_scsi_pci_free(vs);
+            qvirtio_scsi_stop();
+            vs = NULL;
+        }
+        if (p->verify) {
+            p->verify(vs, p);
+        }
+    }
+    if (vs) {
+        qvirtio_scsi_pci_free(vs);
+        qvirtio_scsi_stop();
+    }
+    unlink(trace_file);
+}
+
 /* Test WRITE SAME with the lba not aligned */
 static void test_unaligned_write_same(void)
 {
@@ -326,6 +686,8 @@ int main(int argc, char **argv)
     qtest_add_func("/virtio/scsi/pci/hotplug", hotplug);
     qtest_add_func("/virtio/scsi/pci/scsi-disk/unaligned-write-same",
                    test_unaligned_write_same);
+    qtest_add_func("/virtio/scsi/pci/scsi-disk/commands",
+                   test_scsi_disk_commands);
 
     return g_test_run();
 }
