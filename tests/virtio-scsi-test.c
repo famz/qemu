@@ -184,14 +184,6 @@ static QVirtIOSCSI *qvirtio_scsi_pci_init(int slot)
     return vs;
 }
 
-/* Tests only initialization so far. TODO: Replace with functional tests */
-static void pci_nop(void)
-{
-    qvirtio_scsi_start("-drive id=drv0,if=none,file=/dev/null,format=raw "
-                       "-device scsi-hd,drive=drv0");
-    qvirtio_scsi_stop();
-}
-
 static void hotplug(void)
 {
     QDict *response;
@@ -252,7 +244,6 @@ static void test_unaligned_write_same(void)
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
-    qtest_add_func("/virtio/scsi/pci/nop", pci_nop);
     qtest_add_func("/virtio/scsi/pci/hotplug", hotplug);
     qtest_add_func("/virtio/scsi/pci/scsi-disk/unaligned-write-same",
                    test_unaligned_write_same);
