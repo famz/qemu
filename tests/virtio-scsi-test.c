@@ -98,9 +98,9 @@ static uint64_t qvirtio_scsi_alloc(QVirtIOSCSI *vs, size_t alloc_size,
 }
 
 static uint8_t virtio_scsi_do_command(QVirtIOSCSI *vs, const uint8_t *cdb,
-                                      const uint8_t *data_in,
+                                      uint8_t *data_in,
                                       size_t data_in_len,
-                                      uint8_t *data_out, size_t data_out_len,
+                                      const uint8_t *data_out, size_t data_out_len,
                                       struct virtio_scsi_cmd_resp *resp_out)
 {
     QVirtQueue *vq;
@@ -144,6 +144,9 @@ static uint8_t virtio_scsi_do_command(QVirtIOSCSI *vs, const uint8_t *cdb,
 
     if (resp_out) {
         memread(resp_addr, resp_out, sizeof(*resp_out));
+    }
+    if (data_in_len) {
+        memread(data_in_addr, data_in, data_in_len);
     }
 
     guest_free(vs->alloc, req_addr);
