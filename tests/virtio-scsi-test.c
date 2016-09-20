@@ -21,6 +21,21 @@
 #include "standard-headers/linux/virtio_pci.h"
 #include "standard-headers/linux/virtio_scsi.h"
 
+#define HEXDUMP 0
+#define DEBUG_QTEST 0
+
+#if DEBUG_QTEST
+#  define DPRINTF(fmt, ...) \
+    do {                                                           \
+        printf(fmt, ## __VA_ARGS__);           \
+    } while (0)
+#else
+static inline GCC_FMT_ATTR(1, 2) int DPRINTF(const char *fmt, ...)
+{
+    return 0;
+}
+#endif
+
 #define PCI_SLOT                0x02
 #define PCI_FN                  0x00
 #define QVIRTIO_SCSI_TIMEOUT_US (1 * 1000 * 1000)
@@ -213,6 +228,70 @@ static void hotplug(void)
     qvirtio_scsi_stop();
 }
 
+/* XXX: Move to common scsi code, and deduplicate with scsi-bus.c. */
+int scsi_cdb_length(uint8_t *buf) {
+    int cdb_len;
+
+    switch (buf[0] >> 5) {
+    case 0:
+        cdb_len = 6;
+        break;
+    case 1:
+    case 2:
+        cdb_len = 10;
+        break;
+    case 4:
+        cdb_len = 16;
+        break;
+    case 5:
+        cdb_len = 12;
+        break;
+    default:
+        cdb_len = VIRTIO_SCSI_CDB_SIZE;
+    }
+    return cdb_len;
+}
+
+static void run_cmd(QVirtIOSCSI *vs, const uint8_t *cdb,
+                    uint8_t *readcmp, int readlen,
+                    uint8_t *writebuf, int writelen,
+                    int response, int status,
+                    const SCSISense *sense)
+{
+    int i;
+    struct virtio_scsi_cmd_resp resp = { 0 };
+    uint8_t *readbuf = NULL;
+
+    DPRINTF("CDB: ");
+    for (i = 0; i < scsi_cdb_length((uint8_t *)cdb); ++i) {
+        DPRINTF("%02X ", cdb[i]);
+    }
+    DPRINTF("\n");
+
+    if (readlen) {
+        readbuf = g_malloc0(readlen);
+    }
+    g_assert_cmphex(response, ==,
+                    virtio_scsi_do_command(vs, cdb, readlen ? readbuf : NULL,
+                                           readlen, writebuf, writelen, &resp));
+    g_assert_cmphex(resp.status, ==, status);
+    if (response == VIRTIO_SCSI_S_OK && status == GOOD && readlen) {
+        if (HEXDUMP) {
+            fprintf(stderr, "\n");
+            qemu_hexdump((char *)readbuf, stderr, "readbuf", readlen);
+            qemu_hexdump((char *)readcmp, stderr, "readcmp", readlen);
+        }
+        g_assert_cmpmem(readcmp, readlen, readbuf, readlen);
+    }
+    if (sense) {
+        g_assert_cmphex(resp.sense[0], ==, 0x70);
+        g_assert_cmphex(resp.sense[2], ==, sense->key);
+        g_assert_cmphex(resp.sense[12], ==, sense->asc);
+        g_assert_cmphex(resp.sense[13], ==, sense->ascq);
+    }
+    g_free(readbuf);
+}
+
 /* Test WRITE SAME with the lba not aligned */
 static void test_unaligned_write_same(void)
 {
@@ -231,11 +310,8 @@ static void test_unaligned_write_same(void)
                        "-device scsi-disk,drive=dr1,lun=0,scsi-id=1");
     vs = qvirtio_scsi_pci_init(PCI_SLOT);
 
-    g_assert_cmphex(0, ==,
-        virtio_scsi_do_command(vs, write_same_cdb_1, NULL, 0, buf1, 512, NULL));
-
-    g_assert_cmphex(0, ==,
-        virtio_scsi_do_command(vs, write_same_cdb_2, NULL, 0, buf2, 512, NULL));
+    run_cmd(vs, write_same_cdb_1, NULL, 0, buf1, 512, 0, GOOD, NULL);
+    run_cmd(vs, write_same_cdb_2, NULL, 0, buf2, 512, 0, GOOD, NULL);
 
     qvirtio_scsi_pci_free(vs);
     qvirtio_scsi_stop();
