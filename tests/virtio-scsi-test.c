@@ -11,6 +11,7 @@
 #include "qemu/osdep.h"
 #include "libqtest.h"
 #include "block/scsi.h"
+#include "libqos/libqos.h"
 #include "libqos/virtio.h"
 #include "libqos/virtio-pci.h"
 #include "libqos/pci-pc.h"
@@ -256,6 +257,28 @@ static void hotplug(void)
     qvirtio_scsi_stop();
 }
 
+static bool verify_fua_cb(int idx, const char *event,
+                          const char *params, void *opaque)
+{
+    int *cnt = opaque;
+
+    if (!strcmp(event, "bdrv_aio_flush") ||
+        !strcmp(event, "null_co_flush") ||
+        !strcmp(event, "null_aio_flush")) {
+        (*cnt)++;
+        return false;
+    }
+    return true;
+}
+
+static void verify_fua(QVirtIOSCSI *vs, const QSCSIDiskTestData *data)
+{
+    int flush_cnt = 0;
+
+    parse_trace_file(trace_file, verify_fua_cb, &flush_cnt);
+    g_assert_cmpint(flush_cnt, >, 0);
+}
+
 /* XXX: Move to common scsi code, and deduplicate with scsi-bus.c. */
 int scsi_cdb_length(uint8_t *buf) {
     int cdb_len;
@@ -450,6 +473,15 @@ static const QSCSIDiskTestData scsi_disk_test_data[] = {
         .data_len = 512,
         .status = CHECK_CONDITION,
         .sense = { .key = ILLEGAL_REQUEST, .asc = 0x24 },
+    }, {
+        .name = "read_10.fua",
+        .cdb = { 0x28, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00 },
+        .data_len = 512,
+        .sector = 0,
+        .get_data = sector_data,
+        .restart = true,
+        .extra_opts = "-d trace:bdrv_aio_flush",
+        .verify = verify_fua,
     },
 
     /* READ (12) */
@@ -513,6 +545,15 @@ static const QSCSIDiskTestData scsi_disk_test_data[] = {
         .data_len = 512,
         .status = CHECK_CONDITION,
         .sense = { .key = ILLEGAL_REQUEST, .asc = 0x24 },
+    }, {
+        .name = "read_12.fua",
+        .cdb = { 0xA8, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .sector = 0,
+        .get_data = sector_data,
+        .restart = true,
+        .extra_opts = "-d trace:bdrv_aio_flush",
+        .verify = verify_fua,
     },
 
     /* READ (16) */
@@ -585,6 +626,16 @@ static const QSCSIDiskTestData scsi_disk_test_data[] = {
         .data_len = 512,
         .status = CHECK_CONDITION,
         .sense = { .key = ILLEGAL_REQUEST, .asc = 0x24 },
+    }, {
+        .name = "read_16.fua",
+        .cdb = { 0x88, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                 0x00, 0x00, 0x00, 0x01 },
+        .data_len = 512,
+        .sector = 0,
+        .get_data = sector_data,
+        .restart = true,
+        .extra_opts = "-d trace:bdrv_aio_flush",
+        .verify = verify_fua,
     },
 };
 
