@@ -144,7 +144,9 @@ gcov-files-virtio-y += i386-softmmu/hw/block/virtio-blk.c
 check-qtest-virtio-y += tests/virtio-rng-test$(EXESUF)
 gcov-files-virtio-y += hw/virtio/virtio-rng.c
 check-qtest-virtio-y += tests/virtio-scsi-test$(EXESUF)
-gcov-files-virtio-y += i386-softmmu/hw/scsi/virtio-scsi.c
+gcov-files-virtio-y += i386-softmmu/hw/scsi/virtio-scsi.c \
+                       i386-softmmu/hw/scsi/scsi-bus.c \
+                       i386-softmmu/hw/scsi/scsi-disk.c
 ifeq ($(CONFIG_VIRTIO)$(CONFIG_VIRTFS)$(CONFIG_PCI),yyy)
 check-qtest-virtio-y += tests/virtio-9p-test$(EXESUF)
 gcov-files-virtio-y += hw/9pfs/virtio-9p.c

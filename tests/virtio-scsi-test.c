@@ -25,8 +25,7 @@
 
 #define IMG_SIZE (1ULL << 40)
 
-#define HEXDUMP 0
-#define DEBUG_QTEST 0
+#define DEBUG_QTEST 1
 
 #if DEBUG_QTEST
 #  define DPRINTF(fmt, ...) \
@@ -327,7 +326,7 @@ static void run_cmd(QVirtIOSCSI *vs, const uint8_t *cdb,
                                            readlen, writebuf, writelen, &resp));
     g_assert_cmphex(resp.status, ==, status);
     if (response == VIRTIO_SCSI_S_OK && status == GOOD && readlen) {
-        if (HEXDUMP) {
+        if (DEBUG_QTEST && memcmp(readbuf, readcmp, readlen)) {
             fprintf(stderr, "\n");
             qemu_hexdump((char *)readbuf, stderr, "readbuf", readlen);
             qemu_hexdump((char *)readcmp, stderr, "readcmp", readlen);
@@ -354,6 +353,8 @@ struct QSCSIDiskTestData {
     bool restart;               /* Should QEMU be start/stop for the case?  */
     const char *extra_opts;     /* Extra options to run QEMU if restart is
                                    true. */
+    const char *dev_extra_opts; /* Extra options for the scsi-disk device if
+                                   restart is true. */
     SCSISense sense;            /* If non-zero, compare with the result sense
                                    data. */
 
@@ -383,6 +384,77 @@ static void sector_data(uint8_t *buf, int len, const QSCSIDiskTestData *data)
         buf += 512;
         len -= 512;
     }
+}
+
+static void inquiry_standard_data(uint8_t *buf, int len,
+                                  const QSCSIDiskTestData *data)
+{
+
+    static const uint8_t expected[] = {
+        0x00, 0x00, 0x05, 0x12, 0xfb, 0x00, 0x00, 0x12,
+        0x51, 0x54, 0x45, 0x53, 0x54, 0x20, 0x20, 0x20,
+        0x53, 0x43, 0x53, 0x49, 0x44, 0x49, 0x53, 0x4b,
+        0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+        0x32, 0x2e, 0x35, 0x2b,
+    };
+    memcpy(buf, expected, MIN(len, sizeof(expected)));
+}
+
+static void inquiry_00_data(uint8_t *buf, int len,
+                            const QSCSIDiskTestData *data)
+{
+
+    static const uint8_t expected[] = {
+        0x00, 0x00, 0x00, 0x04, 0x00, 0x83, 0xB0, 0xB2,
+    };
+    memcpy(buf, expected, MIN(len, sizeof(expected)));
+}
+
+static void inquiry_80_data(uint8_t *buf, int len,
+                            const QSCSIDiskTestData *data)
+{
+
+    static const uint8_t expected[] = {
+        0x00, 0x80, 0x00, 0x08, 0x31, 0x32, 0x33, 0x34,
+        0x35, 0x36, 0x37, 0x38,
+    };
+    memcpy(buf, expected, MIN(len, sizeof(expected)));
+}
+
+static void inquiry_83_data(uint8_t *buf, int len,
+                            const QSCSIDiskTestData *data)
+{
+
+    static const uint8_t expected[] = {
+        0x00, 0x83, 0x00, 0x07, 0x02, 0x00, 0x00, 0x03,
+        0x64, 0x72, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    memcpy(buf, expected, MIN(len, sizeof(expected)));
+}
+
+static void inquiry_b0_data(uint8_t *buf, int len,
+                            const QSCSIDiskTestData *data)
+{
+
+    static const uint8_t expected[] = {
+        0x00, 0xb0, 0x00, 0x3c, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x3f, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x08,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x3f, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
+    };
+    memcpy(buf, expected, MIN(len, sizeof(expected)));
+}
+
+static void inquiry_b2_data(uint8_t *buf, int len,
+                            const QSCSIDiskTestData *data)
+{
+
+    static const uint8_t expected[] = {
+        0x00, 0xb2, 0x00, 0x04, 0x00, 0xe0, 0x02, 0x00,
+    };
+    memcpy(buf, expected, MIN(len, sizeof(expected)));
 }
 
 static const QSCSIDiskTestData scsi_disk_test_data[] = {
@@ -923,6 +995,53 @@ static const QSCSIDiskTestData scsi_disk_test_data[] = {
         .is_write = true,
         .verify = verify_fua,
     },
+
+    /* INQUIRY (16) */
+    {
+        .name = "inquiry.standard",
+        .cdb = { 0x12, 0x00, 0x00, 0x01, 0x00 },
+        .data_len = 512,
+        .get_data = inquiry_standard_data,
+    }, {
+        .name = "inquiry.0x00",
+        .cdb = { 0x12, 0x01, 0x00, 0x01, 0x00 },
+        .data_len = 512,
+        .get_data = inquiry_00_data,
+    }, {
+        .name = "inquiry.0x80",
+        .cdb = { 0x12, 0x01, 0x80, 0x01, 0x00 },
+        .data_len = 512,
+        .restart = true,
+        .dev_extra_opts = ",serial=12345678",
+        .get_data = inquiry_80_data,
+    }, {
+        .name = "inquiry.0x80.no_serial",
+        .cdb = { 0x12, 0x01, 0x80, 0x01, 0x00 },
+        .data_len = 512,
+        .status = CHECK_CONDITION,
+        .sense = { .key = ILLEGAL_REQUEST, .asc = 0x24 },
+    }, {
+        .name = "inquiry.0x83",
+        .cdb = { 0x12, 0x01, 0x83, 0x01, 0x00 },
+        .data_len = 512,
+        .get_data = inquiry_83_data,
+    }, {
+        .name = "inquiry.0xB0",
+        .cdb = { 0x12, 0x01, 0xB0, 0x01, 0x00 },
+        .data_len = 512,
+        .get_data = inquiry_b0_data,
+    }, {
+        .name = "inquiry.0xB2",
+        .cdb = { 0x12, 0x01, 0xB2, 0x01, 0x00 },
+        .data_len = 512,
+        .get_data = inquiry_b2_data,
+    }, {
+        .name = "inquiry.invalid_page",
+        .cdb = { 0x12, 0x01, 0xff, 0x01, 0x00 },
+        .data_len = 512,
+        .status = CHECK_CONDITION,
+        .sense = { .key = ILLEGAL_REQUEST, .asc = 0x24 },
+    },
 };
 
 static void test_one_command(QVirtIOSCSI *vs, const QSCSIDiskTestData *data)
@@ -967,8 +1086,10 @@ static void test_scsi_disk_commands(void)
             qvirtio_scsi_start("-drive file=null-co://,if=none,id=dr1,format=raw,"
                                "file.read-synthetic=on,file.write-verify=on,"
                                "file.size=1T "
-                               "-device scsi-disk,drive=dr1,lun=0,scsi-id=1 "
+                               "-device scsi-disk,drive=dr1,lun=0,scsi-id=1,"
+                               "product=SCSIDISK,vendor=QTEST%s "
                                "-d trace:null_* -D %s %s",
+                               p->dev_extra_opts ? : "",
                                trace_file,
                                p->extra_opts ? : "");
             vs = qvirtio_scsi_pci_init(PCI_SLOT);
