@@ -26,6 +26,7 @@
 #include "sysemu/block-backend.h"
 #include "block/aio.h"
 #include "block/scsi.h"
+#include "scsi/tcmu.h"
 #include "block/tcmu.h"
 #include "qemu/main-loop.h"
 #include "qmp-commands.h"
@@ -225,10 +226,11 @@ static void qemu_tcmu_errp(const char *fmt, ...)
     va_end(ap);
 }
 
-static void qemu_tcmu_start(const char *subtype, Error **errp)
+void qemu_tcmu_start(const char *subtype, Error **errp)
 {
     int fd;
 
+    printf("tcmu start\n");
     if (handler_state) {
         error_setg(errp, "TCMU handler already started");
         return;
@@ -244,6 +246,7 @@ static void qemu_tcmu_start(const char *subtype, Error **errp)
     }
     fd = tcmulib_get_master_fd(handler_state->tcmulib_ctx);
     qemu_set_fd_handler(fd, qemu_tcmu_master_read, NULL, handler_state);
+    printf("register\n");
     tcmulib_register(handler_state->tcmulib_ctx);
     return;
 fail:
@@ -251,20 +254,21 @@ fail:
     handler_state = NULL;
 }
 
-static void qemu_tcmu_add(BlockBackend *blk, bool writable, Error **errp)
+TCMUExport *qemu_tcmu_export(BlockBackend *blk, bool writable, Error **errp)
 {
     TCMUExport *exp;
 
     exp = qemu_tcmu_lookup(blk);
     if (exp) {
         error_setg(errp, "Block device already added");
-        return;
+        return NULL;
     }
     exp = g_new0(TCMUExport, 1);
     exp->blk = blk;
     blk_ref(blk);
     exp->writable = writable;
     QLIST_INSERT_HEAD(&tcmu_exports, exp, next);
+    return exp;
 }
 
 __attribute__((constructor))
@@ -272,7 +276,7 @@ static void qemu_tcmu_init(void)
 {
     static TCMUHandler handler = (TCMUHandler) {
         .start = qemu_tcmu_start,
-        .add   = qemu_tcmu_add,
+        .add   = qemu_tcmu_export,
     };
     qemu_tcmu_handler_register(&handler);
 }

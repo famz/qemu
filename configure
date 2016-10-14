@@ -4695,6 +4695,9 @@ if test "$want_tools" = "yes" ; then
     tools="qemu-nbd\$(EXESUF) $tools"
     tools="ivshmem-client\$(EXESUF) ivshmem-server\$(EXESUF) $tools"
   fi
+  if [ "$linux" = "yes" -a "$tcmu" = "yes" ] ; then
+    tools="qemu-tcmu\$(EXESUF) $tools"
+  fi
 fi
 if test "$softmmu" = yes ; then
   if test "$virtfs" != no ; then
