@@ -97,12 +97,6 @@ static void version(const char *name)
 
 static enum { RUNNING, TERMINATE, TERMINATING, TERMINATED } state;
 
-static void termsig_handler(int signum)
-{
-    atomic_cmpxchg(&state, RUNNING, TERMINATE);
-    qemu_notify_event();
-}
-
 static QemuOptsList file_opts = {
     .name = "file",
     .implied_opt_name = "file",
@@ -166,14 +160,6 @@ int main(int argc, char **argv)
     bool writethrough = true;
     char *trace_file = NULL;
     const char *subtype = "qemu";
-
-    /* The client thread uses SIGTERM to interrupt the server.  A signal
-     * handler ensures that "qemu-nbd -v -c" exits with a nice status code.
-     */
-    struct sigaction sa_sigterm;
-    memset(&sa_sigterm, 0, sizeof(sa_sigterm));
-    sa_sigterm.sa_handler = termsig_handler;
-    sigaction(SIGTERM, &sa_sigterm, NULL);
 
     module_call_init(MODULE_INIT_TRACE);
     qcrypto_init(&error_fatal);
@@ -354,6 +340,7 @@ int main(int argc, char **argv)
                           argv[optind]);
         exit(EXIT_FAILURE);
     }
+    monitor_add_blk(blk, "drive", &error_fatal);
     bs = blk_bs(blk);
 
     blk_set_enable_write_cache(blk, !writethrough);
@@ -373,11 +360,11 @@ int main(int argc, char **argv)
     }
 
     bs->detect_zeroes = detect_zeroes;
-    /*exp = qemu_tcmu_export(blk, flags & BDRV_O_RDWR, &local_err);*/
-    /*if (!exp) {*/
-        /*error_reportf_err(local_err, "Failed to create export: ");*/
-        /*exit(EXIT_FAILURE);*/
-    /*}*/
+    exp = qemu_tcmu_export(blk, flags & BDRV_O_RDWR, &local_err);
+    if (!exp) {
+        error_reportf_err(local_err, "Failed to create export: ");
+        exit(EXIT_FAILURE);
+    }
 
     /* now when the initialization is (almost) complete, chdir("/")
      * to free any busy filesystems */
