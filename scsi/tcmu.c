@@ -49,47 +49,104 @@ static QLIST_HEAD(, TCMUExport) tcmu_exports =
 
 static TCMUHandlerState *handler_state;
 
-static int qemu_tcmu_handle_cmd(TCMUExport *exp, uint8_t *cdb,
-                                struct iovec *iovec, size_t iov_cnt,
-                                uint8_t *sense)
+#define ASCQ_INVALID_FIELD_IN_CDB 0x2400
+
+typedef struct {
+    struct tcmulib_cmd *cmd;
+    TCMUExport *exp;
+    QEMUIOVector *qiov;
+} TCMURequest;
+
+static void qemu_tcmu_aio_cb(void *opaque, int ret)
+{
+    TCMURequest *req = opaque;
+    printf("qemu tcmu aio cb\n");
+    tcmulib_command_complete(req->exp->tcmu_dev, req->cmd,
+                             ret ? CHECK_CONDITION : GOOD);
+    tcmulib_processing_complete(req->exp->tcmu_dev);
+    g_free(req);
+}
+
+static inline TCMURequest *qemu_tcmu_req_new(TCMUExport *exp,
+                                             struct tcmulib_cmd *cmd,
+                                             QEMUIOVector *qiov)
+{
+    TCMURequest *req = g_new(TCMURequest, 1);
+    *req = (TCMURequest) {
+        .exp = exp,
+        .cmd = cmd,
+        .qiov = qiov,
+    };
+    return req;
+}
+
+static int qemu_tcmu_handle_cmd(TCMUExport *exp, struct tcmulib_cmd *cmd)
 {
 
-    uint8_t cmd;
+    uint8_t *cdb = cmd->cdb;
+    /* TODO: block size? */
+    uint64_t offset = tcmu_get_lba(cdb) << BDRV_SECTOR_BITS;
+    QEMUIOVector *qiov;
 
-    cmd = cdb[0];
     printf("tcmu handle cmd: 0x%x\n", cdb[0]);
-    switch (cmd) {
+    switch (cdb[0]) {
         case INQUIRY:
             return tcmu_emulate_inquiry(exp->tcmu_dev, cdb,
-                                        iovec, iov_cnt, sense);
+                                        cmd->iovec, cmd->iov_cnt,
+                                        cmd->sense_buf);
         case TEST_UNIT_READY:
-            return tcmu_emulate_test_unit_ready(cdb, iovec, iov_cnt, sense);
+            return tcmu_emulate_test_unit_ready(cdb, cmd->iovec, cmd->iov_cnt,
+                                                cmd->sense_buf);
         case SERVICE_ACTION_IN_16:
             if (cdb[1] == SAI_READ_CAPACITY_16) {
                 return tcmu_emulate_read_capacity_16(1 << 20,
                                                      512,
-                                                     cdb, iovec,
-                                                     iov_cnt, sense);
+                                                     cmd->cdb, cmd->iovec,
+                                                     cmd->iov_cnt,
+                                                     cmd->sense_buf);
             } else {
                 return TCMU_NOT_HANDLED;
             }
         case MODE_SENSE:
         case MODE_SENSE_10:
-            return tcmu_emulate_mode_sense(cdb, iovec, iov_cnt, sense);
+            return tcmu_emulate_mode_sense(cdb, cmd->iovec,
+                                           cmd->iov_cnt, cmd->sense_buf);
         case MODE_SELECT:
         case MODE_SELECT_10:
-            return tcmu_emulate_mode_select(cdb, iovec, iov_cnt, sense);
+            return tcmu_emulate_mode_select(cdb, cmd->iovec,
+                                            cmd->iov_cnt, cmd->sense_buf);
+        case SYNCHRONIZE_CACHE:
+        case SYNCHRONIZE_CACHE_16:
+            if (cdb[1] & 0x2) {
+                return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
+                                           ASCQ_INVALID_FIELD_IN_CDB,
+                                           NULL);
+            } else {
+                blk_aio_flush(exp->blk, qemu_tcmu_aio_cb,
+                              qemu_tcmu_req_new(exp, cmd, NULL));
+                return TCMU_ASYNC_HANDLED;
+            }
+            break;
         case READ_6:
         case READ_10:
         case READ_12:
         case READ_16:
-            return GOOD;
+            qiov = g_new(QEMUIOVector, 1);
+            qemu_iovec_init_external(qiov, cmd->iovec, cmd->iov_cnt);
+            printf("read at %ld\n", offset);
+            blk_aio_preadv(exp->blk, offset, qiov, 0, qemu_tcmu_aio_cb,
+                           qemu_tcmu_req_new(exp, cmd, qiov));
+            return TCMU_ASYNC_HANDLED;
 
         case WRITE_6:
         case WRITE_10:
         case WRITE_12:
         case WRITE_16:
-            return GOOD;
+            qiov = g_new(QEMUIOVector, 1);
+            qemu_iovec_init_external(qiov, cmd->iovec, cmd->iov_cnt);
+            blk_aio_pwritev(exp->blk, offset, qiov, 0, qemu_tcmu_aio_cb,
+                            qemu_tcmu_req_new(exp, cmd, qiov));
+            return TCMU_ASYNC_HANDLED;
 
         default:
             printf("unknown command %x\n", cdb[0]);
@@ -107,9 +164,10 @@ static void qemu_tcmu_dev_event_handler(void *opaque)
     tcmulib_processing_start(dev);
 
     while ((cmd = tcmulib_get_next_command(dev)) != NULL) {
-        int ret = qemu_tcmu_handle_cmd(exp, cmd->cdb, cmd->iovec, cmd->iov_cnt,
-                                       cmd->sense_buf);
-        tcmulib_command_complete(dev, cmd, ret);
+        int ret = qemu_tcmu_handle_cmd(exp, cmd);
+        if (ret != TCMU_ASYNC_HANDLED) {
+            tcmulib_command_complete(dev, cmd, ret);
+        }
     }
 
     tcmulib_processing_complete(dev);
@@ -280,4 +338,3 @@ static void qemu_tcmu_init(void)
     };
     qemu_tcmu_handler_register(&handler);
 }
-
