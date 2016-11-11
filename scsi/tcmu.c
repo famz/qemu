@@ -114,6 +114,17 @@ static int qemu_tcmu_handle_cmd(TCMUExport *exp, struct tcmulib_cmd *cmd)
         } else {
             return TCMU_NOT_HANDLED;
         }
+    case READ_CAPACITY_10:
+	if ((cdb[1] & 0x01) || (cdb[8] & 0x01))
+	    /* Reserved bits for MM logical units */
+	    return tcmu_set_sense_data(cmd->sense_buf, ILLEGAL_REQUEST,
+				       0x2400, //ASC_INVALID_FIELD_IN_CDB
+				       NULL);
+	else
+	    return tcmu_emulate_read_capacity_10(blk_getlength(exp->blk) / 512,
+						 512,
+						 cmd->cdb, cmd->iovec,
+						 cmd->iov_cnt, cmd->sense_buf);
     case MODE_SENSE:
     case MODE_SENSE_10:
         return tcmu_emulate_mode_sense(cdb, cmd->iovec,
@@ -122,6 +133,8 @@ static int qemu_tcmu_handle_cmd(TCMUExport *exp, struct tcmulib_cmd *cmd)
     case MODE_SELECT_10:
         return tcmu_emulate_mode_select(cdb, cmd->iovec,
                                         cmd->iov_cnt, cmd->sense_buf);
+    case START_STOP:
+	return tcmu_emulate_start_stop(exp->tcmu_dev, cmd->cdb, cmd->sense_buf);
     case SYNCHRONIZE_CACHE:
     case SYNCHRONIZE_CACHE_16:
         if (cdb[1] & 0x2) {
