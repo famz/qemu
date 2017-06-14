@@ -790,6 +790,15 @@ static void virtio_scsi_hotplug(HotplugHandler *hotplug_dev, DeviceState *dev,
     VirtIOSCSI *s = VIRTIO_SCSI(vdev);
     SCSIDevice *sd = SCSI_DEVICE(dev);
 
+    /* XXX: Remove this check once block backend is capable of handling
+     * AioContext change upon eject/insert.
+     * s->ctx is NULL if ioeventfd is off, s->ctx is qemu_get_aio_context() if
+     * data plane is not used, both cases are safe for scsi-cd. */
+    if (s->ctx && s->ctx != qemu_get_aio_context() &&
+        object_dynamic_cast(OBJECT(dev), "scsi-cd")) {
+        error_setg(errp, "scsi-cd is not supported by data plane");
+        return;
+    }
     if (s->ctx && !s->dataplane_fenced) {
         if (blk_op_is_blocked(sd->conf.blk, BLOCK_OP_TYPE_DATAPLANE, errp)) {
             return;
