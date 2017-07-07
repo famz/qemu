@@ -39,4 +39,16 @@ char *iothread_get_id(IOThread *iothread);
 AioContext *iothread_get_aio_context(IOThread *iothread);
 void iothread_stop_all(void);
 
+#ifndef _WIN32
+/* Benchmark results from 2016 on NVMe SSD drives show max polling times around
+ * 16-32 microseconds yield IOPS improvements for both iodepth=1 and iodepth=32
+ * workloads.
+ */
+#define IOTHREAD_POLL_MAX_NS_DEFAULT 32768ULL
+#else
+/* Our aio implementation on Windows doesn't support polling, don't enable it
+ * by default. */
+#define IOTHREAD_POLL_MAX_NS_DEFAULT 0
+#endif
+
 #endif /* IOTHREAD_H */

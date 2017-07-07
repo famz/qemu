@@ -403,5 +403,7 @@ void aio_context_setup(AioContext *ctx)
 void aio_context_set_poll_params(AioContext *ctx, AioContextPollParams params,
                                  Error **errp)
 {
-    error_setg(errp, "AioContext polling is not implemented on Windows");
+    if (params.max_ns) {
+        error_setg(errp, "AioContext polling is not implemented on Windows");
+    }
 }
