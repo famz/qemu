@@ -32,12 +32,29 @@ typedef struct {
     AioContextPollParams poll_params;
 } IOThread;
 
+#define TYPE_IOTHREAD_GROUP "iothread-group"
+
+typedef struct {
+    Object parent_obj;
+
+    int running_threads;
+    AioContext *ctx;
+    AioContextPollParams poll_params;
+    /* Number of iothreads */
+    int64_t size;
+    IOThread **iothreads;
+} IOThreadGroup;
+
 #define IOTHREAD(obj) \
    OBJECT_CHECK(IOThread, obj, TYPE_IOTHREAD)
+
+#define IOTHREAD_GROUP(obj) \
+   OBJECT_CHECK(IOThreadGroup, obj, TYPE_IOTHREAD_GROUP)
 
 char *iothread_get_id(IOThread *iothread);
 void iothread_start(IOThread *iothread, const char *thread_name, Error **errp);
 AioContext *iothread_get_aio_context(IOThread *iothread);
+AioContext *iothread_group_get_aio_context(IOThreadGroup *group);
 void iothread_stop_all(void);
 
 #ifndef _WIN32
