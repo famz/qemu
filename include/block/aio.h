@@ -551,17 +551,23 @@ static inline bool aio_context_in_iothread(AioContext *ctx)
  */
 void aio_context_setup(AioContext *ctx);
 
+typedef struct {
+    /* how long to busy poll for, in nanoseconds. 0 means don't poll */
+    int64_t max_ns;
+    /* polling time growth factor */
+    int64_t grow;
+    /* polling time shrink factor */
+    int64_t shrink;
+} AioContextPollParams;
+
 /**
  * aio_context_set_poll_params:
  * @ctx: the aio context
- * @max_ns: how long to busy poll for, in nanoseconds
- * @grow: polling time growth factor
- * @shrink: polling time shrink factor
+ * @params: the new params to update to
  *
- * Poll mode can be disabled by setting poll_max_ns to 0.
+ * Poll mode can be disabled by setting params.max_ns to 0.
  */
-void aio_context_set_poll_params(AioContext *ctx, int64_t max_ns,
-                                 int64_t grow, int64_t shrink,
+void aio_context_set_poll_params(AioContext *ctx, AioContextPollParams params,
                                  Error **errp);
 
 #endif

@@ -81,7 +81,7 @@ static void iothread_instance_init(Object *obj)
 {
     IOThread *iothread = IOTHREAD(obj);
 
-    iothread->poll_max_ns = IOTHREAD_POLL_MAX_NS_DEFAULT;
+    iothread->poll_params.max_ns = IOTHREAD_POLL_MAX_NS_DEFAULT;
 }
 
 static void iothread_instance_finalize(Object *obj)
@@ -111,10 +111,7 @@ static void iothread_complete(UserCreatable *obj, Error **errp)
         return;
     }
 
-    aio_context_set_poll_params(iothread->ctx,
-                                iothread->poll_max_ns,
-                                iothread->poll_grow,
-                                iothread->poll_shrink,
+    aio_context_set_poll_params(iothread->ctx, iothread->poll_params,
                                 &local_error);
     if (local_error) {
         error_propagate(errp, local_error);
@@ -151,13 +148,13 @@ typedef struct {
 } PollParamInfo;
 
 static PollParamInfo poll_max_ns_info = {
-    "poll-max-ns", offsetof(IOThread, poll_max_ns),
+    "poll-max-ns", offsetof(IOThread, poll_params.max_ns),
 };
 static PollParamInfo poll_grow_info = {
-    "poll-grow", offsetof(IOThread, poll_grow),
+    "poll-grow", offsetof(IOThread, poll_params.grow),
 };
 static PollParamInfo poll_shrink_info = {
-    "poll-shrink", offsetof(IOThread, poll_shrink),
+    "poll-shrink", offsetof(IOThread, poll_params.shrink),
 };
 
 static void iothread_get_poll_param(Object *obj, Visitor *v,
@@ -193,10 +190,7 @@ static void iothread_set_poll_param(Object *obj, Visitor *v,
     *field = value;
 
     if (iothread->ctx) {
-        aio_context_set_poll_params(iothread->ctx,
-                                    iothread->poll_max_ns,
-                                    iothread->poll_grow,
-                                    iothread->poll_shrink,
+        aio_context_set_poll_params(iothread->ctx, iothread->poll_params,
                                     &local_err);
     }
 
@@ -268,9 +262,9 @@ static int query_one_iothread(Object *object, void *opaque)
     info = g_new0(IOThreadInfo, 1);
     info->id = iothread_get_id(iothread);
     info->thread_id = iothread->thread_id;
-    info->poll_max_ns = iothread->poll_max_ns;
-    info->poll_grow = iothread->poll_grow;
-    info->poll_shrink = iothread->poll_shrink;
+    info->poll_max_ns = iothread->poll_params.max_ns;
+    info->poll_grow = iothread->poll_params.grow;
+    info->poll_shrink = iothread->poll_params.shrink;
 
     elem = g_new0(IOThreadInfoList, 1);
     elem->value = info;
