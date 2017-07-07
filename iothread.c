@@ -76,6 +76,10 @@ static void iothread_instance_init(Object *obj)
     IOThread *iothread = IOTHREAD(obj);
 
     iothread->poll_params.max_ns = IOTHREAD_POLL_MAX_NS_DEFAULT;
+    iothread->stopping = false;
+    iothread->thread_id = -1;
+    qemu_mutex_init(&iothread->init_done_lock);
+    qemu_cond_init(&iothread->init_done_cond);
 }
 
 static void iothread_instance_finalize(Object *obj)
@@ -91,14 +95,26 @@ static void iothread_instance_finalize(Object *obj)
     aio_context_unref(iothread->ctx);
 }
 
+void iothread_start(IOThread *iothread, const char *thread_name, Error **errp)
+{
+    qemu_thread_create(&iothread->thread, thread_name, iothread_run,
+                       iothread, QEMU_THREAD_JOINABLE);
+
+    /* Wait for initialization to complete */
+    qemu_mutex_lock(&iothread->init_done_lock);
+    while (iothread->thread_id == -1) {
+        qemu_cond_wait(&iothread->init_done_cond,
+                       &iothread->init_done_lock);
+    }
+    qemu_mutex_unlock(&iothread->init_done_lock);
+}
+
 static void iothread_complete(UserCreatable *obj, Error **errp)
 {
     Error *local_error = NULL;
     IOThread *iothread = IOTHREAD(obj);
     char *name, *thread_name;
 
-    iothread->stopping = false;
-    iothread->thread_id = -1;
     iothread->ctx = aio_context_new(&local_error);
     if (!iothread->ctx) {
         error_propagate(errp, local_error);
@@ -114,26 +130,15 @@ static void iothread_complete(UserCreatable *obj, Error **errp)
         return;
     }
 
-    qemu_mutex_init(&iothread->init_done_lock);
-    qemu_cond_init(&iothread->init_done_cond);
 
     /* This assumes we are called from a thread with useful CPU affinity for us
      * to inherit.
      */
     name = object_get_canonical_path_component(OBJECT(obj));
     thread_name = g_strdup_printf("IO %s", name);
-    qemu_thread_create(&iothread->thread, thread_name, iothread_run,
-                       iothread, QEMU_THREAD_JOINABLE);
+    iothread_start(iothread, thread_name, errp);
     g_free(thread_name);
     g_free(name);
-
-    /* Wait for initialization to complete */
-    qemu_mutex_lock(&iothread->init_done_lock);
-    while (iothread->thread_id == -1) {
-        qemu_cond_wait(&iothread->init_done_cond,
-                       &iothread->init_done_lock);
-    }
-    qemu_mutex_unlock(&iothread->init_done_lock);
 }
 
 typedef struct {

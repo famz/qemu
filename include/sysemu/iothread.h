@@ -36,6 +36,7 @@ typedef struct {
    OBJECT_CHECK(IOThread, obj, TYPE_IOTHREAD)
 
 char *iothread_get_id(IOThread *iothread);
+void iothread_start(IOThread *iothread, const char *thread_name, Error **errp);
 AioContext *iothread_get_aio_context(IOThread *iothread);
 void iothread_stop_all(void);
 
