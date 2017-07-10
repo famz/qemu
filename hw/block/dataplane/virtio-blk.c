@@ -40,7 +40,6 @@ struct VirtIOBlockDataPlane {
      * (because you don't own the file descriptor or handle; you just
      * use it).
      */
-    IOThread *iothread;
     AioContext *ctx;
 };
 
@@ -86,7 +85,7 @@ void virtio_blk_data_plane_create(VirtIODevice *vdev, VirtIOBlkConf *conf,
 
     *dataplane = NULL;
 
-    if (conf->iothread) {
+    if (conf->iothread || conf->iothread_group) {
         if (!k->set_guest_notifiers || !k->ioeventfd_assign) {
             error_setg(errp,
                        "device is incompatible with iothread "
@@ -116,9 +115,11 @@ void virtio_blk_data_plane_create(VirtIODevice *vdev, VirtIOBlkConf *conf,
     s->conf = conf;
 
     if (conf->iothread) {
-        s->iothread = IOTHREAD(conf->iothread);
-        object_ref(OBJECT(s->iothread));
-        s->ctx = iothread_get_aio_context(s->iothread);
+        object_ref(conf->iothread);
+        s->ctx = iothread_get_aio_context(IOTHREAD(conf->iothread));
+    } else if (conf->iothread_group) {
+        object_ref(conf->iothread_group);
+        s->ctx = iothread_group_get_aio_context(IOTHREAD_GROUP(conf->iothread_group));
     } else {
         s->ctx = qemu_get_aio_context();
     }
@@ -141,8 +142,11 @@ void virtio_blk_data_plane_destroy(VirtIOBlockDataPlane *s)
     assert(!vblk->dataplane_started);
     g_free(s->batch_notify_vqs);
     qemu_bh_delete(s->bh);
-    if (s->iothread) {
-        object_unref(OBJECT(s->iothread));
+    if (s->conf->iothread) {
+        object_unref(s->conf->iothread);
+    }
+    if (s->conf->iothread_group) {
+        object_unref(s->conf->iothread_group);
     }
     g_free(s);
 }

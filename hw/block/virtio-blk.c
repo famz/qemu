@@ -918,6 +918,10 @@ static void virtio_blk_device_realize(DeviceState *dev, Error **errp)
         error_setg(errp, "drive property not set");
         return;
     }
+    if (conf->iothread && conf->iothread_group) {
+        error_setg(errp, "iothread and iothread-group cannot be used together");
+        return;
+    }
     if (!blk_is_inserted(conf->conf.blk)) {
         error_setg(errp, "Device needs media, but drive is empty");
         return;
@@ -1011,6 +1015,8 @@ static Property virtio_blk_properties[] = {
                     true),
     DEFINE_PROP_UINT16("num-queues", VirtIOBlock, conf.num_queues, 1),
     DEFINE_PROP_LINK("iothread", VirtIOBlock, conf.iothread, TYPE_IOTHREAD),
+    DEFINE_PROP_LINK("iothread-group", VirtIOBlock, conf.iothread_group,
+                     TYPE_IOTHREAD_GROUP),
     DEFINE_PROP_END_OF_LIST(),
 };
 

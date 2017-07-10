@@ -35,6 +35,8 @@ struct VirtIOBlkConf
     BlockConf conf;
     /* IOThread pointer to be filled by link property */
     Object *iothread;
+    /* IOThreadGroup pointer to be filled by link property */
+    Object *iothread_group;
     char *serial;
     uint32_t scsi;
     uint32_t config_wce;
