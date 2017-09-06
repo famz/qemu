@@ -52,6 +52,9 @@ common-obj-$(CONFIG_ALL) += host-stub.o
 host-libusb.o-cflags := $(LIBUSB_CFLAGS)
 host-libusb.o-libs := $(LIBUSB_LIBS)
 
+host-libusb.o-cflags := $(LIBUSB_CFLAGS)
+host-libusb.o-libs := $(LIBUSB_LIBS)
+
 ifeq ($(CONFIG_USB_LIBUSB),y)
 common-obj-$(CONFIG_XEN) += xen-usb.o
 xen-usb.o-cflags := $(LIBUSB_CFLAGS)
