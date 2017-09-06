@@ -3246,7 +3246,6 @@ EOF
   bluez_libs=$($pkg_config --libs bluez 2>/dev/null)
   if compile_prog "$bluez_cflags" "$bluez_libs" ; then
     bluez=yes
-    libs_softmmu="$bluez_libs $libs_softmmu"
   else
     if test "$bluez" = "yes" ; then
       feature_not_found "bluez" "Install bluez-libs/libbluetooth devel"
@@ -5854,6 +5853,7 @@ fi
 if test "$bluez" = "yes" ; then
   echo "CONFIG_BLUEZ=y" >> $config_host_mak
   echo "BLUEZ_CFLAGS=$bluez_cflags" >> $config_host_mak
+  echo "BLUEZ_LIBS=$bluez_libs" >> $config_host_mak
 fi
 if test "$glib_subprocess" = "yes" ; then
   echo "CONFIG_HAS_GLIB_SUBPROCESS_TESTS=y" >> $config_host_mak

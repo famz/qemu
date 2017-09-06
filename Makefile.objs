@@ -58,6 +58,7 @@ common-obj-y += replay/
 common-obj-y += ui/
 common-obj-y += bt-host.o bt-vhci.o
 bt-host.o-cflags := $(BLUEZ_CFLAGS)
+bt-host.o-libs := $(BLUEZ_LIBS)
 
 common-obj-y += dma-helpers.o
 common-obj-y += vl.o
