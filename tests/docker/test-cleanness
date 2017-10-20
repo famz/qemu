@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# Do an in-tree build and test that "git status" is clean
+#
+# Copyright 2017 Red Hat Inc.
+#
+# Authors:
+#  Fam Zheng <famz@redhat.com>
+#
+# This work is licensed under the terms of the GNU GPL, version 2
+# or (at your option) any later version. See the COPYING file in
+# the top-level directory.
+
+. common.rc
+
+cd "$QEMU_SRC"
+./configure --prefix="$INSTALL_DIR" && \
+make $MAKEFLAGS && \
+make $MAKEFLAGS check && \
+make $MAKEFLAGS install
+
+if test $? -ne 0; then
+    echo "QEMU failed to build, checking git status anyway..."
+    build_failure=1
+fi
+if test -z "$(git status --porcelain)"; then
+    echo "Directory not clean. Forgot to add output files to .gitignore?"
+    exit 1
+fi
+
+exit $build_failure
