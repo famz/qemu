@@ -155,7 +155,10 @@ def texi_members(doc, what, base, variants, member_func):
             desc = 'One of ' + members_text + '\n'
         else:
             desc = 'Not documented\n'
-        items += member_func(section.member) + desc
+        if section.member:
+            items += member_func(section.member) + desc
+        else:
+            raise Exception("Invalid doc section: %s" % section.name)
     if base:
         items += '@item The members of @code{%s}\n' % base.doc_type()
     if variants:
