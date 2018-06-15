@@ -130,6 +130,11 @@ static QemuOptsList runtime_opts = {
             .type = QEMU_OPT_NUMBER,
             .help = "NVMe namespace",
         },
+        {
+            .name = NVME_BLOCK_OPT_POLL_MODE,
+            .type = QEMU_OPT_BOOL,
+            .help = "Use a polling thread for completion queues",
+        },
         { /* end of list */ }
     },
 };
@@ -547,7 +552,7 @@ static bool nvme_poll_cb(void *opaque)
 }
 
 static int nvme_init(BlockDriverState *bs, const char *device, int namespace,
-                     Error **errp)
+                     bool poll_mode, Error **errp)
 {
     BDRVNVMeState *s = bs->opaque;
     int ret;
@@ -653,7 +658,7 @@ static int nvme_init(BlockDriverState *bs, const char *device, int namespace,
     }
 
     /* Set up command queues. */
-    if (!nvme_add_io_queue(bs, errp)) {
+    if (!nvme_add_io_queue(bs, poll_mode, errp)) {
         ret = -EIO;
         goto fail_handler;
     }
@@ -752,6 +757,7 @@ static int nvme_file_open(BlockDriverState *bs, QDict *options, int flags,
     QemuOpts *opts;
     int namespace;
     int ret;
+    bool poll_mode;
     BDRVNVMeState *s = bs->opaque;
 
     opts = qemu_opts_create(&runtime_opts, NULL, 0, &error_abort);
@@ -764,7 +770,8 @@ static int nvme_file_open(BlockDriverState *bs, QDict *options, int flags,
     }
 
     namespace = qemu_opt_get_number(opts, NVME_BLOCK_OPT_NAMESPACE, 1);
-    ret = nvme_init(bs, device, namespace, errp);
+    poll_mode = qemu_opt_get_bool(opts, NVME_BLOCK_OPT_NAMESPACE, false);
+    ret = nvme_init(bs, device, namespace, poll_mode, errp);
     qemu_opts_del(opts);
     if (ret) {
         goto fail;
