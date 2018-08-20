@@ -65,16 +65,15 @@ class BaseVM(object):
             self._stdout = self._devnull
         self._args = [ \
             "-nodefaults", "-m", "4G",
+            "-cpu", "max",
             "-vnc", "127.0.0.1:0,to=20",
             "-serial", "file:%s" % os.path.join(self._tmpdir, "serial.out")]
         if vcpus:
             self._args += ["-smp", str(vcpus)]
         if os.access("/dev/kvm", os.R_OK | os.W_OK):
-            self._args += ["-cpu", "host"]
             self._args += ["-enable-kvm"]
         else:
             logging.info("KVM not available, not using -enable-kvm")
-            self._args += ["-cpu", "max"]
         self._data_args = []
 
     def _download_with_cache(self, url, sha256sum=None):
