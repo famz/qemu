@@ -2132,9 +2132,8 @@ static const cmdinfo_t resume_cmd = {
 
 static int wait_break_f(BlockBackend *blk, int argc, char **argv)
 {
-    while (!bdrv_debug_is_suspended(blk_bs(blk), argv[1])) {
-        aio_poll(blk_get_aio_context(blk), true);
-    }
+    BDRV_POLL_WHILE(blk_bs(blk),
+                    !bdrv_debug_is_suspended(blk_bs(blk), argv[1]));
     return 0;
 }
 

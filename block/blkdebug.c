@@ -668,6 +668,7 @@ static void suspend_request(BlockDriverState *bs, BlkdebugRule *rule)
 
     remove_rule(rule);
     QLIST_INSERT_HEAD(&s->suspended_reqs, &r, next);
+    bdrv_wakeup(bs);
 
     if (!qtest_enabled()) {
         printf("blkdebug: Suspended request '%s'\n", r.tag);
