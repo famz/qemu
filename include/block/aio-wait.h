@@ -78,7 +78,7 @@ typedef struct {
     AioContext *ctx_ = (ctx);                                      \
     if (ctx_ && in_aio_context_home_thread(ctx_)) {                \
         while ((cond)) {                                           \
-            aio_poll(ctx_, true);                                  \
+            aio_poll(true);                              \
             waited_ = true;                                        \
         }                                                          \
     } else {                                                       \
@@ -90,7 +90,7 @@ typedef struct {
             if (ctx_) {                                            \
                 aio_context_release(ctx_);                         \
             }                                                      \
-            aio_poll(qemu_get_aio_context(), true);                \
+            aio_poll(true);                                        \
             if (ctx_) {                                            \
                 aio_context_acquire(ctx_);                         \
             }                                                      \

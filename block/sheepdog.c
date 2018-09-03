@@ -714,7 +714,8 @@ static int do_req(int sockfd, BlockDriverState *bs, SheepdogReq *hdr,
         } else {
             qemu_coroutine_enter(co);
             while (!srco.finished) {
-                aio_poll(qemu_get_aio_context(), true);
+                assert(qemu_get_aio_context() == qemu_get_current_aio_context());
+                aio_poll(true);
             }
         }
     }

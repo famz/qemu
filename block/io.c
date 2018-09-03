@@ -270,7 +270,7 @@ static bool bdrv_drain_poll_top_level(BlockDriverState *bs, bool recursive,
 {
     /* Execute pending BHs first and check everything else only after the BHs
      * have executed. */
-    while (aio_poll(bs->aio_context, false));
+    while (aio_poll_ctx(bs->aio_context, false));
 
     return bdrv_drain_poll(bs, recursive, ignore_parent, false);
 }
@@ -498,7 +498,8 @@ static bool bdrv_drain_all_poll(void)
 
     /* Execute pending BHs first (may modify the graph) and check everything
      * else only after the BHs have executed. */
-    while (aio_poll(qemu_get_aio_context(), false));
+    assert(qemu_get_current_aio_context() == qemu_get_aio_context());
+    while (aio_poll(false));
 
     /* bdrv_drain_poll() can't make changes to the graph and we are holding the
      * main AioContext lock, so iterating bdrv_next_all_states() is safe. */
@@ -2516,14 +2517,15 @@ void bdrv_aio_cancel(BlockAIOCB *acb)
     bdrv_aio_cancel_async(acb);
     while (acb->refcnt > 1) {
         if (acb->aiocb_info->get_aio_context) {
-            aio_poll(acb->aiocb_info->get_aio_context(acb), true);
+            aio_poll_ctx(acb->aiocb_info->get_aio_context(acb), true);
         } else if (acb->bs) {
             /* qemu_aio_ref and qemu_aio_unref are not thread-safe, so
              * assert that we're not using an I/O thread.  Thread-safe
              * code should use bdrv_aio_cancel_async exclusively.
              */
             assert(bdrv_get_aio_context(acb->bs) == qemu_get_aio_context());
-            aio_poll(bdrv_get_aio_context(acb->bs), true);
+            assert(qemu_get_current_aio_context() == qemu_get_aio_context());
+            aio_poll(true);
         } else {
             abort();
         }

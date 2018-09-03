@@ -858,7 +858,8 @@ static void run_block_job(BlockJob *job, Error **errp)
     job_ref(&job->job);
     do {
         float progress = 0.0f;
-        aio_poll(aio_context, true);
+        assert(qemu_get_current_aio_context() == aio_context);
+        aio_poll(true);
         if (job->job.progress_total) {
             progress = (float)job->job.progress_current /
                        job->job.progress_total * 100.f;

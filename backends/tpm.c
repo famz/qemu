@@ -51,7 +51,8 @@ static int tpm_backend_worker_thread(gpointer data)
 void tpm_backend_finish_sync(TPMBackend *s)
 {
     while (s->cmd) {
-        aio_poll(qemu_get_aio_context(), true);
+        assert(qemu_get_aio_context() == qemu_get_current_aio_context());
+        aio_poll(true);
     }
 }
 

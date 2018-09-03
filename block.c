@@ -458,7 +458,8 @@ int bdrv_create(BlockDriver *drv, const char* filename,
         co = qemu_coroutine_create(bdrv_create_co_entry, &cco);
         qemu_coroutine_enter(co);
         while (cco.ret == NOT_DONE) {
-            aio_poll(qemu_get_aio_context(), true);
+            assert(qemu_get_aio_context() == qemu_get_current_aio_context());
+            aio_poll(true);
         }
     }
 
@@ -4973,7 +4974,7 @@ void bdrv_set_aio_context(BlockDriverState *bs, AioContext *new_context)
     bdrv_parent_drained_begin(bs, NULL, false);
     bdrv_drain(bs); /* ensure there are no in-flight requests */
 
-    while (aio_poll(ctx, false)) {
+    while (aio_poll_ctx(ctx, false)) {
         /* wait for all bottom halves to execute */
     }
 

@@ -574,7 +574,7 @@ static bool try_poll_mode(AioContext *ctx, bool blocking)
     return run_poll_handlers_once(ctx);
 }
 
-bool aio_poll(AioContext *ctx, bool blocking)
+bool aio_poll_ctx(AioContext *ctx, bool blocking)
 {
     AioHandler *node;
     int i;

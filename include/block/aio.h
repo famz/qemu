@@ -326,7 +326,8 @@ void aio_dispatch(AioContext *ctx);
  * or more AIO events have completed, to ensure something has moved
  * before returning.
  */
-bool aio_poll(AioContext *ctx, bool blocking);
+bool aio_poll_ctx(AioContext *ctx, bool blocking);
+
 
 /* Register a file descriptor and associated callbacks.  Behaves very similarly
  * to qemu_set_fd_handler.  Unlike qemu_set_fd_handler, these callbacks will
@@ -535,6 +536,11 @@ void aio_co_enter(AioContext *ctx, struct Coroutine *co);
  * called from another thread it will be the main loop AioContext.
  */
 AioContext *qemu_get_current_aio_context(void);
+
+static inline bool aio_poll(bool blocking)
+{
+    return aio_poll_ctx(qemu_get_current_aio_context(), blocking);
+}
 
 /**
  * in_aio_context_home_thread:

@@ -41,27 +41,20 @@ typedef ObjectClass IOThreadClass;
 #define IOTHREAD_POLL_MAX_NS_DEFAULT 0ULL
 #endif
 
-static __thread IOThread *my_iothread;
-
-AioContext *qemu_get_current_aio_context(void)
-{
-    return my_iothread ? my_iothread->ctx : qemu_get_aio_context();
-}
-
 static void *iothread_run(void *opaque)
 {
     IOThread *iothread = opaque;
 
     rcu_register_thread();
 
-    my_iothread = iothread;
+    qemu_set_current_aio_context(iothread->ctx);
     qemu_mutex_lock(&iothread->init_done_lock);
     iothread->thread_id = qemu_get_thread_id();
     qemu_cond_signal(&iothread->init_done_cond);
     qemu_mutex_unlock(&iothread->init_done_lock);
 
     while (iothread->running) {
-        aio_poll(iothread->ctx, true);
+        aio_poll(true);
 
         if (atomic_read(&iothread->worker_context)) {
             GMainLoop *loop;

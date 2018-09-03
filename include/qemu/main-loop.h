@@ -87,6 +87,12 @@ void main_loop_wait(int nonblocking);
 AioContext *qemu_get_aio_context(void);
 
 /**
+ * qemu_set_current_aio_context: Set the AioContext for current thread. Must be
+ * called at most once per thread.
+ */
+void qemu_set_current_aio_context(AioContext *ctx);
+
+/**
  * qemu_notify_event: Force processing of pending events.
  *
  * Similar to signaling a condition variable, qemu_notify_event forces

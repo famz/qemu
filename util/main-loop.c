@@ -130,6 +130,19 @@ AioContext *qemu_get_aio_context(void)
     return qemu_aio_context;
 }
 
+static __thread AioContext *my_aio_context;
+
+void qemu_set_current_aio_context(AioContext *ctx)
+{
+    assert(!my_aio_context);
+    my_aio_context = ctx;
+}
+
+AioContext *qemu_get_current_aio_context(void)
+{
+    return my_aio_context ? my_aio_context : qemu_get_aio_context();
+}
+
 void qemu_notify_event(void)
 {
     if (!qemu_aio_context) {
