@@ -3472,11 +3472,29 @@ fail:
     return NULL;
 }
 
+typedef struct {
+    Monitor *mon;
+    const mon_cmd_t *cmd;
+    QDict *qdict;
+} HandleHMPData;
+
+static coroutine_fn void handle_hmp_co_entry(void *opaque)
+{
+    HandleHMPData *data = opaque;
+
+    data->cmd->cmd(data->mon, data->qdict);
+
+    qobject_unref(data->qdict);
+    g_free(data);
+}
+
 static void handle_hmp_command(Monitor *mon, const char *cmdline)
 {
     QDict *qdict;
     const mon_cmd_t *cmd;
     const char *cmd_start = cmdline;
+    Coroutine *co;
+    HandleHMPData *data;
 
     trace_handle_hmp_command(mon, cmdline);
 
@@ -3495,8 +3513,14 @@ static void handle_hmp_command(Monitor *mon, const char *cmdline)
         return;
     }
 
-    cmd->cmd(mon, qdict);
-    qobject_unref(qdict);
+    data = g_new(HandleHMPData, 1);
+    *data = (HandleHMPData) {
+        .mon = mon,
+        .cmd = cmd,
+        .qdict = qdict,
+    };
+    co = qemu_coroutine_create(handle_hmp_co_entry, data);
+    qemu_coroutine_enter(co);
 }
 
 static void cmd_completion(Monitor *mon, const char *name, const char *list)
