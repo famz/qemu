@@ -21,7 +21,8 @@ class CentosVM(basevm.BaseVM):
     name = "centos"
     BUILD_SCRIPT = """
         set -e;
-        cd $(mktemp -d);
+        rm -rf /var/tmp/qemu-test.*;
+        cd $(mktemp -d /var/tmp/qemu-test.XXXXXX);
         export SRC_ARCHIVE=/dev/vdb;
         sudo chmod a+r $SRC_ARCHIVE;
         tar -xf $SRC_ARCHIVE;
@@ -53,12 +54,17 @@ class CentosVM(basevm.BaseVM):
                           "    - %s\n" % basevm.SSH_PUB_KEY,
                           "locale: en_US.UTF-8\n"])
         udata.close()
-        subprocess.check_call(["genisoimage", "-output", "cloud-init.iso",
-                               "-volid", "cidata", "-joliet", "-rock",
-                               "user-data", "meta-data"],
-                               cwd=cidir,
-                               stdin=self._devnull, stdout=self._stdout,
-                               stderr=self._stdout)
+        try:
+            subprocess.check_call(["genisoimage", "-output", "cloud-init.iso",
+                                   "-volid", "cidata", "-joliet", "-rock",
+                                   "user-data", "meta-data"],
+                                   cwd=cidir,
+                                   stdin=self._devnull, stdout=self._stdout,
+                                   stderr=self._stdout)
+        except OSError:
+            sys.stderr.write("genisoimage doesn't work. Is it installed?\n")
+            raise
+
         return os.path.join(cidir, "cloud-init.iso")
 
     def build_image(self, img):
