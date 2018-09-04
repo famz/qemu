@@ -198,13 +198,19 @@ void aio_context_release(AioContext *ctx);
 void aio_bh_schedule_oneshot(AioContext *ctx, QEMUBHFunc *cb, void *opaque);
 
 /**
- * aio_bh_new: Allocate a new bottom half structure.
+ * aio_bh_create: Allocate a new bottom half structure.
  *
  * Bottom halves are lightweight callbacks whose invocation is guaranteed
  * to be wait-free, thread-safe and signal-safe.  The #QEMUBH structure
  * is opaque and must be allocated prior to its use.
  */
-QEMUBH *aio_bh_new(AioContext *ctx, QEMUBHFunc *cb, void *opaque);
+QEMUBH *aio_bh_create(AioContext *ctx, QEMUBHFunc *cb, void *opaque,
+                      bool use_coroutine);
+
+static inline QEMUBH *aio_bh_new(AioContext *ctx, QEMUBHFunc *cb, void *opaque)
+{
+    return aio_bh_create(ctx, cb, opaque, false);
+}
 
 /**
  * aio_notify: Force processing of pending events.

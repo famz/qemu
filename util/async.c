@@ -45,6 +45,7 @@ struct QEMUBH {
     bool scheduled;
     bool idle;
     bool deleted;
+    bool use_coroutine;
 };
 
 void aio_bh_schedule_oneshot(AioContext *ctx, QEMUBHFunc *cb, void *opaque)
@@ -67,7 +68,8 @@ void aio_bh_schedule_oneshot(AioContext *ctx, QEMUBHFunc *cb, void *opaque)
     aio_notify(ctx);
 }
 
-QEMUBH *aio_bh_new(AioContext *ctx, QEMUBHFunc *cb, void *opaque)
+QEMUBH *aio_bh_create(AioContext *ctx, QEMUBHFunc *cb, void *opaque,
+                      bool use_coroutine)
 {
     QEMUBH *bh;
     bh = g_new(QEMUBH, 1);
@@ -75,6 +77,7 @@ QEMUBH *aio_bh_new(AioContext *ctx, QEMUBHFunc *cb, void *opaque)
         .ctx = ctx,
         .cb = cb,
         .opaque = opaque,
+        .use_coroutine = use_coroutine,
     };
     qemu_lockcnt_lock(&ctx->list_lock);
     bh->next = ctx->first_bh;
@@ -85,9 +88,21 @@ QEMUBH *aio_bh_new(AioContext *ctx, QEMUBHFunc *cb, void *opaque)
     return bh;
 }
 
+static coroutine_fn void aio_bh_co_entry(void *opaque)
+{
+    QEMUBH *bh = opaque;
+
+    bh->cb(bh->opaque);
+}
+
 void aio_bh_call(QEMUBH *bh)
 {
-    bh->cb(bh->opaque);
+    if (!bh->use_coroutine) {
+        bh->cb(bh->opaque);
+    } else {
+        Coroutine *co = qemu_coroutine_create(aio_bh_co_entry, bh);
+        qemu_coroutine_enter(co);
+    }
 }
 
 /* Multiple occurrences of aio_bh_poll cannot be called concurrently.
