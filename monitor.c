@@ -4223,7 +4223,7 @@ static QMPRequest *monitor_qmp_requests_pop_any(void)
     return req_obj;
 }
 
-static void monitor_qmp_bh_dispatcher(void *data)
+static coroutine_fn void monitor_qmp_bh_dispatcher(void *data)
 {
     QMPRequest *req_obj = monitor_qmp_requests_pop_any();
     QDict *rsp;
@@ -4555,9 +4555,9 @@ static void monitor_iothread_init(void)
      * have commands assuming that context.  It would be nice to get
      * rid of those assumptions.
      */
-    qmp_dispatcher_bh = aio_bh_new(iohandler_get_aio_context(),
-                                   monitor_qmp_bh_dispatcher,
-                                   NULL);
+    qmp_dispatcher_bh = aio_bh_create(iohandler_get_aio_context(),
+                                      monitor_qmp_bh_dispatcher,
+                                      NULL, true);
 
     /*
      * The responder BH must be run in the monitor I/O thread, so that
