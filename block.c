@@ -332,8 +332,7 @@ BlockDriverState *bdrv_new(void)
     bs->aio_context = qemu_get_aio_context();
 
     qemu_co_queue_init(&bs->flush_queue);
-    qemu_co_queue_init(&bs->wait.wait_queue);
-    qemu_mutex_init(&bs->wait.lock);
+    aio_wait_init(&bs->wait);
 
     for (i = 0; i < bdrv_drain_all_count; i++) {
         bdrv_drained_begin(bs);

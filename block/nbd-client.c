@@ -59,7 +59,8 @@ static void nbd_teardown_connection(BlockDriverState *bs)
     qio_channel_shutdown(client->ioc,
                          QIO_CHANNEL_SHUTDOWN_BOTH,
                          NULL);
-    BDRV_POLL_WHILE(bs, client->read_reply_co);
+    AIO_WAIT_WHILE(&client->aio_wait, bdrv_get_aio_context(bs),
+                   client->read_reply_co);
 
     nbd_client_detach_aio_context(bs);
     object_unref(OBJECT(client->sioc));
@@ -116,6 +117,7 @@ static coroutine_fn void nbd_read_reply_entry(void *opaque)
     s->quit = true;
     nbd_recv_coroutines_wake_all(s);
     s->read_reply_co = NULL;
+    aio_wait_kick(&s->aio_wait);
 }
 
 static int nbd_co_send_request(BlockDriverState *bs,
@@ -1008,6 +1010,7 @@ int nbd_client_init(BlockDriverState *bs,
 
     qemu_co_mutex_init(&client->send_mutex);
     qemu_co_queue_init(&client->free_sema);
+    aio_wait_init(&client->aio_wait);
     client->sioc = sioc;
     object_ref(OBJECT(client->sioc));
 

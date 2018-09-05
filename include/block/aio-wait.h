@@ -54,10 +54,10 @@ typedef struct {
     /* Number of waiting AIO_WAIT_WHILE() callers. Accessed with atomic ops. */
     unsigned num_waiters;
 
-    QemuMutex lock;
-    /* Accessed with @lock held */
     CoQueue wait_queue;
 } AioWait;
+
+void aio_wait_init(AioWait *wait);
 
 /**
  * AIO_WAIT_WHILE:
@@ -83,7 +83,7 @@ typedef struct {
     AioContext *ctx_ = (ctx);                                      \
     if (qemu_in_coroutine()) {                                     \
         while ((cond)) {                                           \
-            qemu_co_queue_wait(&wait_->wait_queue, &wait_->lock);  \
+            qemu_co_queue_wait(&wait_->wait_queue, NULL);          \
         }                                                          \
     } else if (ctx_ && in_aio_context_home_thread(ctx_)) {         \
         while ((cond)) {                                           \

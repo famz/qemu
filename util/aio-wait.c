@@ -31,13 +31,19 @@ static void dummy_bh_cb(void *opaque)
     /* The point is to make AIO_WAIT_WHILE()'s aio_poll() return */
 }
 
+void aio_wait_init(AioWait *wait)
+{
+    wait->num_waiters = 0;
+    qemu_co_queue_init(&wait->wait_queue);
+}
+
 void aio_wait_kick(AioWait *wait)
 {
     /* The barrier (or an atomic op) is in the caller.  */
     if (atomic_read(&wait->num_waiters)) {
         aio_bh_schedule_oneshot(qemu_get_aio_context(), dummy_bh_cb, NULL);
     }
-    while (qemu_co_enter_next(&wait->wait_queue, &wait->lock)) {
+    while (qemu_co_enter_next(&wait->wait_queue, NULL)) {
         /* wake up all sleeping coroutines */
     }
 }

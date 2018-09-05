@@ -342,8 +342,6 @@ static void coroutine_fn bdrv_co_yield_to_drain(BlockDriverState *bs,
 void bdrv_do_drained_begin_quiesce(BlockDriverState *bs,
                                    BdrvChild *parent, bool ignore_bds_parents)
 {
-    assert(!qemu_in_coroutine());
-
     /* Stop things in parent-to-child order */
     if (atomic_fetch_inc(&bs->quiesce_counter) == 0) {
         aio_disable_external(bdrv_get_aio_context(bs));

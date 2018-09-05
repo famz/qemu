@@ -36,6 +36,7 @@ typedef struct NBDClientSession {
     NBDClientRequest requests[MAX_NBD_REQUESTS];
     NBDReply reply;
     bool quit;
+    AioWait aio_wait;
 } NBDClientSession;
 
 NBDClientSession *nbd_get_client_session(BlockDriverState *bs);
