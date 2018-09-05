@@ -26,6 +26,7 @@
 #define QEMU_AIO_WAIT_H
 
 #include "block/aio.h"
+#include "qemu/coroutine.h"
 
 /**
  * AioWait:
@@ -52,6 +53,10 @@
 typedef struct {
     /* Number of waiting AIO_WAIT_WHILE() callers. Accessed with atomic ops. */
     unsigned num_waiters;
+
+    QemuMutex lock;
+    /* Accessed with @lock held */
+    CoQueue wait_queue;
 } AioWait;
 
 /**
@@ -76,7 +81,11 @@ typedef struct {
     bool waited_ = false;                                          \
     AioWait *wait_ = (wait);                                       \
     AioContext *ctx_ = (ctx);                                      \
-    if (ctx_ && in_aio_context_home_thread(ctx_)) {                \
+    if (qemu_in_coroutine()) {                                     \
+        while ((cond)) {                                           \
+            qemu_co_queue_wait(&wait_->wait_queue, &wait_->lock);  \
+        }                                                          \
+    } else if (ctx_ && in_aio_context_home_thread(ctx_)) {         \
         while ((cond)) {                                           \
             aio_poll(ctx_, true);                                  \
             waited_ = true;                                        \

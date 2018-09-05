@@ -37,6 +37,9 @@ void aio_wait_kick(AioWait *wait)
     if (atomic_read(&wait->num_waiters)) {
         aio_bh_schedule_oneshot(qemu_get_aio_context(), dummy_bh_cb, NULL);
     }
+    while (qemu_co_enter_next(&wait->wait_queue, &wait->lock)) {
+        /* wake up all sleeping coroutines */
+    }
 }
 
 typedef struct {
