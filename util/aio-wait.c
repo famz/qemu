@@ -42,9 +42,7 @@ void aio_wait_kick(AioWait *wait)
     /* The barrier (or an atomic op) is in the caller.  */
     if (atomic_read(&wait->num_waiters)) {
         aio_bh_schedule_oneshot(qemu_get_aio_context(), dummy_bh_cb, NULL);
-    }
-    while (qemu_co_enter_next(&wait->wait_queue, NULL)) {
-        /* wake up all sleeping coroutines */
+        qemu_co_enter_next(&wait->wait_queue, NULL);
     }
 }
 
@@ -72,6 +70,8 @@ void aio_wait_bh_oneshot(AioContext *ctx, QEMUBHFunc *cb, void *opaque)
         .cb = cb,
         .opaque = opaque,
     };
+
+    aio_wait_init(&data.wait);
 
     assert(qemu_get_current_aio_context() == qemu_get_aio_context());
 

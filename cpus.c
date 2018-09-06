@@ -1817,11 +1817,13 @@ void qemu_mutex_lock_iothread_impl(const char *file, int line)
     iothread_locked = true;
 }
 
-void qemu_mutex_unlock_iothread(void)
+void qemu_mutex_unlock_iothread_impl(const char *file, int line)
 {
     g_assert(qemu_mutex_iothread_locked());
     iothread_locked = false;
     qemu_mutex_unlock(&qemu_global_mutex);
+    qemu_global_mutex.file = file;
+    qemu_global_mutex.line = line;
 }
 
 static bool all_vcpus_paused(void)

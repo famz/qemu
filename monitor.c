@@ -241,6 +241,8 @@ struct Monitor {
     int mux_out;
 };
 
+CoMutex mon_co_lock;
+
 /* Shared monitor I/O thread */
 IOThread *mon_iothread;
 
@@ -478,6 +480,7 @@ void monitor_vprintf(Monitor *mon, const char *fmt, va_list ap)
         return;
 
     if (monitor_is_qmp(mon)) {
+        printf("qmp\n");
         return;
     }
 
@@ -804,7 +807,7 @@ static void monitor_qapi_event_init(void)
     qmp_event_set_func_emit(monitor_qapi_event_queue);
 }
 
-static void handle_hmp_command(Monitor *mon, const char *cmdline);
+static void handle_hmp_command(Monitor *mon, const char *cmdline, bool lock);
 
 static void monitor_data_init(Monitor *mon, bool skip_flush,
                               bool use_io_thread)
@@ -859,7 +862,7 @@ char *qmp_human_monitor_command(const char *command_line, bool has_cpu_index,
         }
     }
 
-    handle_hmp_command(&hmp, command_line);
+    handle_hmp_command(&hmp, command_line, false);
     cur_mon = old_mon;
 
     qemu_mutex_lock(&hmp.mon_lock);
@@ -3476,24 +3479,32 @@ typedef struct {
     Monitor *mon;
     const mon_cmd_t *cmd;
     QDict *qdict;
+    bool done;
+    bool lock;
 } HandleHMPData;
 
 static coroutine_fn void handle_hmp_co_entry(void *opaque)
 {
     HandleHMPData *data = opaque;
 
+    if (data->lock) {
+        qemu_co_mutex_lock(&mon_co_lock);
+    }
     data->cmd->cmd(data->mon, data->qdict);
+    if (data->lock) {
+        qemu_co_mutex_unlock(&mon_co_lock);
+    }
 
     qobject_unref(data->qdict);
+    monitor_resume(data->mon);
     g_free(data);
 }
 
-static void handle_hmp_command(Monitor *mon, const char *cmdline)
+static void handle_hmp_command(Monitor *mon, const char *cmdline, bool lock)
 {
     QDict *qdict;
     const mon_cmd_t *cmd;
     const char *cmd_start = cmdline;
-    Coroutine *co;
     HandleHMPData *data;
 
     trace_handle_hmp_command(mon, cmdline);
@@ -3518,9 +3529,14 @@ static void handle_hmp_command(Monitor *mon, const char *cmdline)
         .mon = mon,
         .cmd = cmd,
         .qdict = qdict,
+        .done = false,
     };
-    co = qemu_coroutine_create(handle_hmp_co_entry, data);
-    qemu_coroutine_enter(co);
+    if (qemu_in_coroutine()) {
+        handle_hmp_co_entry(data);
+    } else {
+        Coroutine *co = qemu_coroutine_create(handle_hmp_co_entry, data);
+        qemu_coroutine_enter(co);
+    }
 }
 
 static void cmd_completion(Monitor *mon, const char *name, const char *list)
@@ -4380,7 +4396,7 @@ static void monitor_read(void *opaque, const uint8_t *buf, int size)
         if (size == 0 || buf[size - 1] != 0)
             monitor_printf(cur_mon, "corrupted command\n");
         else
-            handle_hmp_command(cur_mon, (char *)buf);
+            handle_hmp_command(cur_mon, (char *)buf, true);
     }
 
     cur_mon = old_mon;
@@ -4392,7 +4408,7 @@ static void monitor_command_cb(void *opaque, const char *cmdline,
     Monitor *mon = opaque;
 
     monitor_suspend(mon);
-    handle_hmp_command(mon, cmdline);
+    handle_hmp_command(mon, cmdline, true);
     monitor_resume(mon);
 }
 
@@ -4600,6 +4616,7 @@ void monitor_init_globals(void)
     sortcmdlist();
     qemu_mutex_init(&monitor_lock);
     qemu_mutex_init(&mon_fdsets_lock);
+    qemu_co_mutex_init(&mon_co_lock);
     monitor_iothread_init();
 }
 

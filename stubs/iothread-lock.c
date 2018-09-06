@@ -11,6 +11,6 @@ void qemu_mutex_lock_iothread_impl(const char *file, int line)
 {
 }
 
-void qemu_mutex_unlock_iothread(void)
+void qemu_mutex_unlock_iothread_impl(const char *file, int line)
 {
 }

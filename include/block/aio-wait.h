@@ -83,7 +83,9 @@ void aio_wait_init(AioWait *wait);
     AioContext *ctx_ = (ctx);                                      \
     if (qemu_in_coroutine()) {                                     \
         while ((cond)) {                                           \
+            atomic_inc(&wait_->num_waiters);                       \
             qemu_co_queue_wait(&wait_->wait_queue, NULL);          \
+            atomic_dec(&wait_->num_waiters);                       \
         }                                                          \
     } else if (ctx_ && in_aio_context_home_thread(ctx_)) {         \
         while ((cond)) {                                           \

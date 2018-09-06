@@ -293,7 +293,9 @@ void qemu_mutex_lock_iothread_impl(const char *file, int line);
  * NOTE: tools currently are single-threaded and qemu_mutex_unlock_iothread
  * is a no-op there.
  */
-void qemu_mutex_unlock_iothread(void);
+#define qemu_mutex_unlock_iothread()                      \
+    qemu_mutex_unlock_iothread_impl(__FILE__, __LINE__)
+void qemu_mutex_unlock_iothread_impl(const char *file, int line);
 
 /* internal interfaces */
 
