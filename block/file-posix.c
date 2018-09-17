@@ -2278,6 +2278,7 @@ static int coroutine_fn raw_co_create_opts(const char *filename, QemuOpts *opts,
     PreallocMode prealloc;
     char *buf = NULL;
     Error *local_err = NULL;
+    int ret;
 
     /* Skip file: protocol prefix */
     strstart(filename, "file:", &filename);
@@ -2306,7 +2307,18 @@ static int coroutine_fn raw_co_create_opts(const char *filename, QemuOpts *opts,
             .nocow              = nocow,
         },
     };
-    return raw_co_create(&options, errp);
+    ret = raw_co_create(&options, errp);
+    if (ret) {
+        return ret;
+    }
+    if (pbs) {
+        *pbs = bdrv_open(filename, NULL, NULL,
+                         BDRV_O_RDWR | BDRV_O_RESIZE | BDRV_O_PROTOCOL, errp);
+       if (!*pbs) {
+           ret = -EIO;
+       }
+    }
+    return ret;
 }
 
 /*
@@ -3163,6 +3175,13 @@ static int coroutine_fn hdev_co_create_opts(const char *filename, QemuOpts *opts
         }
     }
     qemu_close(fd);
+    if (pbs) {
+       *pbs = bdrv_open(filename, NULL, NULL,
+                        BDRV_O_RDWR | BDRV_O_RESIZE | BDRV_O_PROTOCOL, errp);
+       if (!*pbs) {
+           ret = -EIO;
+       }
+    }
     return ret;
 }
 
