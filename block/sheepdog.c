@@ -2166,6 +2166,7 @@ out:
 }
 
 static int coroutine_fn sd_co_create_opts(const char *filename, QemuOpts *opts,
+                                          BlockDriverState **pbs,
                                           Error **errp)
 {
     BlockdevCreateOptions *create_options = NULL;

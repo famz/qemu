@@ -2269,6 +2269,7 @@ out:
 }
 
 static int coroutine_fn raw_co_create_opts(const char *filename, QemuOpts *opts,
+                                           BlockDriverState **pbs,
                                            Error **errp)
 {
     BlockdevCreateOptions options;
@@ -3103,6 +3104,7 @@ static coroutine_fn int hdev_co_pwrite_zeroes(BlockDriverState *bs,
 }
 
 static int coroutine_fn hdev_co_create_opts(const char *filename, QemuOpts *opts,
+                                            BlockDriverState **pbs,
                                             Error **errp)
 {
     int fd;

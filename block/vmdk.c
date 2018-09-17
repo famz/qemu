@@ -1722,7 +1722,8 @@ static int coroutine_fn vmdk_co_pwrite_zeroes(BlockDriverState *bs,
 
 static int vmdk_create_extent(const char *filename, int64_t filesize,
                               bool flat, bool compress, bool zeroed_grain,
-                              QemuOpts *opts, Error **errp)
+                              QemuOpts *opts, BlockDriverState **pbs,
+                              Error **errp)
 {
     int ret, i;
     BlockBackend *blk = NULL;
@@ -1732,7 +1733,7 @@ static int vmdk_create_extent(const char *filename, int64_t filesize,
     uint32_t *gd_buf = NULL;
     int gd_buf_size;
 
-    ret = bdrv_create_file(filename, opts, &local_err);
+    ret = bdrv_create_file(filename, opts, NULL, &local_err);
     if (ret < 0) {
         error_propagate(errp, local_err);
         goto exit;
@@ -1895,6 +1896,7 @@ static int filename_decompose(const char *filename, char *path, char *prefix,
 }
 
 static int coroutine_fn vmdk_co_create_opts(const char *filename, QemuOpts *opts,
+                                            BlockDriverState **pbs,
                                             Error **errp)
 {
     int idx = 0;
@@ -2073,7 +2075,8 @@ static int coroutine_fn vmdk_co_create_opts(const char *filename, QemuOpts *opts
         snprintf(ext_filename, PATH_MAX, "%s%s", path, desc_filename);
 
         if (vmdk_create_extent(ext_filename, size,
-                               flat, compress, zeroed_grain, opts, errp)) {
+                               flat, compress, zeroed_grain, opts, NULL,
+                               errp)) {
             ret = -EINVAL;
             goto exit;
         }
@@ -2101,7 +2104,7 @@ static int coroutine_fn vmdk_co_create_opts(const char *filename, QemuOpts *opts
     if (!split && !flat) {
         desc_offset = 0x200;
     } else {
-        ret = bdrv_create_file(filename, opts, &local_err);
+        ret = bdrv_create_file(filename, opts, NULL, &local_err);
         if (ret < 0) {
             error_propagate(errp, local_err);
             goto exit;

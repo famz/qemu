@@ -719,6 +719,7 @@ out:
 
 static int coroutine_fn bdrv_qed_co_create_opts(const char *filename,
                                                 QemuOpts *opts,
+                                                BlockDriverState **pbs,
                                                 Error **errp)
 {
     BlockdevCreateOptions *create_options = NULL;
@@ -745,7 +746,7 @@ static int coroutine_fn bdrv_qed_co_create_opts(const char *filename,
     }
 
     /* Create and open the file (protocol layer) */
-    ret = bdrv_create_file(filename, opts, &local_err);
+    ret = bdrv_create_file(filename, opts, NULL, &local_err);
     if (ret < 0) {
         error_propagate(errp, local_err);
         goto fail;

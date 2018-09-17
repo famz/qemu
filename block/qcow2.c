@@ -3055,6 +3055,7 @@ out:
 }
 
 static int coroutine_fn qcow2_co_create_opts(const char *filename, QemuOpts *opts,
+                                             BlockDriverState **pbs,
                                              Error **errp)
 {
     BlockdevCreateOptions *create_options = NULL;
@@ -3112,7 +3113,7 @@ static int coroutine_fn qcow2_co_create_opts(const char *filename, QemuOpts *opt
     }
 
     /* Create and open the file (protocol layer) */
-    ret = bdrv_create_file(filename, opts, errp);
+    ret = bdrv_create_file(filename, opts, NULL, errp);
     if (ret < 0) {
         goto finish;
     }

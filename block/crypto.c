@@ -526,6 +526,7 @@ fail:
 
 static int coroutine_fn block_crypto_co_create_opts_luks(const char *filename,
                                                          QemuOpts *opts,
+                                                         BlockDriverState **pbs,
                                                          Error **errp)
 {
     QCryptoBlockCreateOptions *create_opts = NULL;
@@ -549,7 +550,7 @@ static int coroutine_fn block_crypto_co_create_opts_luks(const char *filename,
     }
 
     /* Create protocol layer */
-    ret = bdrv_create_file(filename, opts, errp);
+    ret = bdrv_create_file(filename, opts, NULL, errp);
     if (ret < 0) {
         goto fail;
     }

@@ -3171,7 +3171,7 @@ static int enable_write_target(BlockDriverState *bs, Error **errp)
                         &error_abort);
     qemu_opt_set(opts, BLOCK_OPT_BACKING_FILE, "fat:", &error_abort);
 
-    ret = bdrv_create(bdrv_qcow, s->qcow_filename, opts, errp);
+    ret = bdrv_create(bdrv_qcow, s->qcow_filename, opts, NULL, errp);
     qemu_opts_del(opts);
     if (ret < 0) {
         goto err;

@@ -411,9 +411,10 @@ static int raw_has_zero_init(BlockDriverState *bs)
 }
 
 static int coroutine_fn raw_co_create_opts(const char *filename, QemuOpts *opts,
+                                           BlockDriverState **pbs,
                                            Error **errp)
 {
-    return bdrv_create_file(filename, opts, errp);
+    return bdrv_create_file(filename, opts, NULL, errp);
 }
 
 static int raw_open(BlockDriverState *bs, QDict *options, int flags,

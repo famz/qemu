@@ -2360,7 +2360,7 @@ static int img_convert(int argc, char **argv)
 
     if (!skip_create) {
         /* Create the new image */
-        ret = bdrv_create(drv, out_filename, opts, &local_err);
+        ret = bdrv_create(drv, out_filename, opts, NULL, &local_err);
         if (ret < 0) {
             error_reportf_err(local_err, "%s: error while converting %s: ",
                               out_filename, out_fmt);
@@ -4571,7 +4571,7 @@ static int img_dd(int argc, char **argv)
                             size - in.bsz * in.offset, &error_abort);
     }
 
-    ret = bdrv_create(drv, out.filename, opts, &local_err);
+    ret = bdrv_create(drv, out.filename, opts, NULL, &local_err);
     if (ret < 0) {
         error_reportf_err(local_err,
                           "%s: error while creating output image: ",

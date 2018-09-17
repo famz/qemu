@@ -2129,6 +2129,7 @@ static int coroutine_fn iscsi_co_truncate(BlockDriverState *bs, int64_t offset,
 }
 
 static int coroutine_fn iscsi_co_create_opts(const char *filename, QemuOpts *opts,
+                                             BlockDriverState **pbs,
                                              Error **errp)
 {
     int ret = 0;

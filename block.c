@@ -415,6 +415,7 @@ typedef struct CreateCo {
     char *filename;
     QemuOpts *opts;
     int ret;
+    BlockDriverState **pbs;
     Error *err;
 } CreateCo;
 
@@ -426,13 +427,15 @@ static void coroutine_fn bdrv_create_co_entry(void *opaque)
     CreateCo *cco = opaque;
     assert(cco->drv);
 
-    ret = cco->drv->bdrv_co_create_opts(cco->filename, cco->opts, &local_err);
+    ret = cco->drv->bdrv_co_create_opts(cco->filename, cco->opts,
+                                        NULL, &local_err);
     error_propagate(&cco->err, local_err);
     cco->ret = ret;
 }
 
 int bdrv_create(BlockDriver *drv, const char* filename,
-                QemuOpts *opts, Error **errp)
+                QemuOpts *opts, BlockDriverState **pbs,
+                Error **errp)
 {
     int ret;
 
@@ -442,6 +445,7 @@ int bdrv_create(BlockDriver *drv, const char* filename,
         .filename = g_strdup(filename),
         .opts = opts,
         .ret = NOT_DONE,
+        .pbs = pbs,
         .err = NULL,
     };
 
@@ -476,7 +480,9 @@ out:
     return ret;
 }
 
-int bdrv_create_file(const char *filename, QemuOpts *opts, Error **errp)
+int bdrv_create_file(const char *filename, QemuOpts *opts,
+                     BlockDriverState **pbs,
+                     Error **errp)
 {
     BlockDriver *drv;
     Error *local_err = NULL;
@@ -487,7 +493,7 @@ int bdrv_create_file(const char *filename, QemuOpts *opts, Error **errp)
         return -ENOENT;
     }
 
-    ret = bdrv_create(drv, filename, opts, &local_err);
+    ret = bdrv_create(drv, filename, opts, NULL, &local_err);
     error_propagate(errp, local_err);
     return ret;
 }
@@ -2516,7 +2522,7 @@ static BlockDriverState *bdrv_append_temp_snapshot(BlockDriverState *bs,
     opts = qemu_opts_create(bdrv_qcow2.create_opts, NULL, 0,
                             &error_abort);
     qemu_opt_set_number(opts, BLOCK_OPT_SIZE, total_size, &error_abort);
-    ret = bdrv_create(&bdrv_qcow2, tmp_filename, opts, errp);
+    ret = bdrv_create(&bdrv_qcow2, tmp_filename, opts, NULL, errp);
     qemu_opts_del(opts);
     if (ret < 0) {
         error_prepend(errp, "Could not create temporary overlay '%s': ",
@@ -4858,7 +4864,7 @@ void bdrv_img_create(const char *filename, const char *fmt,
         puts("");
     }
 
-    ret = bdrv_create(drv, filename, opts, &local_err);
+    ret = bdrv_create(drv, filename, opts, NULL, &local_err);
 
     if (ret == -EFBIG) {
         /* This is generally a better message than whatever the driver would
