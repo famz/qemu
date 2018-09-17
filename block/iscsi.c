@@ -1341,6 +1341,7 @@ static char *get_initiator_name(QemuOpts *opts)
 
     name = qemu_opt_get(opts, "initiator-name");
     if (name) {
+        printf("initiator name is: %s\n", name);
         return g_strdup(name);
     }
 
@@ -1671,50 +1672,53 @@ static void iscsi_parse_filename(const char *filename, QDict *options,
     iscsi_destroy_url(iscsi_url);
 }
 
+#define ISCSI_CONN_OPTS \
+    {  \
+        .name = "transport",  \
+        .type = QEMU_OPT_STRING,  \
+    },  \
+    {  \
+        .name = "portal",  \
+        .type = QEMU_OPT_STRING,  \
+    },  \
+    {  \
+        .name = "target",  \
+        .type = QEMU_OPT_STRING,  \
+    },  \
+    {  \
+        .name = "user",  \
+        .type = QEMU_OPT_STRING,  \
+    },  \
+    {  \
+        .name = "password",  \
+        .type = QEMU_OPT_STRING,  \
+    },  \
+    {  \
+        .name = "password-secret",  \
+        .type = QEMU_OPT_STRING,  \
+    },  \
+    {  \
+        .name = "lun",  \
+        .type = QEMU_OPT_NUMBER,  \
+    },  \
+    {  \
+        .name = "initiator-name",  \
+        .type = QEMU_OPT_STRING,  \
+    },  \
+    {  \
+        .name = "header-digest",  \
+        .type = QEMU_OPT_STRING,  \
+    },  \
+    {  \
+        .name = "timeout",  \
+        .type = QEMU_OPT_NUMBER,  \
+    }
+
 static QemuOptsList runtime_opts = {
     .name = "iscsi",
     .head = QTAILQ_HEAD_INITIALIZER(runtime_opts.head),
     .desc = {
-        {
-            .name = "transport",
-            .type = QEMU_OPT_STRING,
-        },
-        {
-            .name = "portal",
-            .type = QEMU_OPT_STRING,
-        },
-        {
-            .name = "target",
-            .type = QEMU_OPT_STRING,
-        },
-        {
-            .name = "user",
-            .type = QEMU_OPT_STRING,
-        },
-        {
-            .name = "password",
-            .type = QEMU_OPT_STRING,
-        },
-        {
-            .name = "password-secret",
-            .type = QEMU_OPT_STRING,
-        },
-        {
-            .name = "lun",
-            .type = QEMU_OPT_NUMBER,
-        },
-        {
-            .name = "initiator-name",
-            .type = QEMU_OPT_STRING,
-        },
-        {
-            .name = "header-digest",
-            .type = QEMU_OPT_STRING,
-        },
-        {
-            .name = "timeout",
-            .type = QEMU_OPT_NUMBER,
-        },
+        ISCSI_CONN_OPTS,
         { /* end of list */ }
     },
 };
@@ -1796,8 +1800,10 @@ static int iscsi_open(BlockDriverState *bs, QDict *options, int flags,
     memset(iscsilun, 0, sizeof(IscsiLun));
 
     initiator_name = get_initiator_name(opts);
+    printf("a %s\n", initiator_name);
 
     iscsi = iscsi_create_context(initiator_name);
+    printf("b %s\n", initiator_name);
     if (iscsi == NULL) {
         error_setg(errp, "iSCSI: Failed to create iSCSI context.");
         ret = -ENOMEM;
@@ -1849,6 +1855,7 @@ static int iscsi_open(BlockDriverState *bs, QDict *options, int flags,
 #endif
 
     if (iscsi_full_connect_sync(iscsi, portal, lun) != 0) {
+        abort();
         error_setg(errp, "iSCSI: Failed to connect to LUN : %s",
             iscsi_get_error(iscsi));
         ret = -EINVAL;
@@ -2130,6 +2137,7 @@ static int coroutine_fn iscsi_co_create_opts(const char *filename, QemuOpts *opt
     IscsiLun *iscsilun = NULL;
     QDict *bs_options;
     Error *local_err = NULL;
+    const char *initiator_name, *user, *password;
 
     bs = bdrv_new();
 
@@ -2140,12 +2148,24 @@ static int coroutine_fn iscsi_co_create_opts(const char *filename, QemuOpts *opt
     iscsilun = bs->opaque;
 
     bs_options = qdict_new();
+    initiator_name = qemu_opt_get(opts, "initiator-name");
+    if (initiator_name) {
+        qdict_put_str(bs_options, "initiator-name", initiator_name);
+    }
+    user = qemu_opt_get(opts, "user");
+    if (user) {
+        qdict_put_str(bs_options, "user", user);
+    }
+    password = qemu_opt_get(opts, "password");
+    if (password) {
+        qdict_put_str(bs_options, "password", password);
+    }
     iscsi_parse_filename(filename, bs_options, &local_err);
     if (local_err) {
         error_propagate(errp, local_err);
         ret = -EINVAL;
     } else {
-        ret = iscsi_open(bs, bs_options, 0, NULL);
+        ret = iscsi_open(bs, bs_options, 0, errp);
     }
     qobject_unref(bs_options);
 
@@ -2162,6 +2182,7 @@ static int coroutine_fn iscsi_co_create_opts(const char *filename, QemuOpts *opt
         goto out;
     }
 
+    printf("ok\n");
     ret = 0;
 out:
     if (iscsilun->iscsi != NULL) {
@@ -2417,6 +2438,7 @@ static QemuOptsList iscsi_create_opts = {
             .type = QEMU_OPT_SIZE,
             .help = "Virtual disk size"
         },
+        ISCSI_CONN_OPTS,
         { /* end of list */ }
     }
 };
