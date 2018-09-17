@@ -2189,9 +2189,11 @@ out:
     if (iscsilun->iscsi != NULL) {
         iscsi_destroy_context(iscsilun->iscsi);
     }
-    g_free(bs->opaque);
-    bs->opaque = NULL;
-    bdrv_unref(bs);
+    if (pbs) {
+        *pbs = bs;
+    } else {
+        bdrv_unref(bs);
+    }
     return ret;
 }
 
