@@ -2167,10 +2167,12 @@ static int64_t raw_get_allocated_file_size(BlockDriverState *bs)
     return (int64_t)st.st_blocks * 512;
 }
 
-static int coroutine_fn
-raw_co_create(BlockdevCreateOptions *options, Error **errp)
+coroutine_fn
+static BlockDriverState *raw_co_create_do(BlockdevCreateOptions *options,
+                                          Error **errp)
 {
     BlockdevCreateOptionsFile *file_opts;
+    BlockDriverState *bs = NULL;
     Error *local_err = NULL;
     int fd;
     uint64_t perm, shared;
@@ -2249,6 +2251,19 @@ raw_co_create(BlockdevCreateOptions *options, Error **errp)
         goto out_unlock;
     }
 
+    if (!result){
+        bs = bdrv_open(file_opts->filename, NULL, NULL,
+                       BDRV_O_RDWR | BDRV_O_RESIZE | BDRV_O_PROTOCOL, errp);
+        if (bs) {
+            BDRVRawState *s = bs->opaque;
+
+            if (raw_apply_lock_bytes(s->lock_fd, perm, ~shared, false, errp)) {
+                bdrv_unref(bs);
+                bs = NULL;
+            }
+        }
+    }
+
 out_unlock:
     raw_apply_lock_bytes(fd, 0, 0, true, &local_err);
     if (local_err) {
@@ -2260,16 +2275,26 @@ out_unlock:
     }
 
 out_close:
-    if (qemu_close(fd) != 0 && result == 0) {
-        result = -errno;
-        error_setg_errno(errp, -result, "Could not close the new file");
-    }
+    qemu_close(fd);
 out:
-    return result;
+    return bs;
 }
 
-static int coroutine_fn raw_co_create_opts(const char *filename, QemuOpts *opts,
-                                           Error **errp)
+static int coroutine_fn
+raw_co_create(BlockdevCreateOptions *options, Error **errp)
+{
+    BlockDriverState *bs = raw_co_create_do(options, errp);
+    if (!bs) {
+        return -EIO;
+    } else {
+        bdrv_unref(bs);
+        return 0;
+    }
+}
+
+coroutine_fn
+static BlockDriverState *raw_co_create_file(const char *filename, QemuOpts *opts,
+                                            Error **errp)
 {
     BlockdevCreateOptions options;
     int64_t total_size = 0;
@@ -2291,7 +2316,7 @@ static int coroutine_fn raw_co_create_opts(const char *filename, QemuOpts *opts,
     g_free(buf);
     if (local_err) {
         error_propagate(errp, local_err);
-        return -EINVAL;
+        return NULL;
     }
 
     options = (BlockdevCreateOptions) {
@@ -2305,7 +2330,20 @@ static int coroutine_fn raw_co_create_opts(const char *filename, QemuOpts *opts,
             .nocow              = nocow,
         },
     };
-    return raw_co_create(&options, errp);
+    return raw_co_create_do(&options, errp);
+}
+
+static int coroutine_fn raw_co_create_opts(const char *filename, QemuOpts *opts,
+                                           Error **errp)
+{
+    BlockDriverState *bs = raw_co_create_file(filename, opts, errp);
+
+    if (bs) {
+        bdrv_unref(bs);
+        return 0;
+    } else {
+        return -EIO;
+    }
 }
 
 /*
@@ -2695,6 +2733,7 @@ BlockDriver bdrv_file = {
     .bdrv_close = raw_close,
     .bdrv_co_create = raw_co_create,
     .bdrv_co_create_opts = raw_co_create_opts,
+    .bdrv_co_create_file = raw_co_create_file,
     .bdrv_has_zero_init = bdrv_has_zero_init_1,
     .bdrv_co_block_status = raw_co_block_status,
     .bdrv_co_invalidate_cache = raw_co_invalidate_cache,
@@ -3102,14 +3141,16 @@ static coroutine_fn int hdev_co_pwrite_zeroes(BlockDriverState *bs,
     return paio_submit_co(bs, s->fd, offset, NULL, bytes, operation);
 }
 
-static int coroutine_fn hdev_co_create_opts(const char *filename, QemuOpts *opts,
-                                            Error **errp)
+coroutine_fn
+static BlockDriverState *hdev_co_create_file(const char *filename, QemuOpts *opts,
+                                             Error **errp)
 {
     int fd;
     int ret = 0;
     struct stat stat_buf;
     int64_t total_size = 0;
     bool has_prefix;
+    BlockDriverState *bs = NULL;
 
     /* This function is used by both protocol block drivers and therefore either
      * of these prefixes may be given.
@@ -3124,7 +3165,7 @@ static int coroutine_fn hdev_co_create_opts(const char *filename, QemuOpts *opts
     ret = raw_normalize_devicepath(&filename);
     if (ret < 0) {
         error_setg_errno(errp, -ret, "Could not normalize device path");
-        return ret;
+        return NULL;
     }
 
     /* Read out options */
@@ -3133,20 +3174,19 @@ static int coroutine_fn hdev_co_create_opts(const char *filename, QemuOpts *opts
 
     fd = qemu_open(filename, O_WRONLY | O_BINARY);
     if (fd < 0) {
-        ret = -errno;
         error_setg_errno(errp, -ret, "Could not open device");
-        return ret;
+        return NULL;
     }
 
     if (fstat(fd, &stat_buf) < 0) {
         ret = -errno;
         error_setg_errno(errp, -ret, "Could not stat device");
     } else if (!S_ISBLK(stat_buf.st_mode) && !S_ISCHR(stat_buf.st_mode)) {
-        error_setg(errp,
+        error_setg_errno(errp, ENODEV,
                    "The given file is neither a block nor a character device");
         ret = -ENODEV;
     } else if (lseek(fd, 0, SEEK_END) < total_size) {
-        error_setg(errp, "Device is too small");
+        error_setg_errno(errp, ENOSPC, "Device is too small");
         ret = -ENOSPC;
     }
 
@@ -3160,8 +3200,25 @@ static int coroutine_fn hdev_co_create_opts(const char *filename, QemuOpts *opts
             ret = ret == zero_size ? 0 : -errno;
         }
     }
+    if (!ret){
+        bs = bdrv_open(filename, NULL, NULL,
+                       BDRV_O_RDWR | BDRV_O_RESIZE | BDRV_O_PROTOCOL, errp);
+    }
     qemu_close(fd);
-    return ret;
+    return bs;
+}
+
+static int coroutine_fn hdev_co_create_opts(const char *filename, QemuOpts *opts,
+                                            Error **errp)
+{
+    BlockDriverState *bs = hdev_co_create_file(filename, opts, errp);
+
+    if (bs) {
+        bdrv_unref(bs);
+        return 0;
+    } else {
+        return -EIO;
+    }
 }
 
 static BlockDriver bdrv_host_device = {
@@ -3177,6 +3234,7 @@ static BlockDriver bdrv_host_device = {
     .bdrv_reopen_commit  = raw_reopen_commit,
     .bdrv_reopen_abort   = raw_reopen_abort,
     .bdrv_co_create_opts = hdev_co_create_opts,
+    .bdrv_co_create_file = hdev_co_create_file,
     .create_opts         = &raw_create_opts,
     .bdrv_co_invalidate_cache = raw_co_invalidate_cache,
     .bdrv_co_pwrite_zeroes = hdev_co_pwrite_zeroes,
@@ -3303,6 +3361,7 @@ static BlockDriver bdrv_host_cdrom = {
     .bdrv_reopen_commit  = raw_reopen_commit,
     .bdrv_reopen_abort   = raw_reopen_abort,
     .bdrv_co_create_opts = hdev_co_create_opts,
+    .bdrv_co_create_file = hdev_co_create_file,
     .create_opts         = &raw_create_opts,
     .bdrv_co_invalidate_cache = raw_co_invalidate_cache,
 
@@ -3436,6 +3495,7 @@ static BlockDriver bdrv_host_cdrom = {
     .bdrv_reopen_commit  = raw_reopen_commit,
     .bdrv_reopen_abort   = raw_reopen_abort,
     .bdrv_co_create_opts = hdev_co_create_opts,
+    .bdrv_co_create_file = hdev_co_create_file,
     .create_opts        = &raw_create_opts,
 
     .bdrv_co_preadv         = raw_co_preadv,
