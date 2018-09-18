@@ -2174,6 +2174,7 @@ static int coroutine_fn sd_co_create_opts(const char *filename, QemuOpts *opts,
     Visitor *v;
     char *redundancy;
     Error *local_err = NULL;
+    BlockDriverState *bs;
     int ret;
 
     redundancy = qemu_opt_get_del(opts, BLOCK_OPT_REDUNDANCY);
@@ -2237,6 +2238,20 @@ static int coroutine_fn sd_co_create_opts(const char *filename, QemuOpts *opts,
     }
 
     ret = sd_co_create(create_options, errp);
+    if (!ret) {
+        bs = bdrv_new();
+        bs->opaque = g_new0(BDRVSheepdogState, 1);
+        ret = sd_open(bs, location_qdict,
+                      BDRV_O_RDWR | BDRV_O_RESIZE | BDRV_O_PROTOCOL, errp);
+        if (!ret) {
+            if (pbs) {
+                *pbs = bs;
+            }
+        } else {
+            bdrv_unref(bs);
+        }
+    }
+
 fail:
     qapi_free_BlockdevCreateOptions(create_options);
     qobject_unref(qdict);
