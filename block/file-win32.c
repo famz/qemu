@@ -587,11 +587,13 @@ static int raw_co_create(BlockdevCreateOptions *options, Error **errp)
     return 0;
 }
 
-static int coroutine_fn raw_co_create_opts(const char *filename, QemuOpts *opts,
-                                           Error **errp)
+static coroutine_fn
+BlockDriverState *raw_co_create_file(const char *filename, QemuOpts *opts,
+                                                         Error **errp)
 {
     BlockdevCreateOptions options;
     int64_t total_size = 0;
+    int ret;
 
     strstart(filename, "file:", &filename);
 
@@ -608,7 +610,24 @@ static int coroutine_fn raw_co_create_opts(const char *filename, QemuOpts *opts,
             .has_nocow          = false,
         },
     };
-    return raw_co_create(&options, errp);
+    ret = raw_co_create(&options, errp);
+    if (ret) {
+        return NULL;
+    }
+    return bdrv_open(filename, NULL, NULL,
+                     BDRV_O_RDWR | BDRV_O_RESIZE | BDRV_O_PROTOCOL, errp);
+}
+
+static int coroutine_fn raw_co_create_opts(const char *filename, QemuOpts *opts,
+                                           Error **errp)
+{
+    BlockDriverState *bs = raw_co_create_file(filename, opts, errp);
+    if (bs) {
+        bdrv_unref(bs);
+        return 0;
+    } else {
+        return -EIO;
+    }
 }
 
 static QemuOptsList raw_create_opts = {
