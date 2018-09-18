@@ -1049,12 +1049,14 @@ static int qemu_gluster_do_truncate(struct glfs_fd *fd, int64_t offset,
     return 0;
 }
 
-static int qemu_gluster_co_create(BlockdevCreateOptions *options,
-                                  Error **errp)
+coroutine_fn static BlockDriverState
+*qemu_gluster_co_create_do(BlockdevCreateOptions *options,
+                           Error **errp)
 {
     BlockdevCreateOptionsGluster *opts = &options->u.gluster;
     struct glfs *glfs;
     struct glfs_fd *fd = NULL;
+    BlockDriverState *bs = NULL;
     int ret = 0;
 
     assert(options->driver == BLOCKDEV_DRIVER_GLUSTER);
@@ -1068,29 +1070,53 @@ static int qemu_gluster_co_create(BlockdevCreateOptions *options,
     fd = glfs_creat(glfs, opts->location->path,
                     O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, S_IRUSR | S_IWUSR);
     if (!fd) {
-        ret = -errno;
+        ret = -EIO;
+        error_setg(errp, "Failed to create gluster file");
         goto out;
     }
 
     ret = qemu_gluster_do_truncate(fd, opts->size, opts->preallocation, errp);
 
 out:
-    if (fd) {
-        if (glfs_close(fd) != 0 && ret == 0) {
-            ret = -errno;
+    if (!ret) {
+        BDRVGlusterState *s;
+        bs = bdrv_new();
+        s = bs->opaque = g_new0(BDRVGlusterState, 1);
+        s->glfs = glfs;
+        s->fd = fd;
+        s->supports_seek_data = qemu_gluster_test_seek(s->fd);
+    } else {
+        if (fd) {
+            glfs_close(fd);
         }
+        glfs_clear_preopened(glfs);
     }
-    glfs_clear_preopened(glfs);
-    return ret;
+
+    return bs;
 }
 
-static int coroutine_fn qemu_gluster_co_create_opts(const char *filename,
-                                                    QemuOpts *opts,
-                                                    Error **errp)
+static coroutine_fn int qemu_gluster_co_create(BlockdevCreateOptions *options,
+                                               Error **errp)
+{
+    BlockDriverState *bs = qemu_gluster_co_create_do(options, errp);
+
+    if (bs) {
+        bdrv_unref(bs);
+        return 0;
+    } else {
+        return -EIO;
+    }
+}
+
+static coroutine_fn
+BlockDriverState *qemu_gluster_co_create_file(const char *filename,
+                                              QemuOpts *opts,
+                                              Error **errp)
 {
     BlockdevCreateOptions *options;
     BlockdevCreateOptionsGluster *gopts;
     BlockdevOptionsGluster *gconf;
+    BlockDriverState *bs = NULL;
     char *tmp = NULL;
     Error *local_err = NULL;
     int ret;
@@ -1135,15 +1161,25 @@ static int coroutine_fn qemu_gluster_co_create_opts(const char *filename,
         goto fail;
     }
 
-    ret = qemu_gluster_co_create(options, errp);
-    if (ret < 0) {
-        goto fail;
-    }
+    bs = qemu_gluster_co_create_do(options, errp);
 
-    ret = 0;
 fail:
     qapi_free_BlockdevCreateOptions(options);
-    return ret;
+    return bs;
+}
+
+static int coroutine_fn qemu_gluster_co_create_opts(const char *filename,
+                                                    QemuOpts *opts,
+                                                    Error **errp)
+{
+    BlockDriverState *bs = qemu_gluster_co_create_file(filename, opts, errp);
+
+    if (bs) {
+        bdrv_unref(bs);
+        return 0;
+    } else {
+        return -EIO;
+    }
 }
 
 static coroutine_fn int qemu_gluster_co_rw(BlockDriverState *bs,
@@ -1499,6 +1535,7 @@ static BlockDriver bdrv_gluster = {
     .bdrv_close                   = qemu_gluster_close,
     .bdrv_co_create               = qemu_gluster_co_create,
     .bdrv_co_create_opts          = qemu_gluster_co_create_opts,
+    .bdrv_co_create_file          = qemu_gluster_co_create_file,
     .bdrv_getlength               = qemu_gluster_getlength,
     .bdrv_get_allocated_file_size = qemu_gluster_allocated_file_size,
     .bdrv_co_truncate             = qemu_gluster_co_truncate,
@@ -1528,6 +1565,7 @@ static BlockDriver bdrv_gluster_tcp = {
     .bdrv_close                   = qemu_gluster_close,
     .bdrv_co_create               = qemu_gluster_co_create,
     .bdrv_co_create_opts          = qemu_gluster_co_create_opts,
+    .bdrv_co_create_file          = qemu_gluster_co_create_file,
     .bdrv_getlength               = qemu_gluster_getlength,
     .bdrv_get_allocated_file_size = qemu_gluster_allocated_file_size,
     .bdrv_co_truncate             = qemu_gluster_co_truncate,
@@ -1557,6 +1595,7 @@ static BlockDriver bdrv_gluster_unix = {
     .bdrv_close                   = qemu_gluster_close,
     .bdrv_co_create               = qemu_gluster_co_create,
     .bdrv_co_create_opts          = qemu_gluster_co_create_opts,
+    .bdrv_co_create_file          = qemu_gluster_co_create_file,
     .bdrv_getlength               = qemu_gluster_getlength,
     .bdrv_get_allocated_file_size = qemu_gluster_allocated_file_size,
     .bdrv_co_truncate             = qemu_gluster_co_truncate,
@@ -1592,6 +1631,8 @@ static BlockDriver bdrv_gluster_rdma = {
     .bdrv_close                   = qemu_gluster_close,
     .bdrv_co_create               = qemu_gluster_co_create,
     .bdrv_co_create_opts          = qemu_gluster_co_create_opts,
+    .bdrv_co_create_file          = qemu_gluster_co_create_file,
+    .bdrv_co_create_file          = qemu_gluster_co_create_file,
     .bdrv_getlength               = qemu_gluster_getlength,
     .bdrv_get_allocated_file_size = qemu_gluster_allocated_file_size,
     .bdrv_co_truncate             = qemu_gluster_co_truncate,
