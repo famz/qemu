@@ -476,6 +476,25 @@ out:
     return ret;
 }
 
+coroutine_fn
+BlockDriverState *bdrv_co_create_file(const char *filename,
+                                      QemuOpts *opts, Error **errp)
+{
+    BlockDriver *drv;
+
+    drv = bdrv_find_protocol(filename, true, errp);
+    if (!drv) {
+        return NULL;
+    }
+    if (!drv->bdrv_co_create_file) {
+        error_setg(errp, "Protocol '%s' doesn't support file creation",
+                   drv->protocol_name);
+        return NULL;
+    }
+
+    return drv->bdrv_co_create_file(filename, opts, errp);
+}
+
 int bdrv_create_file(const char *filename, QemuOpts *opts, Error **errp)
 {
     BlockDriver *drv;
