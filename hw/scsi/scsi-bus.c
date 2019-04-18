@@ -1558,6 +1558,9 @@ SCSIDevice *scsi_device_find(SCSIBus *bus, int channel, int id, int lun)
         DeviceState *qdev = kid->child;
         SCSIDevice *dev = SCSI_DEVICE(qdev);
 
+        if (!qdev->realized) {
+            return NULL;
+        }
         if (dev->channel == channel && dev->id == id) {
             if (dev->lun == lun) {
                 return dev;

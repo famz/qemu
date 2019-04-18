@@ -840,7 +840,11 @@ static void virtio_scsi_hotunplug(HotplugHandler *hotplug_dev, DeviceState *dev,
     if (s->ctx) {
         virtio_scsi_acquire(s);
         blk_set_aio_context(sd->conf.blk, qemu_get_aio_context());
+        /* Mark device as unrealized before iothread polls VQ, so that the
+         * other side knows not to process any request on this device */
+        qdev_simple_device_unplug_cb(hotplug_dev, dev, errp);
         virtio_scsi_release(s);
+        return;
     }
 
     qdev_simple_device_unplug_cb(hotplug_dev, dev, errp);
