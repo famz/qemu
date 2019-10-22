@@ -767,6 +767,9 @@ bool virtio_blk_handle_vq(VirtIOBlock *s, VirtQueue *vq)
     bool progress = false;
 
     aio_context_acquire(blk_get_aio_context(s->blk));
+    if (s->stopped) {
+        goto done;
+    }
     blk_io_plug(s->blk);
 
     do {
@@ -789,6 +792,7 @@ bool virtio_blk_handle_vq(VirtIOBlock *s, VirtQueue *vq)
     }
 
     blk_io_unplug(s->blk);
+done:
     aio_context_release(blk_get_aio_context(s->blk));
     return progress;
 }
@@ -1207,6 +1211,7 @@ static void virtio_blk_device_unrealize(DeviceState *dev, Error **errp)
     VirtIODevice *vdev = VIRTIO_DEVICE(dev);
     VirtIOBlock *s = VIRTIO_BLK(dev);
 
+    s->stopped = true;
     virtio_blk_data_plane_destroy(s->dataplane);
     s->dataplane = NULL;
     qemu_del_vm_change_state_handler(s->change);

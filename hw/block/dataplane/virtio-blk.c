@@ -290,6 +290,7 @@ void virtio_blk_data_plane_stop(VirtIODevice *vdev)
     /* Drain and try to switch bs back to the QEMU main loop. If other users
      * keep the BlockBackend in the iothread, that's ok */
     blk_set_aio_context(s->conf->conf.blk, qemu_get_aio_context(), NULL);
+    vblk->stopped = true;
 
     aio_context_release(s->ctx);
 
